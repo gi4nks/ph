@@ -50,7 +50,7 @@ JSON_PAYLOAD=$(
 
 # Run ph log in the background so it never blocks Gemini CLI
 # Redirect all output to /dev/null to keep things silent
-printf '%s' "$JSON_PAYLOAD" | /opt/homebrew/bin/ph log >/dev/null 2>&1 &
+printf '%s' "$JSON_PAYLOAD" | ph log >/dev/null 2>&1 &
 disown $! 2>/dev/null || true
 
 exit 0
