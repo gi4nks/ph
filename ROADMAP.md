@@ -1,44 +1,44 @@
 # ph — Roadmap
 
-## ✅ Fase 1: Fondamenta Metadati & Auto-Project
+## ✅ Phase 1: Metadata Foundation & Auto-Project
 
-- Colonna `metadata` (JSON) nella tabella `prompts`
-- Rilevamento automatico del progetto (`.git`, `package.json`, `tsconfig.json`, ecc.)
-- Rilevamento automatico del linguaggio
-- Struttura `PromptMetadata` estensibile
+- `metadata` column (JSON) in `prompts` table
+- Automatic project detection (`.git`, `package.json`, `tsconfig.json`, etc.)
+- Automatic language detection
+- Extensible `PromptMetadata` structure
 
-## ✅ Fase 2: Organizzazione & Tagging
+## ✅ Phase 2: Organization & Tagging
 
-- Flag `--ph-tag` e `--ph-role` nel wrapper
-- Ricerca con filtri per project, language, role, tag, starred
-- Output colorato con badge per ruolo e progetto
-- Browser TUI interattivo (React/Ink)
-- Comando `ph star <id>`
+- `--ph-tag` and `--ph-role` flags in the wrapper
+- Search with filters for project, language, role, tag, starred
+- Colored output with badges for role and project
+- Interactive TUI browser (React/Ink)
+- `ph star <id>` command
 
-## ✅ Fase 3: Ricerca Intelligente
+## ✅ Phase 3: Intelligent Search
 
-- **Vector Search (FTS5):** Ricerca full-text ultra-veloce
-- **Ricerca Semantica:** Embeddings Gemini `text-embedding-004` + cosine similarity
-- **`ph analyze`:** Categorizzazione automatica dei prompt con LLM (Ollama o Gemini)
-- Importatori per Claude CLI e Gemini CLI
-- `ph export` in formato txt/json/md
-- `ph cleanup` per rimuovere prompt inutili
-- `ph import --filter` con pipeline di deduplicazione
+- **Vector Search (FTS5):** Ultra-fast full-text search
+- **Semantic Search:** Gemini `text-embedding-004` embeddings + cosine similarity
+- **`ph analyze`:** Automatic prompt categorization with LLM (Ollama or Gemini)
+- Importers for Claude CLI and Gemini CLI
+- `ph export` in txt/json/md format
+- `ph cleanup` to remove useless prompts
+- `ph import --filter` with deduplication pipeline
 
-## ✅ Fase 4: Contesto, Automazione & Sessioni
+## ✅ Phase 4: Context, Automation & Sessions
 
-- **Git Context Snapshot:** Cattura automatica di branch, diff e file modificati al momento del prompt
-- **Background Analysis:** Auto-analisi LLM in processo detached dopo ogni cattura
-- **Work Sessions (`ph sessions`):** Raggruppamento per gap temporale + score di coesione semantica
-- **Prompt Rerunning (`r` in TUI):** Editor con tool e prompt modificabili, riesecuzione diretta
+- **Git Context Snapshot:** Automatic capture of branch, diff, and modified files at the time of the prompt
+- **Background Analysis:** Detached LLM auto-analysis after each capture
+- **Work Sessions (`ph sessions`):** Grouping by time gap + semantic cohesion score
+- **Prompt Rerunning (`r` in TUI):** Editor with customizable tool and prompt, direct re-execution
 
 ---
 
-## Fase 5: Idee Future
+## Phase 5: Future Ideas
 
-- **Syntax Highlighting nella TUI:** Evidenziazione dei blocchi di codice nei prompt
-- **Clustering Automatico:** K-means sugli embeddings per raggruppare prompt simili in "macro-temi"
-- **Cattura delle Risposte:** Salvare anche la risposta dell'AI, non solo il prompt
-- **Multi-Provider dalla TUI:** Inviare un prompt salvato a un altro provider (Claude → Gemini) direttamente dalla TUI
-- **Export Session:** Esportare una sessione intera come documento markdown con timeline
-- **Web UI:** Interfaccia browser opzionale per navigare la cronologia su desktop
+- **Syntax Highlighting in TUI:** Code block highlighting in prompts
+- **Automatic Clustering:** K-means on embeddings to group similar prompts into "macro-themes"
+- **Response Capture:** Saving the AI response as well, not just the prompt
+- **Multi-Provider from TUI:** Sending a saved prompt to another provider (Claude → Gemini) directly from the TUI
+- **Export Session:** Exporting an entire session as a markdown document with a timeline
+- **Web UI:** Optional browser interface for desktop history navigation

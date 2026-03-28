@@ -1,38 +1,38 @@
-# CLAUDE.md — Istruzioni per Claude
+# CLAUDE.md — Instructions for Claude
 
-Questo file fornisce contesto specifico per l'utilizzo di Claude all'interno del progetto `ph`.
+This file provides specific context for using Claude within the `ph` project.
 
-## Protocollo di Sviluppo
+## Development Protocol
 
-- **Build**: `make build` (usa `tsup` per generare `dist/cli.js`).
-- **Dev**: `npm run dev -- <comando>` (usa `tsx` per l'esecuzione diretta).
-- **Linguaggio**: TypeScript (ESM). Gli import devono includere l'estensione `.js`.
+- **Build**: `make build` (uses `tsup` to generate `dist/cli.js`).
+- **Dev**: `npm run dev -- <command>` (uses `tsx` for direct execution).
+- **Language**: TypeScript (ESM). Imports must include the `.js` extension.
 
-## Architettura di Riferimento
+## Reference Architecture
 
-- **Entry Point**: `src/cli.ts` gestisce il parsing dei comandi via `commander`.
-- **Database**: SQLite via `better-sqlite3`. Tabelle principali: `prompts`, `embeddings`.
-- **Hooks**: Gli script in `hooks/` sono i punti di ingresso per la cattura trasparente dei dati.
+- **Entry Point**: `src/cli.ts` handles command parsing via `commander`.
+- **Database**: SQLite via `better-sqlite3`. Main tables: `prompts`, `embeddings`.
+- **Hooks**: Scripts in `hooks/` are the entry points for transparent data capture.
 
-## Stile di Codice
+## Code Style
 
-- Segui le regole definite in `eslint.config.js`.
-- Mantieni le interfacce in `src/types.ts`.
-- Non rimuovere mai funzionalità esistenti senza autorizzazione.
-- Documenta sempre i cambiamenti ai metadati dei prompt.
+- Follow the rules defined in `eslint.config.js`.
+- Maintain interfaces in `src/types.ts`.
+- Never remove existing features without authorization.
+- Always document changes to prompt metadata.
 
-## Comandi Utili per l'Agente
+## Useful Agent Commands
 
 ```bash
-npm run lint          # Controllo formattazione
-make build            # Compilazione completa
-make release-patch    # Creazione di una nuova patch release
-ph capture --role debug "test prompt" # Test manuale cattura
+npm run lint          # Linting check
+make build            # Complete build
+make release-patch    # Create a new patch release
+ph capture --role debug "test prompt" # Manual capture test
 ```
 
-## Workflow di Versioning
+## Versioning Workflow
 
-- Usa sempre **Conventional Commits** (es. `feat: aggiunta ricerca semantica`, `fix: risolto bug nel database`).
-- I rilasci devono essere effettuati tramite i target del `Makefile` (`make release-patch|minor|major`).
-- Non modificare manualmente la versione in `package.json`.
-- Il push dei tag attiva il workflow GitHub Actions per la pubblicazione sul registry `@gi4nks`.
+- Always use **Conventional Commits** (e.g., `feat: add semantic search`, `fix: resolved database bug`).
+- Releases must be performed via `Makefile` targets (`make release-patch|minor|major`).
+- Do not manually modify the version in `package.json`.
+- Pushing tags triggers the GitHub Actions workflow for publication on the `@gi4nks` registry.

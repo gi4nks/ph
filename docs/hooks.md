@@ -1,61 +1,59 @@
-Stato implementazione ph — Report completo
+# ph Implementation Status — Complete Report
 
-    ✅ Completato
+    ✅ Completed
 
-    ┌───────────────────────────────────────────────────────────┬────────────────────────────┬───────┐
-    │                          Feature                          │            File            │ Stato │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Git Context Snapshot                                      │ src/runner/git-context.ts  │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Background Analysis                                       │ src/background/analyzer.ts │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Work Sessions (ph sessions)                               │ src/sessions/index.ts      │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Prompt Rerunning (TUI r)                                  │ src/ui/BrowseApp.tsx       │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Ollama embeddings (nomic-embed-text-v2-moe)               │ src/embedding/index.ts     │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Response column in DB + FTS5 migration                    │ src/db/index.ts            │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ ph log command (flag + stdin JSON)                        │ src/cli.ts                 │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ TUI detail view con response                              │ src/ui/BrowseApp.tsx       │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Export markdown con response + git context                │ src/cli.ts                 │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Gemini importer response capture                          │ src/importer/gemini.ts     │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Claude importer da transcript files                       │ src/importer/claude.ts     │ ✅    │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼───────┤
-    │ Documentazione (README, CLAUDE.md, GEMINI.md, ROADMAP.md) │ vari                       │ ✅    │
-    └───────────────────────────────────────────────────────────┴────────────────────────────┴───────┘
+    ┌───────────────────────────────────────────────────────────┬────────────────────────────┬────────┐
+    │                          Feature                          │            File            │ Status │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Git Context Snapshot                                      │ src/runner/git-context.ts  │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Background Analysis                                       │ src/background/analyzer.ts │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Work Sessions (ph sessions)                               │ src/sessions/index.ts      │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Prompt Rerunning (TUI r)                                  │ src/ui/BrowseApp.tsx       │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Ollama embeddings (nomic-embed-text-v2-moe)               │ src/embedding/index.ts     │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Response column in DB + FTS5 migration                    │ src/db/index.ts            │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ ph log command (flag + stdin JSON)                        │ src/cli.ts                 │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ TUI detail view with response                             │ src/ui/BrowseApp.tsx       │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Export markdown with response + git context               │ src/cli.ts                 │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Gemini importer response capture                          │ src/importer/gemini.ts     │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Claude importer from transcript files                     │ src/importer/claude.ts     │ ✅     │
+    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
+    │ Documentation (README, CLAUDE.md, GEMINI.md, ROADMAP.md)  │ various                    │ ✅     │
+    └───────────────────────────────────────────────────────────┴────────────────────────────┴────────┘
 
-    🔄 In corso (agente in background)
+    🔄 In Progress (background agent)
 
-    - Claude Code hook (~/.claude/settings.json + ~/.claude/ph-hook.sh): hook Stop che chiama ph log dopo ogni
-    risposta
-    - Gemini CLI skill/hook: integrazione analoga per il CLI di Gemini
+    - Claude Code hook (~/.claude/settings.json + ~/.claude/ph-hook.sh): Stop hook that calls ph log after each response
+    - Gemini CLI skill/hook: similar integration for the Gemini CLI
 
-    📋 Architettura hook (cosa si sta implementando)
+    📋 Hook Architecture (being implemented)
 
-    Claude finisce una risposta
+    Claude finishes a response
       → Stop hook in settings.json
-      → ~/.claude/ph-hook.sh riceve JSON su stdin
-      → jq estrae ultimo user prompt + testo risposta assistant
+      → ~/.claude/ph-hook.sh receives JSON on stdin
+      → jq extracts last user prompt + assistant response text
       → ph log --tool claude --prompt "..." --response "..."
-      → record inserito nel DB con background analysis
+      → record inserted into DB with background analysis
 
-    ⏳ Ancora da fare (dopo gli hook)
+    ⏳ Still To Do (after hooks)
 
-    - Claude importer da history.jsonl: già rimpiazzato dal nuovo importer da transcript — ✅ coperto
-    - Test end-to-end degli hook in sessione reale
-    - ph import claude update in cli.ts: verificare che cmdImport chiami il nuovo importer correttamente (il file
-     è stato riscritto ma il caller in cli.ts potrebbe ancora referenziare history.jsonl nel log di output)
+    - Claude importer from history.jsonl: already replaced by the new transcript importer — ✅ covered
+    - End-to-end testing of hooks in a real session
+    - ph import claude update in cli.ts: verify that cmdImport calls the new importer correctly (the file was rewritten but the caller in cli.ts might still reference history.jsonl in the output log)
 
-    Flusso dati finale
+    Final Data Flow
 
     Gemini CLI / Claude Code
-        ↓ (hook automatico dopo ogni exchange)
+        ↓ (automatic hook after each exchange)
     ph log (stdin JSON)
         ↓
     SQLite (~/.prompt_history.db)
@@ -66,21 +64,20 @@ Stato implementazione ph — Report completo
         ↓
     ph browse / ph search / ph sessions
 
-    L'agente principale sta completando la parte degli hook — quando finisce avrai il sistema completamente
-    automatico senza dover usare ph come wrapper.
+    The main agent is completing the hook part — once finished you will have the completely automatic system without having to use ph as a wrapper.
 
 
-    ⏺ Tutto a posto. Riepilogo di quello che è stato fatto:
+    ⏺ Everything is set. Summary of what has been done:
 
   ---
-  Claude Code — hook Stop registrato in ~/.claude/settings.json:
-  - Legge il transcript JSONL della sessione
-  - Estrae l'ultimo prompt utente (quelli con promptId, non tool-result) e l'ultima risposta assistant
-  - Chiama ph log in background (disown) → non blocca mai Claude
+  Claude Code — Stop hook registered in ~/.claude/settings.json:
+  - Reads the session's JSONL transcript
+  - Extracts the last user prompt (those with promptId, not tool-result) and the last assistant response
+  - Calls ph log in the background (disown) → never blocks Claude
 
-  Gemini CLI — hook AfterAgent registrato in ~/.gemini/settings.json:
-  - Riceve direttamente prompt e prompt_response nel payload JSON
-  - Chiama ph log in background → non blocca mai Gemini
+  Gemini CLI — AfterAgent hook registered in ~/.gemini/settings.json:
+  - Directly receives the JSON payload containing prompt and prompt_response from Gemini CLI
+  - Extracts the user prompt and the assistant response
+  - Calls ph log in the background → never blocks Gemini
 
-  Da questo momento, ogni exchange in Claude Code o Gemini CLI viene automaticamente salvato in ph senza bisogno
-  di usarlo come wrapper.
+  From this moment, every exchange in Claude Code or Gemini CLI is automatically saved in ph without the need to use it as a wrapper.

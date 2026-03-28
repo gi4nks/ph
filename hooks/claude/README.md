@@ -1,20 +1,20 @@
 # Claude Code Hook for ph
 
-Questo hook permette a Claude Code di salvare automaticamente ogni prompt e risposta nel database di `ph`.
+This hook allows Claude Code to automatically save every prompt and response to the `ph` database.
 
-## Installazione
+## Installation
 
-1. Assicurati che `ph` sia installato e funzionante.
-2. Crea un link simbolico dello script nella cartella di configurazione di Claude:
+1. Ensure `ph` is installed and working.
+2. Create a symbolic link of the script in Claude's configuration folder:
 
 ```bash
 ln -sf "$(pwd)/ph-hook.sh" ~/.claude/ph-hook.sh
 chmod +x ~/.claude/ph-hook.sh
 ```
 
-## Configurazione Claude Code
+## Claude Code Configuration
 
-Aggiungi (o aggiorna) la sezione `hooks` nel tuo file `~/.claude/settings.json`:
+Add (or update) the `hooks` section in your `~/.claude/settings.json` file:
 
 ```json
 {
@@ -35,11 +35,11 @@ Aggiungi (o aggiorna) la sezione `hooks` nel tuo file `~/.claude/settings.json`:
 }
 ```
 
-**Nota:** Assicurati che il percorso nel comando punti correttamente al link simbolico o allo script reale. Usando il link simbolico in `~/.claude/ph-hook.sh`, la configurazione rimane portabile.
+**Note:** Ensure the path in the command correctly points to the symbolic link or the actual script. Using the symbolic link at `~/.claude/ph-hook.sh` keeps the configuration portable.
 
-## Come funziona
+## How it works
 
-Lo script viene eseguito da Claude Code all'evento `Stop` (fine di un exchange). 
-1. Legge il transcript della sessione corrente.
-2. Estrae l'ultimo prompt dell'utente e l'ultima risposta dell'assistente.
-3. Invia i dati a `ph log` in background.
+The script is executed by Claude Code at the `Stop` event (end of an exchange).
+1. Reads the current session transcript.
+2. Extracts the last user prompt and the last assistant response.
+3. Sends the data to `ph log` in the background.
