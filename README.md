@@ -68,26 +68,38 @@ The database uses **WAL (Write-Ahead Logging)** mode, which allows concurrent re
 
 ## Hooks (Integration with AI CLI)
 
-Hooks allow `ph` to intercept prompts sent to other tools. They are scripts that wrap the execution of the chosen AI CLI.
+Hooks allow `ph` to automatically capture prompts and responses from other AI CLI tools by integrating directly with their native hook systems.
 
 ### How they work
-Hooks are located in the `hooks/` folder. Each hook exports a function or acts as a PTY wrapper to maintain the interactivity of the original AI CLI while capturing data.
+Hooks are located in the `hooks/` folder. Instead of wrapping the execution, they act as post-action handlers (e.g., `AfterAgent` in Gemini CLI or `Stop` in Claude Code) that send the prompt and response to `ph log` in the background.
 
 ### Hook Installation
 
-#### For Gemini CLI:
-Add this alias to your `.zshrc` or `.bashrc`:
-```bash
-alias gemini='/path/to/ph/hooks/gemini/ph-hook.sh'
-```
+#### Gemini CLI
+1. Link the hook script to your `.gemini` folder:
+   ```bash
+   ln -sf /path/to/ph/hooks/gemini/ph-hook.sh ~/.gemini/ph-hook.sh
+   ```
+2. Register the hook in `~/.gemini/settings.json`:
+   ```json
+   {
+     "hooks": { "AfterAgent": [ { "hooks": [ { "type": "command", "command": "~/.gemini/ph-hook.sh" } ] } ] }
+   }
+   ```
 
-#### For Claude CLI:
-Add this alias:
-```bash
-alias claude='/path/to/ph/hooks/claude/ph-hook.sh'
-```
+#### Claude Code
+1. Link the hook script to your `.claude` folder:
+   ```bash
+   ln -sf /path/to/ph/hooks/claude/ph-hook.sh ~/.claude/ph-hook.sh
+   ```
+2. Register the hook in `~/.claude/settings.json`:
+   ```json
+   {
+     "hooks": { "Stop": [ { "matcher": ".*", "hooks": [ { "type": "command", "command": "~/.claude/ph-hook.sh", "async": true } ] } ] }
+   }
+   ```
 
-The hook will execute `ph capture` before passing control to the original AI CLI, saving the current Git context and the sent prompt.
+The hooks will automatically send every interaction to `ph` without requiring any shell aliases or manual capture commands.
 
 ## Usage
 
