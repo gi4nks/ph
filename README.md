@@ -81,9 +81,20 @@ make release-minor  # Incremeta: 0.1.1 -> 0.2.0 (nuove feature compatibili)
 make release-major  # Incremeta: 0.2.0 -> 1.0.0 (modifiche breaking)
 ```
 
-Dopo il rilascio, ricordati di pushare i tag:
+Dopo il rilascio, ricordati di pushare i tag per attivare la **GitHub Action** di pubblicazione:
 ```bash
 git push --follow-tags origin main
+```
+Il pacchetto verrà automaticamente buildato e pubblicato su [GitHub Packages](https://github.com/gi4nks/ph/packages).
+
+### Installazione tramite GitHub Packages
+Configura il tuo `.npmrc` per includere lo scope `@gi4nks`:
+```bash
+@gi4nks:registry=https://npm.pkg.github.com
+```
+Poi installa con:
+```bash
+npm install -g @gi4nks/ph
 ```
 
 ## Esportazione

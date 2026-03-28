@@ -35,3 +35,4 @@ ph capture --role debug "test prompt" # Test manuale cattura
 - Usa sempre **Conventional Commits** (es. `feat: aggiunta ricerca semantica`, `fix: risolto bug nel database`).
 - I rilasci devono essere effettuati tramite i target del `Makefile` (`make release-patch|minor|major`).
 - Non modificare manualmente la versione in `package.json`.
+- Il push dei tag attiva il workflow GitHub Actions per la pubblicazione sul registry `@gi4nks`.
