@@ -43,3 +43,9 @@ At the time of capture (`ph capture`), always collect:
   - Run `make release-patch` (or minor/major) to update the version and `CHANGELOG.md`.
   - Do not commit version changes outside of the release process.
   - Pushing tags (`git push --follow-tags`) triggers the GitHub workflow for publication on GitHub Packages.
+
+## Maintenance
+
+- Use `ph cleanup --days N` to prune old entries.
+- Use `ph vacuum` to reclaim disk space.
+- Monitor database size in `~/.prompt_history.db`.

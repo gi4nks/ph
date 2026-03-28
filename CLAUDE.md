@@ -36,3 +36,8 @@ ph capture --role debug "test prompt" # Manual capture test
 - Releases must be performed via `Makefile` targets (`make release-patch|minor|major`).
 - Do not manually modify the version in `package.json`.
 - Pushing tags triggers the GitHub Actions workflow for publication on the `@gi4nks` registry.
+
+## Maintenance Tasks
+
+- Periodically run `ph cleanup --days 60` to keep history relevant.
+- Run `ph vacuum` after large cleanups to compact the SQLite file.

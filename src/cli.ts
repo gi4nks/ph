@@ -636,9 +636,19 @@ async function cmdCleanup(db: PhDB, cfg: PhConfig, args: string[]): Promise<void
   const dryRun = Boolean(flags['dry-run']);
   const minLength = flags['min-length'] ? Number(flags['min-length']) : (cfg.filterMinLength ?? 15);
   const minScore = flags['min-score'] ? Number(flags['min-score']) : (cfg.filterMinRelevance ?? 3);
+  const days = flags['days'] ? Number(flags['days']) : undefined;
+
+  if (days !== undefined) {
+    if (dryRun) {
+      console.log(`(dry-run) Would delete prompts older than ${days} days.`);
+    } else {
+      const deleted = db.deleteOlderThan(days);
+      console.log(`Deleted ${deleted} prompts older than ${days} days.`);
+    }
+  }
 
   const allEntries = db.search({ limit: 100000 });
-  console.log(`Scanning ${allEntries.length} prompts for cleanup (min-length: ${minLength}, min-score: ${minScore})...`);
+  console.log(`Scanning ${allEntries.length} prompts for rule-based cleanup (min-length: ${minLength}, min-score: ${minScore})...`);
 
   const toDelete: Array<{ id: number; prompt: string; reason: string }> = [];
   const existingHashes = new Map<string, number>();
@@ -673,11 +683,11 @@ async function cmdCleanup(db: PhDB, cfg: PhConfig, args: string[]): Promise<void
   }
 
   if (toDelete.length === 0) {
-    console.log('Nothing to clean up.');
+    if (days === undefined) console.log('Nothing else to clean up.');
     return;
   }
 
-  console.log(`\nCandidates for deletion: ${toDelete.length}`);
+  console.log(`\nCandidates for rule-based deletion: ${toDelete.length}`);
   for (const item of toDelete.slice(0, 30)) {
     const short = item.prompt.replace(/\n/g, ' ').slice(0, 60);
     console.log(`  #${String(item.id).padEnd(5)} [${item.reason}] "${short}"`);
@@ -687,13 +697,21 @@ async function cmdCleanup(db: PhDB, cfg: PhConfig, args: string[]): Promise<void
   }
 
   if (dryRun) {
-    console.log(`\n(dry-run) Would delete ${toDelete.length} prompts. Run without --dry-run to apply.`);
+    console.log(`\n(dry-run) Would delete ${toDelete.length} more prompts. Run without --dry-run to apply.`);
     return;
   }
 
   const ids = toDelete.map(e => e.id);
   const deleted = db.deleteByIds(ids);
   console.log(`\nDeleted ${deleted} prompts.`);
+}
+
+async function cmdVacuum(db: PhDB): Promise<void> {
+  process.stdout.write('Compacting database (VACUUM)... ');
+  const start = Date.now();
+  db.vacuum();
+  const elapsed = ((Date.now() - start) / 1000).toFixed(2);
+  console.log(`Done in ${elapsed}s.`);
 }
 
 async function cmdSessions(db: PhDB, args: string[]): Promise<void> {
