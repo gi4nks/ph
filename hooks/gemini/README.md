@@ -1,20 +1,20 @@
 # Gemini CLI Hook for ph
 
-Questo hook permette a Gemini CLI di salvare automaticamente ogni prompt e risposta nel database di `ph`.
+This hook allows Gemini CLI to automatically save every prompt and response to the `ph` database.
 
-## Installazione
+## Installation
 
-1. Assicurati che `ph` sia installato e funzionante.
-2. Crea un link simbolico dello script nella cartella di configurazione di Gemini:
+1. Ensure `ph` is installed and working.
+2. Create a symbolic link of the script in Gemini's configuration folder:
 
 ```bash
 ln -sf "$(pwd)/ph-hook.sh" ~/.gemini/ph-hook.sh
 chmod +x ~/.gemini/ph-hook.sh
 ```
 
-## Configurazione Gemini CLI
+## Gemini CLI Configuration
 
-Aggiungi (o aggiorna) la sezione `hooks` nel tuo file `~/.gemini/settings.json`:
+Add (or update) the `hooks` section in your `~/.gemini/settings.json` file:
 
 ```json
 {
@@ -33,11 +33,11 @@ Aggiungi (o aggiorna) la sezione `hooks` nel tuo file `~/.gemini/settings.json`:
 }
 ```
 
-**Nota:** Assicurati che il percorso nel comando punti correttamente al link simbolico o allo script reale. Usando il link simbolico in `~/.gemini/ph-hook.sh`, la configurazione rimane portabile.
+**Note:** Ensure the path in the command correctly points to the symbolic link or the actual script. Using the symbolic link at `~/.gemini/ph-hook.sh` keeps the configuration portable.
 
-## Come funziona
+## How it works
 
-Lo script viene eseguito da Gemini CLI all'evento `AfterAgent` (dopo ogni risposta dell'agente).
-1. Riceve l'input JSON da Gemini CLI contenente prompt e risposta.
-2. Estrae il prompt dell'utente e la risposta dell'assistente.
-3. Invia i dati a `ph log` in background.
+The script is executed by Gemini CLI at the `AfterAgent` event (after each agent response).
+1. Receives the JSON input from Gemini CLI containing the prompt and response.
+2. Extracts the user prompt and the assistant response.
+3. Sends the data to `ph log` in the background.

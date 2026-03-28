@@ -1,45 +1,45 @@
-# GEMINI.md — Istruzioni per Gemini CLI
+# GEMINI.md — Instructions for Gemini CLI
 
-Questo file definisce le direttive per l'agente Gemini nel progetto `ph`.
+This file defines the directives for the Gemini agent in the `ph` project.
 
 ## Core Focus: Prompt History (ph)
 
-`ph` è un sistema di osservabilità per prompt LLM. L'integrità del database e la precisione dei metadati sono priorità assolute.
+`ph` is an observability system for LLM prompts. Database integrity and metadata precision are absolute priorities.
 
-## Sistema Provider LLM
+## LLM Provider System
 
-- **Ollama**: Provider di default per embedding e analisi locale.
-- **Gemini**: Utilizzato per analisi avanzate e embedding se configurato.
-- **Integrazione**: Vedere `src/ai/provider.ts` per l'interfaccia `LLMProvider`.
+- **Ollama**: Default provider for embedding and local analysis.
+- **Gemini**: Used for advanced analysis and embedding if configured.
+- **Integration**: See `src/ai/provider.ts` for the `LLMProvider` interface.
 
 ## Database & Persistence
 
-- **WAL Mode**: Il database SQLite deve sempre operare in modalità WAL per supportare l'analisi in background concorrente.
-- **FTS5**: Utilizzato per la ricerca full-text.
-- **Embeddings**: Salvati come BLOB (Float32Array).
+- **WAL Mode**: The SQLite database must always operate in WAL mode to support concurrent background analysis.
+- **FTS5**: Used for full-text search.
+- **Embeddings**: Saved as BLOB (Float32Array).
 
-## Convenzioni di Analisi Background
+## Background Analysis Conventions
 
-Il sottocomando `_bg-analyze` (in `src/cli.ts`) viene invocato in modo detached da `src/background/analyzer.ts`.
-**Non modificare il comportamento del processo figlio senza testare l'impatto sulla latenza del processo padre.**
+The `_bg-analyze` subcommand (in `src/cli.ts`) is invoked in a detached manner by `src/background/analyzer.ts`.
+**Do not modify the child process behavior without testing the impact on parent process latency.**
 
-## Gestione Hooks
+## Hook Management
 
-Gli hooks devono essere trasparenti. Ogni modifica a `src/pty/wrapper.ts` deve garantire che il segnale `SIGWINCH` (ridimensionamento terminale) venga propagato correttamente all'AI CLI wrappata.
+Hooks must be transparent. Every modification to `src/pty/wrapper.ts` must ensure that the `SIGWINCH` (terminal resize) signal is correctly propagated to the wrapped AI CLI.
 
-## Workflow Prompt Snapshot
+## Prompt Snapshot Workflow
 
-Al momento della cattura (`ph capture`), raccogli sempre:
+At the time of capture (`ph capture`), always collect:
 1. Git Context (branch, diff).
-2. Project Context (rilevato da `package.json` o simili).
-3. Ambiente (CWD, Timestamp).
+2. Project Context (detected from `package.json` or similar).
+3. Environment (CWD, Timestamp).
 
 ## Semantic Versioning & Releases
 
-- Il progetto utilizza `standard-version` per automatizzare i rilasci.
+- The project uses `standard-version` to automate releases.
 - **Git Workflow**:
-  - Le modifiche devono seguire le **Conventional Commits**.
-  - Prima di un rilascio, assicurati che la build sia corretta (`make build`).
-  - Esegui `make release-patch` (o minor/major) per aggiornare la versione e il `CHANGELOG.md`.
-  - Non committare modifiche alla versione fuori dal processo di rilascio.
-  - Il push dei tag (`git push --follow-tags`) innesca il workflow GitHub per la pubblicazione su GitHub Packages.
+  - Changes must follow **Conventional Commits**.
+  - Before a release, ensure the build is correct (`make build`).
+  - Run `make release-patch` (or minor/major) to update the version and `CHANGELOG.md`.
+  - Do not commit version changes outside of the release process.
+  - Pushing tags (`git push --follow-tags`) triggers the GitHub workflow for publication on GitHub Packages.

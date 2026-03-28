@@ -1,103 +1,103 @@
 # ph — Prompt History & Analysis Tool
 
-`ph` è un wrapper trasparente per strumenti CLI AI (come Gemini CLI, Claude CLI, ecc.). Cattura ogni prompt in un database SQLite locale, fornendo ricerca full-text e semantica, analisi automatica in background e snapshot del contesto Git.
+`ph` is a transparent wrapper for AI CLI tools (such as Gemini CLI, Claude CLI, etc.). It captures every prompt into a local SQLite database, providing full-text and semantic search, automatic background analysis, and Git context snapshots.
 
-## Caratteristiche principali
+## Key Features
 
-- 📥 **Cattura Automatica**: Salva prompt, output (se non interattivo) e metadati.
-- 🌳 **Context Git**: Salva branch, file modificati e diff al momento del prompt.
-- 🔍 **Ricerca Avanzata**: Ricerca testuale (FTS5) e semantica (vettoriale).
-- 🧠 **Analisi Background**: Analisi automatica dei prompt (ruolo, tag, rilevanza) via Ollama o Gemini.
-- 🖥️ **TUI Interactive**: Browser interattivo (`ph browse`) per gestire la cronologia.
+- 📥 **Automatic Capture**: Saves prompts, output (if non-interactive), and metadata.
+- 🌳 **Git Context**: Saves branch, modified files, and diff at the time of the prompt.
+- 🔍 **Advanced Search**: Textual search (FTS5) and semantic search (vectorial).
+- 🧠 **Background Analysis**: Automatic prompt analysis (role, tags, relevance) via Ollama or Gemini.
+- 🖥️ **Interactive TUI**: Interactive browser (`ph browse`) to manage history.
 
-## Installazione
+## Installation
 
 ```bash
-# Clone e build locale
+# Clone and local build
 git clone git@github.com:gi4nks/ph.git
 cd ph
 npm install
 make build
-make install # Installa il link globale 'ph'
+make install # Installs the global 'ph' link
 ```
 
-## Configurazione
+## Configuration
 
-Il tool utilizza un file di configurazione in `~/.ph_config.json`.
+The tool uses a configuration file at `~/.ph_config.json`.
 
 ```bash
-ph config set gemini-api-key "TUA_CHIAVE"
-ph config set analyze-provider gemini # o 'ollama' (default)
-ph config set background-analysis true  # Abilita auto-analisi
+ph config set gemini-api-key "YOUR_KEY"
+ph config set analyze-provider gemini # or 'ollama' (default)
+ph config set background-analysis true  # Enable auto-analysis
 ```
 
-## Hooks (Integrazione con AI CLI)
+## Hooks (Integration with AI CLI)
 
-Gli hooks permettono a `ph` di intercettare i prompt inviati ad altri strumenti. Sono script che wrappano l'esecuzione dell'AI CLI scelta.
+Hooks allow `ph` to intercept prompts sent to other tools. They are scripts that wrap the execution of the chosen AI CLI.
 
-### Come funzionano
-Gli hooks si trovano nella cartella `hooks/`. Ogni hook esporta una funzione o agisce come wrapper PTY per mantenere l'interattività dell'AI CLI originale catturando al contempo i dati.
+### How they work
+Hooks are located in the `hooks/` folder. Each hook exports a function or acts as a PTY wrapper to maintain the interactivity of the original AI CLI while capturing data.
 
-### Installazione Hooks
+### Hook Installation
 
-#### Per Gemini CLI:
-Aggiungi questo alias al tuo `.zshrc` o `.bashrc`:
+#### For Gemini CLI:
+Add this alias to your `.zshrc` or `.bashrc`:
 ```bash
 alias gemini='/path/to/ph/hooks/gemini/ph-hook.sh'
 ```
 
-#### Per Claude CLI:
-Aggiungi questo alias:
+#### For Claude CLI:
+Add this alias:
 ```bash
 alias claude='/path/to/ph/hooks/claude/ph-hook.sh'
 ```
 
-L'hook eseguirà `ph capture` prima di passare il controllo all'AI CLI originale, salvando il contesto Git corrente e il prompt inviato.
+The hook will execute `ph capture` before passing control to the original AI CLI, saving the current Git context and the sent prompt.
 
-## Utilizzo
+## Usage
 
-### Ricerca
+### Search
 ```bash
-ph search "come fare refactor"     # Ricerca testuale
-ph search --semantic "refactoring" # Ricerca semantica
+ph search "how to refactor"        # Textual search
+ph search --semantic "refactoring" # Semantic search
 ```
 
-### Browser TUI
+### TUI Browser
 ```bash
 ph browse
 ```
-*Tasti rapidi:* `f` (filtri), `e` (edit metadati), `r` (rerun prompt), `y` (copia), `x` (elimina).
+*Hotkeys:* `f` (filters), `e` (edit metadata), `r` (rerun prompt), `y` (copy), `x` (delete).
 
-## Rilasci e Versioning
+## Releases and Versioning
 
-Il progetto segue il **Semantic Versioning (SemVer)** e utilizza le [Conventional Commits](https://www.conventionalcommits.org/). I rilasci sono gestiti tramite `standard-version`.
+The project follows **Semantic Versioning (SemVer)** and uses [Conventional Commits](https://www.conventionalcommits.org/). Releases are managed via `standard-version`.
 
-### Comandi di Rilascio
-Per creare una nuova versione (aggiorna `package.json`, genera `CHANGELOG.md` e crea un tag Git):
+### Release Commands
+To create a new version (updates `package.json`, generates `CHANGELOG.md`, and creates a Git tag):
 
 ```bash
-make release-patch  # Incremeta: 0.1.0 -> 0.1.1 (fix e piccole modifiche)
-make release-minor  # Incremeta: 0.1.1 -> 0.2.0 (nuove feature compatibili)
-make release-major  # Incremeta: 0.2.0 -> 1.0.0 (modifiche breaking)
+make release-patch  # Increments: 0.1.0 -> 0.1.1 (fixes and small changes)
+make release-minor  # Increments: 0.1.1 -> 0.2.0 (new compatible features)
+make release-major  # Increments: 0.2.0 -> 1.0.0 (breaking changes)
 ```
 
-Dopo il rilascio, ricordati di pushare i tag per attivare la **GitHub Action** di pubblicazione:
+After the release, remember to push the tags to trigger the **GitHub Action** for publication:
 ```bash
 git push --follow-tags origin main
 ```
-Il pacchetto verrà automaticamente buildato e pubblicato su [GitHub Packages](https://github.com/gi4nks/ph/packages).
+The package will be automatically built and published to [GitHub Packages](https://github.com/gi4nks/ph/packages).
 
-### Installazione tramite GitHub Packages
-Configura il tuo `.npmrc` per includere lo scope `@gi4nks`:
+### Installation via GitHub Packages
+Configure your `.npmrc` to include the `@gi4nks` scope:
 ```bash
 @gi4nks:registry=https://npm.pkg.github.com
 ```
-Poi installa con:
+Then install with:
 ```bash
 npm install -g @gi4nks/ph
 ```
 
-## Esportazione
+## Export
 ```bash
 ph export --format md --limit 5 > prompts.md
 ```
