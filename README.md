@@ -31,6 +31,27 @@ ph config set analyze-provider gemini # or 'ollama' (default)
 ph config set background-analysis true  # Enable auto-analysis
 ```
 
+## Storage & Architecture
+
+`ph` stores its data locally to ensure privacy and fast access.
+
+### Files and Locations
+
+| Item | Default Path | Description |
+|------|--------------|-------------|
+| **Database** | `~/.prompt_history.db` | SQLite database with FTS5 and vector embeddings. |
+| **Config** | `~/.ph_config.json` | JSON configuration file (stored with `0o600` permissions). |
+
+### Customizing the Database Path
+You can move your database to a different location (e.g., an external drive or a cloud-synced folder):
+
+```bash
+ph config set db-path "/path/to/your/custom.db"
+```
+
+### Database Security
+The database uses **WAL (Write-Ahead Logging)** mode, which allows concurrent read and write operations. This is crucial for the **Background Analysis** system to work without locking your CLI session.
+
 ## Hooks (Integration with AI CLI)
 
 Hooks allow `ph` to intercept prompts sent to other tools. They are scripts that wrap the execution of the chosen AI CLI.
