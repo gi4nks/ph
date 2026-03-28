@@ -49,6 +49,20 @@ You can move your database to a different location (e.g., an external drive or a
 ph config set db-path "/path/to/your/custom.db"
 ```
 
+### Database Maintenance
+As you use `ph`, the database might grow due to Git diffs and metadata. Use these commands to keep it lean:
+
+```bash
+# Remove prompts shorter than 20 chars or older than 30 days
+ph cleanup --min-length 20 --days 30
+
+# Compact the database file to reclaim disk space
+ph vacuum
+
+# Run a dry-run to see what would be deleted
+ph cleanup --dry-run --days 60
+```
+
 ### Database Security
 The database uses **WAL (Write-Ahead Logging)** mode, which allows concurrent read and write operations. This is crucial for the **Background Analysis** system to work without locking your CLI session.
 

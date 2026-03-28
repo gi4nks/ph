@@ -281,6 +281,17 @@ export class PhDB {
     return info.changes;
   }
 
+  deleteOlderThan(days: number): number {
+    const info = this.db
+      .prepare("DELETE FROM prompts WHERE timestamp < datetime('now', ?)")
+      .run(`-${days} days`);
+    return info.changes;
+  }
+
+  vacuum(): void {
+    this.db.exec('VACUUM');
+  }
+
   getAllPromptHashes(): Map<string, number> {
     const rows = this.db.prepare('SELECT id, prompt FROM prompts').all() as { id: number; prompt: string }[];
     const map = new Map<string, number>();
