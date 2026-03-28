@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.0](https://github.com/gi4nks/ph/compare/v1.0.1...v1.1.0) (2026-03-28)
+
+
+### Features
+
+* add database maintenance commands (cleanup --days and vacuum) ([5657b14](https://github.com/gi4nks/ph/commit/5657b1424b582228516118be25021a60309025c7))
+
 ### [1.0.1](https://github.com/gi4nks/ph/compare/v1.0.0...v1.0.1) (2026-03-28)
 
 
