@@ -6,6 +6,13 @@
   "bin": {
     "ph": "./dist/cli.js"
   },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gi4nks/ph.git"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli.ts",

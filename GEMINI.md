@@ -42,3 +42,4 @@ Al momento della cattura (`ph capture`), raccogli sempre:
   - Prima di un rilascio, assicurati che la build sia corretta (`make build`).
   - Esegui `make release-patch` (o minor/major) per aggiornare la versione e il `CHANGELOG.md`.
   - Non committare modifiche alla versione fuori dal processo di rilascio.
+  - Il push dei tag (`git push --follow-tags`) innesca il workflow GitHub per la pubblicazione su GitHub Packages.
