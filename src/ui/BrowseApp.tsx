@@ -3,22 +3,14 @@ import { Box, Text, useInput, useApp } from 'ink';
 import { spawn } from 'child_process';
 import type { PromptEntry, PromptMetadata } from '../types.js';
 import type { PhDB } from '../db/index.js';
+import { Header, type ActiveFilters } from './Header.js';
+import { Footer } from './Footer.js';
+import { THEMES, type Theme } from './themes.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 const FILTER_CATEGORIES = ['project', 'language', 'role', 'tool', 'tag', 'starred', 'quality', 'relevance'] as const;
 type FilterCategory = (typeof FILTER_CATEGORIES)[number];
-
-interface ActiveFilters {
-  project?: string;
-  language?: string;
-  role?: string;
-  tool?: string;
-  tag?: string;
-  starred?: boolean;
-  minQuality?: number;
-  minRelevance?: number;
-}
 
 const CATEGORY_LABEL: Record<FilterCategory, string> = {
   project: 'Project',
@@ -178,9 +170,10 @@ interface RowProps {
   entry: PromptEntry;
   isSelected: boolean;
   termWidth: number;
+  theme: Theme;
 }
 
-const PromptRow: React.FC<RowProps> = ({ entry, isSelected, termWidth }) => {
+const PromptRow: React.FC<RowProps> = ({ entry, isSelected, termWidth, theme }) => {
   const meta = parseMeta(entry.metadata);
   const sel = isSelected;
 
@@ -190,15 +183,15 @@ const PromptRow: React.FC<RowProps> = ({ entry, isSelected, termWidth }) => {
   const tags    = meta.tags?.length ? `(${meta.tags.join(',')}) ` : '';
   const cursor  = sel ? '❯ ' : '  ';
 
-  const roleColor = (meta.role && ROLE_COLOR[meta.role]) || 'cyan';
+  const roleColor = (meta.role && ROLE_COLOR[meta.role]) || theme.primary;
   const maxPrompt = Math.max(20, termWidth - 10);
 
   const scores = (meta.relevance !== undefined || meta.quality !== undefined) ? (
-    <Text color="gray">
+    <Text color={theme.dim}>
       {' ['}
-      <Text color={meta.relevance && meta.relevance >= 7 ? 'green' : 'gray'}>R:{meta.relevance ?? '?'}</Text>
+      <Text color={meta.relevance && meta.relevance >= 7 ? theme.success : theme.dim}>R:{meta.relevance ?? '?'}</Text>
       {'|'}
-      <Text color={meta.quality && meta.quality >= 7 ? 'green' : 'gray'}>Q:{meta.quality ?? '?'}</Text>
+      <Text color={meta.quality && meta.quality >= 7 ? theme.success : theme.dim}>Q:{meta.quality ?? '?'}</Text>
       {'] '}
     </Text>
   ) : null;
@@ -206,21 +199,21 @@ const PromptRow: React.FC<RowProps> = ({ entry, isSelected, termWidth }) => {
   return (
     <Box>
       <Box width={2}>
-        <Text color="cyan" bold={sel}>{cursor}</Text>
+        <Text color={theme.primary} bold={sel}>{cursor}</Text>
       </Box>
       <Box flexDirection="column" flexGrow={1}>
         <Box>
-          <Text color={sel ? 'yellow' : undefined} bold={sel}>{`#${entry.id}`.padEnd(7)}</Text>
-          <Text color={sel ? 'white' : 'yellow'}>{star}</Text>
-          <Text color={sel ? 'white' : 'gray'}>{formatTimestamp(entry.timestamp)}{'  '}</Text>
-          <Text color={sel ? 'cyan' : 'blue'}>{entry.tool.padEnd(8)}</Text>
+          <Text color={sel ? theme.warning : undefined} bold={sel}>{`#${entry.id}`.padEnd(7)}</Text>
+          <Text color={sel ? 'white' : theme.warning}>{star}</Text>
+          <Text color={sel ? 'white' : theme.dim}>{formatTimestamp(entry.timestamp)}{'  '}</Text>
+          <Text color={sel ? theme.primary : theme.accent}>{entry.tool.padEnd(8)}</Text>
           {scores}
-          {proj ? <Text color={sel ? 'white' : 'gray'}>{proj}</Text> : null}
+          {proj ? <Text color={sel ? 'white' : theme.dim}>{proj}</Text> : null}
           {meta.role ? <Text color={roleColor} dimColor={!sel}>{roleStr}</Text> : null}
-          {tags ? <Text color={sel ? 'white' : 'gray'} dimColor={!sel}>{tags}</Text> : null}
+          {tags ? <Text color={sel ? 'white' : theme.dim} dimColor={!sel}>{tags}</Text> : null}
         </Box>
         <Box>
-          <Text color={sel ? 'white' : 'gray'} wrap="truncate">
+          <Text color={sel ? 'white' : theme.dim} wrap="truncate">
             {truncate(entry.prompt, maxPrompt)}
           </Text>
         </Box>
@@ -237,19 +230,12 @@ interface DetailProps {
   onEdit: () => void;
   termWidth: number;
   termHeight: number;
+  theme: Theme;
 }
 
-interface DetailProps {
-  entry: PromptEntry;
-  onClose: () => void;
-  onEdit: () => void;
-  termWidth: number;
-  termHeight: number;
-}
-
-const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, termHeight }) => {
+const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, termHeight, theme }) => {
   const meta = parseMeta(entry.metadata);
-  const roleColor = (meta.role && ROLE_COLOR[meta.role]) || 'cyan';
+  const roleColor = (meta.role && ROLE_COLOR[meta.role]) || theme.primary;
 
   const [activeTab, setActiveTab] = useState<'prompt' | 'response'>(entry.response ? 'response' : 'prompt');
   const [scroll, setScroll] = useState(0);
@@ -262,7 +248,7 @@ const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, 
 
   const content = activeTab === 'prompt' ? entry.prompt : (entry.response || '(no response captured)');
   const lines = useMemo(() => wrapTextLines(content, termWidth - 4), [content, termWidth]);
-  const availableLines = Math.max(5, termHeight - 14);
+  const availableLines = Math.max(5, termHeight - 12); // Adjusted for persistent header/footer
 
   useInput((char, key) => {
     if (key.escape || key.return) onClose();
@@ -288,77 +274,54 @@ const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, 
   while (paddedLines.length < availableLines) paddedLines.push(' ');
 
   return (
-    <Box flexDirection="column" height={termHeight}>
-      <Box flexDirection="column" paddingX={1} paddingTop={1} flexGrow={1}>
-        {/* Header with Metadata */}
-        <Box marginBottom={1} justifyContent="space-between">
-          <Box flexDirection="column" flexGrow={1}>
-            <Box>
-              <Text color="cyan" bold>Prompt #{entry.id} </Text>
-              <Text dimColor>· {entry.tool} · {formatTimestamp(entry.timestamp)}</Text>
-              {meta.starred && <Text color="yellow">  ★ starred</Text>}
-            </Box>
-            
-            <Box marginTop={0}>
-              {meta.project && <Text color="blue">{meta.project} </Text>}
-              {meta.language && <Text color="gray">({meta.language}) </Text>}
-              {meta.role && <Text color={roleColor}>[{meta.role}] </Text>}
-              {meta.relevance !== undefined && <Text color="yellow">R:{meta.relevance} </Text>}
-              {meta.quality !== undefined && <Text color="green">Q:{meta.quality} </Text>}
-              <Text color={entry.exit_code === 0 ? 'gray' : 'red'}>exit:{entry.exit_code}</Text>
-            </Box>
-
-            {meta.tags && meta.tags.length > 0 && (
-              <Box marginTop={0}>
-                <Text dimColor>tags: </Text>
-                <Text color="cyan">{meta.tags.join(', ')}</Text>
-              </Box>
-            )}
-
-            {entry.workdir && (
-              <Box marginTop={0}>
-                <Text dimColor>dir: </Text>
-                <Text color="gray">{entry.workdir}</Text>
-              </Box>
-            )}
+    <Box flexDirection="column" paddingX={1} paddingTop={1} flexGrow={1}>
+      {/* Detail Header with Metadata */}
+      <Box marginBottom={1} justifyContent="space-between">
+        <Box flexDirection="column" flexGrow={1}>
+          <Box>
+            <Text color={theme.primary} bold>Prompt #{entry.id} </Text>
+            <Text color="white" dimColor>· {entry.tool} · {formatTimestamp(entry.timestamp)}</Text>
+            {meta.starred && <Text color={theme.warning}>  ★ starred</Text>}
           </Box>
-        </Box>
-
-        {/* Tabs Header - Clean Style */}
-        <Box paddingX={1}>
-          <Box 
-            paddingX={2} 
-            backgroundColor={activeTab === 'prompt' ? 'cyan' : undefined}
-          >
-            <Text color={activeTab === 'prompt' ? 'black' : 'white'} bold={activeTab === 'prompt'}>
-              [1] Prompt
-            </Text>
+          
+          <Box marginTop={0}>
+            {meta.project && <Text color={theme.accent}>{meta.project} </Text>}
+            {meta.language && <Text color={theme.dim}>({meta.language}) </Text>}
+            {meta.role && <Text color={roleColor}>[{meta.role}] </Text>}
+            {meta.relevance !== undefined && <Text color={theme.warning}>R:{meta.relevance} </Text>}
+            {meta.quality !== undefined && <Text color={theme.success}>Q:{meta.quality} </Text>}
+            <Text color={entry.exit_code === 0 ? theme.dim : theme.error}>exit:{entry.exit_code}</Text>
           </Box>
-          <Box 
-            paddingX={2} 
-            backgroundColor={activeTab === 'response' ? 'cyan' : undefined}
-            marginLeft={1}
-          >
-            <Text color={activeTab === 'response' ? 'black' : 'white'} bold={activeTab === 'response'}>
-              [2] Response
-            </Text>
-          </Box>
-        </Box>
-
-        {/* Content Box */}
-        <Box borderStyle="single" borderColor="cyan" padding={1} flexDirection="column" flexGrow={1}>
-          {paddedLines.map((line, i) => (
-            <Text key={i}>{line || ' '}</Text>
-          ))}
         </Box>
       </Box>
 
-      {/* Footer Instructions */}
-      <Box paddingX={1} borderStyle="single" borderColor="gray" justifyContent="space-between">
-        <Text dimColor>TAB switch · 1/2 tabs · e edit · y copy · ↑↓ scroll · ESC back</Text>
-        <Text color="green">
-          {copied ? 'Copied!' : `${lines.length > 0 ? scroll + 1 : 0}-${Math.min(scroll + availableLines, lines.length)} / ${lines.length}`}
-        </Text>
+      {/* Tabs Header - Clean Style */}
+      <Box paddingX={1}>
+        <Box 
+          paddingX={2} 
+          backgroundColor={activeTab === 'prompt' ? theme.primary : undefined}
+        >
+          <Text color={activeTab === 'prompt' ? 'black' : 'white'} bold={activeTab === 'prompt'}>
+            [1] Prompt
+          </Text>
+        </Box>
+        <Box 
+          paddingX={2} 
+          backgroundColor={activeTab === 'response' ? theme.primary : undefined}
+          marginLeft={1}
+        >
+          <Text color={activeTab === 'response' ? 'black' : 'white'} bold={activeTab === 'response'}>
+            [2] Response
+          </Text>
+        </Box>
+        {copied && <Box marginLeft={2}><Text color={theme.success}>Copied!</Text></Box>}
+      </Box>
+
+      {/* Content Box */}
+      <Box borderStyle="single" borderColor={theme.primary} padding={1} flexDirection="column" flexGrow={1}>
+        {paddedLines.map((line, i) => (
+          <Text key={i}>{line || ' '}</Text>
+        ))}
       </Box>
     </Box>
   );
@@ -370,9 +333,10 @@ interface EditProps {
   entry: PromptEntry;
   onSave: (meta: PromptMetadata) => void;
   onClose: () => void;
+  theme: Theme;
 }
 
-const EditView: React.FC<EditProps> = ({ entry, onSave, onClose }) => {
+const EditView: React.FC<EditProps> = ({ entry, onSave, onClose, theme }) => {
   const initMeta = parseMeta(entry.metadata);
 
   const [field, setField] = useState<'role' | 'tags'>('role');
@@ -407,18 +371,18 @@ const EditView: React.FC<EditProps> = ({ entry, onSave, onClose }) => {
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text color="cyan" bold>Edit Metadata — Prompt #{entry.id}</Text>
+        <Text color={theme.primary} bold>Edit Metadata — Prompt #{entry.id}</Text>
       </Box>
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" padding={1}>
+      <Box flexDirection="column" borderStyle="single" borderColor={theme.dim} padding={1}>
         <Box marginBottom={1}>
           <Text dimColor>Role:  </Text>
-          <Text color={field === 'role' ? 'cyan' : 'white'} bold={field === 'role'}>
+          <Text color={field === 'role' ? theme.primary : 'white'} bold={field === 'role'}>
             {roleValue || '(none)'}{field === 'role' ? '█' : ''}
           </Text>
         </Box>
         <Box>
           <Text dimColor>Tags:  </Text>
-          <Text color={field === 'tags' ? 'cyan' : 'white'} bold={field === 'tags'}>
+          <Text color={field === 'tags' ? theme.primary : 'white'} bold={field === 'tags'}>
             {tagsValue || '(none)'}{field === 'tags' ? '█' : ''}
           </Text>
         </Box>
@@ -439,9 +403,10 @@ interface RerunProps {
   entry: PromptEntry;
   onConfirm: (tool: string, prompt: string) => void;
   onClose: () => void;
+  theme: Theme;
 }
 
-const RerunView: React.FC<RerunProps> = ({ entry, onConfirm, onClose }) => {
+const RerunView: React.FC<RerunProps> = ({ entry, onConfirm, onClose, theme }) => {
   const [field, setField] = useState<'tool' | 'prompt'>('prompt');
   const [toolValue, setToolValue] = useState(entry.tool);
   const [promptValue, setPromptValue] = useState(entry.prompt);
@@ -471,29 +436,29 @@ const RerunView: React.FC<RerunProps> = ({ entry, onConfirm, onClose }) => {
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text color="cyan" bold>Rerun Prompt #{entry.id}</Text>
+        <Text color={theme.primary} bold>Rerun Prompt #{entry.id}</Text>
       </Box>
 
       <Box flexDirection="column" marginBottom={1}>
-        <Text dimColor>Tool:      <Text color="yellow">{entry.tool}</Text></Text>
+        <Text dimColor>Tool:      <Text color={theme.warning}>{entry.tool}</Text></Text>
         <Text dimColor>Date:      <Text>{formatTimestamp(entry.timestamp)}</Text></Text>
-        {meta.project && <Text dimColor>Project:   <Text color="blue">{meta.project}</Text></Text>}
+        {meta.project && <Text dimColor>Project:   <Text color={theme.accent}>{meta.project}</Text></Text>}
         {git && (
-          <Text dimColor>Git:       <Text color="yellow">Captured on branch: {git.branch}, {git.files?.length || 0} files modified</Text></Text>
+          <Text dimColor>Git:       <Text color={theme.warning}>Captured on branch: {git.branch}, {git.files?.length || 0} files modified</Text></Text>
         )}
       </Box>
 
-      <Box flexDirection="column" borderStyle="single" borderColor="gray" padding={1}>
+      <Box flexDirection="column" borderStyle="single" borderColor={theme.dim} padding={1}>
         <Box marginBottom={1}>
           <Text dimColor>Tool:   </Text>
-          <Text color={field === 'tool' ? 'cyan' : 'white'} bold={field === 'tool'}>
+          <Text color={field === 'tool' ? theme.primary : 'white'} bold={field === 'tool'}>
             {toolValue}{field === 'tool' ? '█' : ''}
           </Text>
         </Box>
         <Box flexDirection="column">
           <Text dimColor>Prompt: </Text>
-          <Box borderStyle="round" borderColor={field === 'prompt' ? 'cyan' : 'gray'} paddingX={1}>
-            <Text color={field === 'prompt' ? 'cyan' : 'white'}>
+          <Box borderStyle="round" borderColor={field === 'prompt' ? theme.primary : theme.dim} paddingX={1}>
+            <Text color={field === 'prompt' ? theme.primary : 'white'}>
               {promptValue}{field === 'prompt' ? '█' : ''}
             </Text>
           </Box>
@@ -514,9 +479,10 @@ interface FilterPanelProps {
   active: ActiveFilters;
   onUpdate: (filters: ActiveFilters) => void;
   onClose: () => void;
+  theme: Theme;
 }
 
-const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate, onClose }) => {
+const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate, onClose, theme }) => {
   const [catIdx, setCatIdx] = useState(0);
   const [itemIdx, setItemIdx] = useState(0);
 
@@ -599,9 +565,9 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate,
     <Box flexDirection="column" padding={1}>
       {/* Header */}
       <Box marginBottom={1}>
-        <Text color="cyan" bold>Filter Panel  </Text>
+        <Text color={theme.primary} bold>Filter Panel  </Text>
         {activeCount > 0
-          ? <Text color="yellow">{activeCount} active filter{activeCount > 1 ? 's' : ''}  </Text>
+          ? <Text color={theme.warning}>{activeCount} active filter{activeCount > 1 ? 's' : ''}  </Text>
           : <Text dimColor>no filters active  </Text>
         }
         {activeCount > 0 && <Text dimColor>(c to clear all)</Text>}
@@ -619,7 +585,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate,
           const isActive = i === catIdx;
           return (
             <Box key={cat} marginRight={2}>
-              <Text color={isActive ? 'cyan' : catVal ? 'yellow' : 'gray'} bold={isActive}>
+              <Text color={isActive ? theme.primary : catVal ? theme.warning : theme.dim} bold={isActive}>
                 {CATEGORY_LABEL[cat]}{catVal ? `[${catVal}]` : ''}
               </Text>
             </Box>
@@ -628,10 +594,10 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate,
       </Box>
 
       {/* Values list */}
-      <Box borderStyle="single" borderColor="gray" flexDirection="column" padding={1} minHeight={16}>
+      <Box borderStyle="single" borderColor={theme.dim} flexDirection="column" padding={1} minHeight={16}>
         {isStarred ? (
           <Box>
-            <Text color={active.starred ? 'yellow' : 'gray'} bold={active.starred}>
+            <Text color={active.starred ? theme.warning : theme.dim} bold={active.starred}>
               {'❯ '}{active.starred ? '★' : '☆'} Only starred prompts{active.starred ? ' ✓' : ''}
             </Text>
           </Box>
@@ -644,7 +610,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate,
             return (
               <Box key={val}>
                 <Text
-                  color={absIdx === itemIdx ? 'cyan' : isCurrent ? 'yellow' : 'gray'}
+                  color={absIdx === itemIdx ? theme.primary : isCurrent ? theme.warning : theme.dim}
                   bold={absIdx === itemIdx}
                 >
                   {absIdx === itemIdx ? '❯ ' : '  '}{val}{isCurrent && val !== '(all)' ? ' ✓' : ''}
@@ -661,22 +627,6 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate,
     </Box>
   );
 };
-
-// ─── ActiveFilterBadges ───────────────────────────────────────────────────────
-
-const FilterBadges: React.FC<{ active: ActiveFilters; textFilter: string }> = ({ active, textFilter }) => (
-  <>
-    {active.project  && <Text color="blue">  proj:{active.project}</Text>}
-    {active.language && <Text color="green">  lang:{active.language}</Text>}
-    {active.role     && <Text color={ROLE_COLOR[active.role] ?? 'cyan'}>  role:{active.role}</Text>}
-    {active.tool     && <Text color="yellow">  tool:{active.tool}</Text>}
-    {active.tag      && <Text color="cyan">  tag:{active.tag}</Text>}
-    {active.starred  && <Text color="yellow">  ★only</Text>}
-    {active.minQuality !== undefined && <Text color="green">  Q≥{active.minQuality}</Text>}
-    {active.minRelevance !== undefined && <Text color="green">  R≥{active.minRelevance}</Text>}
-    {textFilter      && <Text color="yellow">  /{textFilter}</Text>}
-  </>
-);
 
 // ─── BrowseApp ────────────────────────────────────────────────────────────────
 
@@ -704,8 +654,12 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   const [rerunning, setRerunning] = useState<PromptEntry | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
+  const currentThemeName = 'dark'; // Could be made stateful later
+  const theme = THEMES[currentThemeName] || THEMES.dark;
+
   const { columns: termWidth, rows: termHeight } = useStdoutDimensions();
-  const PAGE_SIZE = Math.max(1, Math.floor((termHeight - 10) / 2));
+  // Adjusted PAGE_SIZE for the new header/footer layout (approx 4-5 lines of vertical space)
+  const PAGE_SIZE = Math.max(1, Math.floor(termHeight - 5));
 
   // Derived filtered entries — recomputed when filters or refreshKey change
   const entries = useMemo(
@@ -795,19 +749,19 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  let mainContent;
   if (showFilterPanel) {
-    return (
+    mainContent = (
       <FilterPanel
         allEntries={allEntries}
         active={activeFilters}
         onUpdate={handleFilterUpdate}
         onClose={() => setFilterPanel(false)}
+        theme={theme}
       />
     );
-  }
-
-  if (rerunning) {
-    return (
+  } else if (rerunning) {
+    mainContent = (
       <RerunView
         entry={rerunning}
         onConfirm={(tool, prompt) => {
@@ -816,51 +770,38 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
           exit();
         }}
         onClose={() => setRerunning(null)}
+        theme={theme}
       />
     );
-  }
-
-  if (editing) {
-    return (
+  } else if (editing) {
+    mainContent = (
       <EditView
         entry={editing}
         onSave={meta => handleSaveEdit(editing, meta)}
         onClose={() => setEditing(null)}
+        theme={theme}
       />
     );
-  }
-
-  if (detail) {
-    return (
+  } else if (detail) {
+    mainContent = (
       <DetailView
         entry={detail}
         onClose={() => setDetail(null)}
         onEdit={() => { setEditing(detail); setDetail(null); }}
         termWidth={termWidth}
         termHeight={termHeight}
+        theme={theme}
       />
     );
-  }
-
-  return (
-    <Box flexDirection="column" height={termHeight}>
-      {/* Header */}
-      <Box paddingX={1} borderStyle="single" borderColor="cyan">
-        <Text color="cyan" bold>ph — prompt history  </Text>
-        <Text dimColor>
-          {entries.length}{entries.length < allEntries.length ? `/${allEntries.length}` : ''} prompts
-        </Text>
-        <FilterBadges active={activeFilters} textFilter={textFilter} />
-        {isTextFiltering && <Text color="green">  [typing…]</Text>}
-        {copiedId && <Text color="green">  [Copied to clipboard!]</Text>}
-      </Box>
-
-      {/* List */}
+  } else {
+    mainContent = (
       <Box flexDirection="column" paddingX={1} flexGrow={1}>
         {entries.length === 0 ? (
-          <Text dimColor>
-            (no results{activeFilterCount > 0 || textFilter ? ' — press c to clear filters' : ''})
-          </Text>
+          <Box marginTop={1}>
+            <Text color={theme.dim}>
+              (no results{activeFilterCount > 0 || textFilter ? ' — press c to clear filters' : ''})
+            </Text>
+          </Box>
         ) : (
           visible.map((entry, i) => (
             <PromptRow
@@ -868,24 +809,35 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
               entry={entry}
               isSelected={pageStart + i === cursor}
               termWidth={termWidth}
+              theme={theme}
             />
           ))
         )}
       </Box>
+    );
+  }
 
-      {/* Footer */}
-      <Box paddingX={1} borderStyle="single" borderColor="gray" justifyContent="space-between">
-        <Box flexShrink={1}>
-          <Text dimColor wrap="truncate">
-            {'↑↓ nav · Enter view · s star · e edit · r rerun · y copy · x del · f filter · / find · c clear · q quit'}
-          </Text>
-        </Box>
-        <Box marginLeft={1} flexShrink={0}>
-          <Text dimColor>
-            {entries.length > 0 ? `${cursor + 1}/${entries.length}` : '0/0'}
-          </Text>
-        </Box>
+  return (
+    <Box flexDirection="column" height={termHeight}>
+      <Header 
+        entriesCount={entries.length} 
+        allEntriesCount={allEntries.length}
+        activeFilters={activeFilters}
+        textFilter={textFilter}
+        isTextFiltering={isTextFiltering}
+        theme={currentThemeName}
+      />
+
+      <Box flexGrow={1}>
+        {mainContent}
       </Box>
+
+      <Footer 
+        cursor={cursor} 
+        total={entries.length} 
+        copiedId={copiedId} 
+        theme={currentThemeName}
+      />
     </Box>
   );
 };
