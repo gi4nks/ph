@@ -24,6 +24,7 @@
     "release:major": "standard-version --release-as major"
   },
   "dependencies": {
+    "@gi4nks/ink": "file:../commons/ink",
     "@lydell/node-pty": "^1.2.0-beta.3",
     "better-sqlite3": "^12.8.0",
     "ink": "^6.8.0",
