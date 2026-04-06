@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.0](https://github.com/gi4nks/ph/compare/v1.1.2...v1.2.0) (2026-04-06)
+
+
+### Features
+
+* add cleanup-reusability command for strategic database cleanup ([efeefec](https://github.com/gi4nks/ph/commit/efeefec2552a850cae275925b5c64f0542eac8bf))
+* use AppHeader and AppFooter from @gi4nks/ink ([bc48011](https://github.com/gi4nks/ph/commit/bc480119d4509d02926a698531e84ecf14cd05d5))
+
 ### [1.1.2](https://github.com/gi4nks/ph/compare/v1.1.1...v1.1.2) (2026-03-28)
 
 ### [1.1.1](https://github.com/gi4nks/ph/compare/v1.1.0...v1.1.1) (2026-03-28)
