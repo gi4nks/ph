@@ -2,6 +2,7 @@
 
 import os from 'os';
 import path from 'path';
+import fs from 'fs';
 import { spawnSync } from 'child_process';
 import React from 'react';
 import { render } from 'ink';
@@ -17,6 +18,7 @@ import { importClaudeHistory } from './importer/claude.js';
 import { getEmbeddings } from './embedding/index.js';
 import { getProvider } from './ai/provider.js';
 import { analyzeAll, analyzePrompt, mergeMetadata } from './analyzer/index.js';
+import { ReusabilityAnalyzer } from './analyzer/reusability.js';
 import { spawnBackgroundAnalysis } from './background/analyzer.js';
 import { FilterPipeline } from './filter/index.js';
 import { BrowseApp } from './ui/BrowseApp.js';
@@ -36,12 +38,14 @@ USAGE:
   ph sessions [options]                 Group prompts into work sessions
   ph stats                              Show history statistics
   ph cluster [options]                  Cluster prompts by similarity
+  ph analyze-reusability [options]      Analyze prompt reusability
   ph star <id>                          Toggle star on a prompt
   ph export <id> [--format txt|json|md] Export a single prompt
   ph import gemini [--dry-run] [--analyze] [--filter]  Import from Gemini CLI sessions
   ph import claude [--dry-run] [--analyze] [--filter]  Import from Claude CLI sessions
   ph analyze [--limit n] [--force] [--prune] [--dry-run]  Analyze prompts with LLM
   ph cleanup [--dry-run] [--min-length N] [--min-score N]  Remove useless prompts
+  ph cleanup-reusability [--dry-run] [--threshold 0.7] [--force]  Cleanup based on reusability
   ph embed-all                          Generate embeddings for all prompts
   ph log --tool <name> --prompt <text> [--response <text>]  Log a prompt+response directly
   ph config set <key> <value>           Save config value
@@ -79,6 +83,10 @@ CLUSTER OPTIONS:
   -k <number>         Number of clusters (default 5)
   --limit <n>         Max prompts per cluster to show (default 3)
 
+ANALYZE-REUSABILITY OPTIONS:
+  --export-csv <file>  Export report to CSV
+  --threshold <n>      Scoring threshold (default 0.7)
+
 EXAMPLES:
   ph claude "explain goroutines"
   ph --ph-role debug --ph-tag auth claude "fix JWT expiration bug"
@@ -96,6 +104,8 @@ EXAMPLES:
   ph analyze --force --prune --min-score 3
   ph cleanup --dry-run
   ph embed-all
+  ph analyze-reusability --export-csv report.csv
+  ph cleanup-reusability --dry-run
   ph config set analyze-provider gemini
   ph config set background-analysis true
   ph config set ollama-model llama3.2:latest
@@ -938,6 +948,161 @@ async function cmdCluster(db: PhDB, args: string[]): Promise<void> {
   console.log();
 }
 
+async function cmdAnalyzeReusability(db: PhDB, args: string[]): Promise<void> {
+  const { flags } = parseFlags(args);
+  const threshold = flags['threshold'] ? Number(flags['threshold']) : 0.7;
+  const exportCsv = flags['export-csv'] as string;
+
+  const entries = db.getAllPrompts();
+  const embeddings = db.getAllEmbeddings();
+
+  if (embeddings.size === 0) {
+    console.warn('ph: no embeddings found. Uniqueness score will be 1.0 for all. Run `ph embed-all` first.');
+  }
+
+  console.log(`Scanning ${entries.length} prompts...`);
+  const analyzer = new ReusabilityAnalyzer(threshold);
+  const report = analyzer.analyze(entries, embeddings);
+
+  const C = {
+    reset: '\x1b[0m',
+    cyan: '\x1b[36m',
+    yellow: '\x1b[33m',
+    green: '\x1b[32m',
+    red: '\x1b[31m',
+    gray: '\x1b[90m',
+    bold: '\x1b[1m',
+  };
+
+  console.log(`\n${C.bold}SUMMARY:${C.reset}`);
+  console.log(`  - ${C.green}KEEP${C.reset} (score 7+):     ${C.yellow}${report.keep.length}${C.reset} prompts (${((report.keep.length / report.total) * 100).toFixed(1)}%)`);
+  console.log(`  - ${C.cyan}REVIEW${C.reset} (score 4-7):   ${C.yellow}${report.review.length}${C.reset} prompts (${((report.review.length / report.total) * 100).toFixed(1)}%)`);
+  console.log(`  - ${C.red}REMOVE${C.reset} (score <4):   ${C.yellow}${report.remove.length}${C.reset} prompts (${((report.remove.length / report.total) * 100).toFixed(1)}%)`);
+
+  console.log(`\n${C.bold}BY ROLE:${C.reset}`);
+  const roles = Object.keys(report.byRole).sort();
+  for (const role of roles) {
+    const r = report.byRole[role];
+    const roleStr = role.padEnd(12);
+    console.log(`  ${C.gray}${roleStr}${C.reset} | KEEP: ${C.green}${r.keep.toString().padEnd(4)}${C.reset} REVIEW: ${C.cyan}${r.review.toString().padEnd(4)}${C.reset} REMOVE: ${C.red}${r.remove.toString().padEnd(4)}${C.reset}`);
+  }
+
+  console.log(`\n${C.bold}DUPLICATES FOUND:${C.reset}`);
+  console.log(`  - Exact semantic (sim > 0.95): ${C.yellow}${report.duplicates.exact}${C.reset} prompts`);
+  console.log(`  - Variant clusters (sim 0.85-0.95): ${C.yellow}${report.duplicates.variants}${C.reset} prompts`);
+
+  console.log(`\n${C.bold}TOP 10 KEEP (unique + high score):${C.reset}`);
+  report.keep.slice(0, 10).forEach(s => {
+    const scoreStr = s.score.toFixed(1).padStart(4);
+    console.log(`  [${C.green}${scoreStr}${C.reset}] ${s.prompt.replace(/\n/g, ' ').slice(0, 80)}...`);
+  });
+
+  console.log(`\n${C.bold}TOP 10 REMOVE (low score + duplicate):${C.reset}`);
+  report.remove.slice(0, 10).forEach(s => {
+    const scoreStr = s.score.toFixed(1).padStart(4);
+    console.log(`  [${C.red}${scoreStr}${C.reset}] ${s.prompt.replace(/\n/g, ' ').slice(0, 80)}...`);
+  });
+
+  if (exportCsv) {
+    fs.writeFileSync(exportCsv, analyzer.toCSV(report));
+    console.log(`\n${C.green}✅ Report exported to ${exportCsv}${C.reset}`);
+  }
+  console.log();
+}
+
+async function cmdCleanupReusability(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
+  const { flags } = parseFlags(args);
+  const threshold = flags['threshold'] ? parseFloat(flags['threshold'] as string) : 0.7;
+  const dryRun = Boolean(flags['dry-run']);
+  const force = Boolean(flags['force']);
+
+  const entries = db.getAllPrompts();
+  const embeddings = db.getAllEmbeddings();
+
+  const analyzer = new ReusabilityAnalyzer(threshold);
+  const candidates = analyzer.getRemovalCandidates(entries, embeddings, threshold);
+
+  if (candidates.length === 0) {
+    console.log('ph: no prompts match removal criteria');
+    return;
+  }
+
+  // Calc sizes
+  const totalSize = candidates.reduce((sum, c) => sum + c.promptSize + c.responseSize, 0);
+  const totalEmbeddingSize = candidates.filter(c => c.hasEmbedding).length * 768 * 4; // estimate for 768-dim float32
+  const totalToFree = totalSize + totalEmbeddingSize;
+
+  const C = {
+    reset: '\x1b[0m',
+    cyan: '\x1b[36m',
+    yellow: '\x1b[33m',
+    red: '\x1b[31m',
+    gray: '\x1b[90m',
+    bold: '\x1b[1m',
+  };
+
+  const removeThreshold = Math.max(0, threshold - 0.3) * 10;
+  const dbCount = entries.length;
+
+  console.log(`\nWould delete ${C.red}${candidates.length}${C.reset} prompts (${((candidates.length / dbCount) * 100).toFixed(1)}% of database):`);
+  console.log(`  - By score < ${removeThreshold.toFixed(1)}: ${candidates.length} prompts`);
+
+  // Group by role
+  const byRole: Record<string, number> = {};
+  for (const c of candidates) {
+    byRole[c.role] = (byRole[c.role] ?? 0) + 1;
+  }
+  const roleSummary = Object.entries(byRole)
+    .sort((a, b) => b[1] - a[1])
+    .map(([role, count]) => `${role} (${count})`)
+    .join(', ');
+
+  console.log(`  - By role (mostly): ${roleSummary}`);
+
+  console.log(`\nStorage impact:`);
+  console.log(`  - Prompt text:   ~${(candidates.reduce((sum, c) => sum + c.promptSize, 0) / 1024 / 1024).toFixed(2)} MB`);
+  console.log(`  - Response text: ~${(candidates.reduce((sum, c) => sum + c.responseSize, 0) / 1024 / 1024).toFixed(2)} MB`);
+  console.log(`  - Embeddings:    ~${(totalEmbeddingSize / 1024 / 1024).toFixed(2)} MB`);
+  console.log(`  Total to free:   ~${(totalToFree / 1024 / 1024).toFixed(2)} MB`);
+
+  if (candidates.length > 0) {
+    console.log(`\n${C.bold}Example candidates (top 20):${C.reset}`);
+    candidates.slice(0, 20).forEach(c => {
+      const entry = entries.find(e => e.id === c.id);
+      if (entry) {
+        const preview = entry.prompt.replace(/\n/g, ' ').slice(0, 80);
+        console.log(`  [${C.red}${c.score.toFixed(1)}${C.reset}] #${entry.id} ${preview}...`);
+      }
+    });
+  }
+
+  if (dryRun) {
+    console.log(`\nRun with ${C.bold}--force${C.reset} or without ${C.bold}--dry-run${C.reset} to proceed.`);
+    return;
+  }
+
+  if (!force) {
+    process.stdout.write(`\nContinue and delete ${candidates.length} prompts? (y/N) `);
+    const buffer = Buffer.alloc(16);
+    const bytesRead = fs.readSync(0, buffer, 0, 16);
+    const answer = buffer.toString('utf8', 0, bytesRead).trim().toLowerCase();
+    if (answer !== 'y' && answer !== 'yes') {
+      console.log('Aborted.');
+      return;
+    }
+  }
+
+  let deleted = 0;
+  for (const candidate of candidates) {
+    db.delete(candidate.id);
+    deleted++;
+  }
+
+  console.log(`\nDeleted ${deleted} prompts, freed ~${(totalToFree / 1024 / 1024).toFixed(1)} MB`);
+  db.vacuum();
+  console.log('Database vacuumed.');
+}
+
 async function cmdWrap(dbPath: string, tool: string, args: string[], cfg: PhConfig): Promise<void> {
   // Strip --ph-tag, --ph-role and --ph-debug from args before passing to real tool
   let debugLog: string | undefined;
@@ -1140,6 +1305,36 @@ async function main(): Promise<void> {
       db.close();
       break;
     }
+    case 'sessions': {
+      const db = new PhDB(dbPath);
+      await cmdSessions(db, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'stats': {
+      const db = new PhDB(dbPath);
+      await cmdStats(db);
+      db.close();
+      break;
+    }
+    case 'cluster': {
+      const db = new PhDB(dbPath);
+      await cmdCluster(db, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'analyze-reusability': {
+      const db = new PhDB(dbPath);
+      await cmdAnalyzeReusability(db, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'cleanup-reusability': {
+      const db = new PhDB(dbPath);
+      await cmdCleanupReusability(db, cfg, cmdArgs);
+      db.close();
+      break;
+    }
     case 'star': {
       const db = new PhDB(dbPath);
       await cmdStar(db, cmdArgs);
@@ -1211,27 +1406,6 @@ async function main(): Promise<void> {
         const child = spawnSync(realBin, [prompt], { stdio: 'inherit' });
         process.exit(child.status ?? 0);
       }
-      break;
-    }
-
-    case 'sessions': {
-      const db = new PhDB(dbPath);
-      await cmdSessions(db, cmdArgs);
-      db.close();
-      break;
-    }
-
-    case 'stats': {
-      const db = new PhDB(dbPath);
-      await cmdStats(db);
-      db.close();
-      break;
-    }
-
-    case 'cluster': {
-      const db = new PhDB(dbPath);
-      await cmdCluster(db, cmdArgs);
-      db.close();
       break;
     }
 

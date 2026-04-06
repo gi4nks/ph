@@ -270,8 +270,24 @@ export class PhDB {
       .all() as PromptEntry[];
   }
 
-  deleteById(id: number): void {
+  getAllPrompts(limit: number = 1000000): PromptEntry[] {
+    return this.db
+      .prepare('SELECT * FROM prompts ORDER BY timestamp DESC LIMIT ?')
+      .all(limit) as PromptEntry[];
+  }
+
+  getPromptsByRole(role: string): PromptEntry[] {
+    return this.db
+      .prepare("SELECT * FROM prompts WHERE json_extract(metadata, '$.role') = ? ORDER BY timestamp DESC")
+      .all(role) as PromptEntry[];
+  }
+
+  delete(id: number): void {
     this.db.prepare('DELETE FROM prompts WHERE id = ?').run(id);
+  }
+
+  deleteById(id: number): void {
+    this.delete(id);
   }
 
   deleteByIds(ids: number[]): number {
