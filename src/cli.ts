@@ -25,6 +25,7 @@ import { BrowseApp } from './ui/BrowseApp.js';
 import { groupIntoSessions, computeSessionCohesion } from './sessions/index.js';
 import { getStats } from './stats/index.js';
 import { kmeans } from './cluster/index.js';
+import { extractTopic } from './utils/extractTopic.js';
 import type { SearchOptions, PromptMetadata } from './types.js';
 import type { PhConfig } from './config/index.js';
 
@@ -528,6 +529,9 @@ async function cmdLog(dbPath: string, cfg: PhConfig, args: string[]): Promise<vo
   const metaObj: Record<string, unknown> = {};
   if (projectName) metaObj.project = projectName;
   if (language)    metaObj.language = language;
+
+  const title = extractTopic(prompt);
+  if (title) metaObj.title = title;
 
   const db = new PhDB(dbPath);
   const id = db.insert({

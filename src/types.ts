@@ -12,6 +12,7 @@ export interface PromptEntry {
 }
 
 export interface PromptMetadata {
+  title?: string;       // ← NUOVO: titolo breve estratto o impostato manualmente
   project?: string;
   language?: string;
   role?: string;        // e.g. 'debug', 'refactor', 'explain', 'review', 'architect', 'test', 'docs'

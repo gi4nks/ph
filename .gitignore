@@ -29,3 +29,17 @@ yarn-error.log*
 .cache/
 .nyc_output/
 coverage/
+docs/gemini-prompt-1-searchbar.md
+docs/gemini-prompt-2-listentry.md
+docs/gemini-prompt-3-previewpane.md
+docs/gemini-prompt-4-browseapp.md
+docs/gemini-title-prompt-1-extracttopic.md
+docs/gemini-title-prompt-2-listentry-types.md
+docs/gemini-title-prompt-3-cmdlog-editview.md
+docs/gemini-ux-prompt-1-scroll.md
+docs/gemini-ux-prompt-2-listentry-visual.md
+docs/gemini-v2-prompt-1-previewpane.md
+docs/gemini-v2-prompt-2-detailview.md
+docs/gemini-v2-prompt-3-integration.md
+docs/ui-redesign-plan.md
+docs/ui-redesign-v2-plan.md

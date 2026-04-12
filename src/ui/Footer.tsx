@@ -1,21 +1,20 @@
 import React from 'react';
-import { Text } from 'ink';
 import { AppFooter, THEMES } from '@gi4nks/ink';
 import type { HintItem } from '@gi4nks/ink';
 
 const HINTS: Array<HintItem | '|'> = [
-  { key: '↑↓', description: 'nav' },
-  { key: '↵', description: 'view' },
-  { key: 's', description: 'star' },
-  { key: 'e', description: 'edit' },
-  { key: 'r', description: 'rerun' },
+  { key: '↑↓',  description: 'nav' },
+  { key: 'Tab', description: 'pane' },
+  { key: '1/2', description: 'tab' },
+  { key: 'y',   description: 'copy' },
+  { key: 's',   description: '★' },
+  { key: 'e',   description: 'edit' },
+  { key: 'r',   description: 'rerun' },
   '|',
-  { key: 'y', description: 'copy' },
-  { key: 'x', description: 'del' },
-  { key: 'f', description: 'filter' },
-  { key: '/', description: 'find' },
-  { key: 'c', description: 'clear' },
-  { key: 'q', description: 'quit' },
+  { key: 'x',   description: 'del' },
+  { key: '/',   description: 'search' },
+  { key: 'f',   description: 'filter' },
+  { key: 'q',   description: 'quit' },
 ];
 
 interface FooterProps {
