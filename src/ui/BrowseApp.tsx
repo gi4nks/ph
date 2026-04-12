@@ -6,6 +6,10 @@ import type { PhDB } from '../db/index.js';
 import { Header, type ActiveFilters } from './Header.js';
 import { Footer } from './Footer.js';
 import { THEMES, type Theme } from './themes.js';
+import { SearchBar } from './SearchBar.js';
+import { ListEntry } from './ListEntry.js';
+import { PreviewPane } from './PreviewPane.js';
+import { extractTopic } from '../utils/extractTopic.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,11 +106,6 @@ function formatTimestamp(ts: string): string {
   }
 }
 
-function truncate(s: string, max: number): string {
-  const flat = s.replace(/\n/g, ' ');
-  return flat.length > max ? flat.slice(0, max) + '…' : flat;
-}
-
 function parseMeta(raw: string): PromptMetadata {
   try { return JSON.parse(raw) as PromptMetadata; } catch { return {}; }
 }
@@ -164,64 +163,6 @@ function applyFilters(
   return result;
 }
 
-// ─── PromptRow ────────────────────────────────────────────────────────────────
-
-interface RowProps {
-  entry: PromptEntry;
-  isSelected: boolean;
-  termWidth: number;
-  theme: Theme;
-}
-
-const PromptRow: React.FC<RowProps> = ({ entry, isSelected, termWidth, theme }) => {
-  const meta = parseMeta(entry.metadata);
-  const sel = isSelected;
-
-  const star    = meta.starred ? '★ ' : '  ';
-  const proj    = meta.project ? `[${meta.project}${meta.language ? ':' + meta.language : ''}] ` : '';
-  const roleStr = meta.role ? `{${meta.role}} ` : '';
-  const tags    = meta.tags?.length ? `(${meta.tags.join(',')}) ` : '';
-  const cursor  = sel ? '❯ ' : '  ';
-
-  const roleColor = (meta.role && ROLE_COLOR[meta.role]) || theme.primary;
-  const maxPrompt = Math.max(20, termWidth - 10);
-
-  const scores = (meta.relevance !== undefined || meta.quality !== undefined) ? (
-    <Text color={theme.dim}>
-      {' ['}
-      <Text color={meta.relevance && meta.relevance >= 7 ? theme.success : theme.dim}>R:{meta.relevance ?? '?'}</Text>
-      {'|'}
-      <Text color={meta.quality && meta.quality >= 7 ? theme.success : theme.dim}>Q:{meta.quality ?? '?'}</Text>
-      {'] '}
-    </Text>
-  ) : null;
-
-  return (
-    <Box>
-      <Box width={2}>
-        <Text color={theme.primary} bold={sel}>{cursor}</Text>
-      </Box>
-      <Box flexDirection="column" flexGrow={1}>
-        <Box>
-          <Text color={sel ? theme.warning : undefined} bold={sel}>{`#${entry.id}`.padEnd(7)}</Text>
-          <Text color={sel ? 'white' : theme.warning}>{star}</Text>
-          <Text color={sel ? 'white' : theme.dim}>{formatTimestamp(entry.timestamp)}{'  '}</Text>
-          <Text color={sel ? theme.primary : theme.accent}>{entry.tool.padEnd(8)}</Text>
-          {scores}
-          {proj ? <Text color={sel ? 'white' : theme.dim}>{proj}</Text> : null}
-          {meta.role ? <Text color={roleColor} dimColor={!sel}>{roleStr}</Text> : null}
-          {tags ? <Text color={sel ? 'white' : theme.dim} dimColor={!sel}>{tags}</Text> : null}
-        </Box>
-        <Box>
-          <Text color={sel ? 'white' : theme.dim} wrap="truncate">
-            {truncate(entry.prompt, maxPrompt)}
-          </Text>
-        </Box>
-      </Box>
-    </Box>
-  );
-};
-
 // ─── DetailView ───────────────────────────────────────────────────────────────
 
 interface DetailProps {
@@ -235,93 +176,105 @@ interface DetailProps {
 
 const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, termHeight, theme }) => {
   const meta = parseMeta(entry.metadata);
-  const roleColor = (meta.role && ROLE_COLOR[meta.role]) || theme.primary;
-
   const [activeTab, setActiveTab] = useState<'prompt' | 'response'>(entry.response ? 'response' : 'prompt');
-  const [scroll, setScroll] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
-  // Reset scroll when switching tabs
   useEffect(() => {
-    setScroll(0);
+    setScrollOffset(0);
   }, [activeTab]);
 
-  const content = activeTab === 'prompt' ? entry.prompt : (entry.response || '(no response captured)');
-  const lines = useMemo(() => wrapTextLines(content, termWidth - 4), [content, termWidth]);
-  const availableLines = Math.max(5, termHeight - 12); // Adjusted for persistent header/footer
+  const contentWidth = Math.max(10, termWidth - 4);
+  const text = activeTab === 'prompt' ? entry.prompt : (entry.response || '(no response captured)');
+  const lines = useMemo(() => wrapTextLines(text, contentWidth), [text, contentWidth]);
+
+  // overhead = meta1(1) + meta2(1) + blank(1) + tabbar(1) + scroll-top(1) + scroll-bot(1) = 6
+  // But we also have Header(1), SearchBar(1), Footer(1) = 3
+  // Plus paddingTop(1) = 1.
+  // Total overhead = 10.
+  const contentHeight = Math.max(1, termHeight - 10);
+  const maxScroll = Math.max(0, lines.length - contentHeight);
 
   useInput((char, key) => {
     if (key.escape || key.return) onClose();
     else if (char === 'e') onEdit();
-    else if (key.tab) {
-      setActiveTab(t => t === 'prompt' ? 'response' : 'prompt');
+    else if (key.tab || char === '1' || char === '2') {
+      if (char === '1') setActiveTab('prompt');
+      else if (char === '2') setActiveTab('response');
+      else setActiveTab(t => t === 'prompt' ? 'response' : 'prompt');
     }
-    else if (char === '1') setActiveTab('prompt');
-    else if (char === '2') setActiveTab('response');
     else if (char === 'y') {
-      copyToClipboard(content);
+      copyToClipboard(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-    else if (key.upArrow) setScroll(s => Math.max(0, s - 1));
-    else if (key.downArrow) setScroll(s => Math.min(Math.max(0, lines.length - availableLines), s + 1));
-    else if (key.pageUp) setScroll(s => Math.max(0, s - availableLines));
-    else if (key.pageDown) setScroll(s => Math.min(Math.max(0, lines.length - availableLines), s + availableLines));
+    else if (key.upArrow) setScrollOffset(s => Math.max(0, s - 1));
+    else if (key.downArrow) setScrollOffset(s => Math.min(maxScroll, s + 1));
+    else if (key.pageUp) setScrollOffset(s => Math.max(0, s - contentHeight));
+    else if (key.pageDown) setScrollOffset(s => Math.min(maxScroll, s + contentHeight));
   });
 
-  const visibleLines = lines.slice(scroll, scroll + availableLines);
-  const paddedLines = [...visibleLines];
-  while (paddedLines.length < availableLines) paddedLines.push(' ');
+  const visibleLines = lines.slice(scrollOffset, scrollOffset + contentHeight);
+  const remaining = lines.length - (scrollOffset + contentHeight);
 
   return (
-    <Box flexDirection="column" paddingX={1} paddingTop={1} flexGrow={1}>
-      {/* Detail Header with Metadata */}
-      <Box marginBottom={1} justifyContent="space-between">
-        <Box flexDirection="column" flexGrow={1}>
-          <Box>
-            <Text color={theme.primary} bold>Prompt #{entry.id} </Text>
-            <Text color="white" dimColor>· {entry.tool} · {formatTimestamp(entry.timestamp)}</Text>
-            {meta.starred && <Text color={theme.warning}>  ★ starred</Text>}
-          </Box>
-          
-          <Box marginTop={0}>
-            {meta.project && <Text color={theme.accent}>{meta.project} </Text>}
-            {meta.language && <Text color={theme.dim}>({meta.language}) </Text>}
-            {meta.role && <Text color={roleColor}>[{meta.role}] </Text>}
-            {meta.relevance !== undefined && <Text color={theme.warning}>R:{meta.relevance} </Text>}
-            {meta.quality !== undefined && <Text color={theme.success}>Q:{meta.quality} </Text>}
-            <Text color={entry.exit_code === 0 ? theme.dim : theme.error}>exit:{entry.exit_code}</Text>
-          </Box>
+    <Box flexDirection="column" paddingX={2} paddingTop={1} flexGrow={1}>
+      {/* meta1 */}
+      <Box>
+        <Text color={theme.primary} bold>#{entry.id}</Text>
+        <Text dimColor> · {entry.tool} · {formatTimestamp(entry.timestamp)}  </Text>
+        {meta.starred && <Text color={theme.warning}>★</Text>}
+      </Box>
+
+      {/* meta2 */}
+      <Box>
+        {meta.project && <Text color={theme.accent}>proj:{meta.project}  </Text>}
+        {meta.language && <Text color={theme.dim}>lang:{meta.language}  </Text>}
+        {meta.role && (
+          <Text color={ROLE_COLOR[meta.role] ?? theme.primary}>role:{meta.role}  </Text>
+        )}
+        {meta.quality !== undefined && <Text color={theme.success}>Q:{meta.quality}  </Text>}
+        {meta.relevance !== undefined && <Text color={theme.warning}>R:{meta.relevance}  </Text>}
+        <Text color={entry.exit_code === 0 ? theme.dim : theme.error}>exit:{entry.exit_code}</Text>
+      </Box>
+
+      <Box height={1} />
+
+      {/* tab bar */}
+      <Box marginBottom={0} justifyContent="space-between">
+        <Box>
+          <Text color={theme.primary} bold underline>
+            {activeTab === 'prompt' ? '●' : '○'} PROMPT
+          </Text>
+          <Text>   </Text>
+          <Text color={theme.primary} bold underline>
+            {activeTab === 'response' ? '●' : '○'} RESPONSE
+          </Text>
+        </Box>
+        <Box>
+          {copied && <Text color={theme.success}>Copied! </Text>}
+          <Text dimColor>[y:copy  e:edit  ESC:back]</Text>
         </Box>
       </Box>
 
-      {/* Tabs Header - Clean Style */}
-      <Box paddingX={1}>
-        <Box 
-          paddingX={2} 
-          backgroundColor={activeTab === 'prompt' ? theme.primary : undefined}
-        >
-          <Text color={activeTab === 'prompt' ? 'black' : 'white'} bold={activeTab === 'prompt'}>
-            [1] Prompt
-          </Text>
-        </Box>
-        <Box 
-          paddingX={2} 
-          backgroundColor={activeTab === 'response' ? theme.primary : undefined}
-          marginLeft={1}
-        >
-          <Text color={activeTab === 'response' ? 'black' : 'white'} bold={activeTab === 'response'}>
-            [2] Response
-          </Text>
-        </Box>
-        {copied && <Box marginLeft={2}><Text color={theme.success}>Copied!</Text></Box>}
+      {/* scroll top */}
+      <Box height={1}>
+        {scrollOffset > 0 && <Text dimColor>  ↑ {scrollOffset} above</Text>}
       </Box>
 
-      {/* Content Box */}
-      <Box borderStyle="single" borderColor={theme.primary} padding={1} flexDirection="column" flexGrow={1}>
-        {paddedLines.map((line, i) => (
+      {/* content */}
+      <Box flexDirection="column" flexGrow={1}>
+        {visibleLines.map((line, i) => (
           <Text key={i}>{line || ' '}</Text>
         ))}
+        {Array.from({ length: Math.max(0, contentHeight - visibleLines.length) }).map((_, i) => (
+          <Text key={`pad-${i}`}> </Text>
+        ))}
+      </Box>
+
+      {/* scroll bot */}
+      <Box height={1}>
+        {remaining > 0 && <Text dimColor>  ↓ {remaining} more</Text>}
       </Box>
     </Box>
   );
@@ -339,7 +292,8 @@ interface EditProps {
 const EditView: React.FC<EditProps> = ({ entry, onSave, onClose, theme }) => {
   const initMeta = parseMeta(entry.metadata);
 
-  const [field, setField] = useState<'role' | 'tags'>('role');
+  const [field, setField] = useState<'title' | 'role' | 'tags'>('title');
+  const [titleValue, setTitleValue] = useState(initMeta.title ?? extractTopic(entry.prompt));
   const [roleValue, setRoleValue] = useState(initMeta.role ?? '');
   const [tagsValue, setTagsValue] = useState(initMeta.tags?.join(', ') ?? '');
 
@@ -347,6 +301,8 @@ const EditView: React.FC<EditProps> = ({ entry, onSave, onClose, theme }) => {
     if (key.escape) { onClose(); return; }
     if (key.return) {
       const newMeta: PromptMetadata = { ...initMeta };
+      const trimmedTitle = titleValue.trim();
+      newMeta.title = trimmedTitle || undefined;
       const trimmedRole = roleValue.trim();
       newMeta.role = trimmedRole || undefined;
       const parsedTags = tagsValue.split(',').map(t => t.trim()).filter(Boolean);
@@ -355,10 +311,17 @@ const EditView: React.FC<EditProps> = ({ entry, onSave, onClose, theme }) => {
       return;
     }
     if (key.tab) {
-      setField(f => f === 'role' ? 'tags' : 'role');
+      setField(f => {
+        if (f === 'title') return 'role';
+        if (f === 'role') return 'tags';
+        return 'title';
+      });
       return;
     }
-    const setter = field === 'role' ? setRoleValue : setTagsValue;
+    const setter =
+      field === 'title' ? setTitleValue :
+      field === 'role'  ? setRoleValue  :
+                          setTagsValue;
     if (key.backspace || key.delete) {
       setter(v => v.slice(0, -1));
     } else if (char && !key.ctrl && !key.meta) {
@@ -374,6 +337,12 @@ const EditView: React.FC<EditProps> = ({ entry, onSave, onClose, theme }) => {
         <Text color={theme.primary} bold>Edit Metadata — Prompt #{entry.id}</Text>
       </Box>
       <Box flexDirection="column" borderStyle="single" borderColor={theme.dim} padding={1}>
+        <Box marginBottom={1}>
+          <Text dimColor>Title: </Text>
+          <Text color={field === 'title' ? theme.primary : 'white'} bold={field === 'title'}>
+            {titleValue || '(none)'}{field === 'title' ? '█' : ''}
+          </Text>
+        </Box>
         <Box marginBottom={1}>
           <Text dimColor>Role:  </Text>
           <Text color={field === 'role' ? theme.primary : 'white'} bold={field === 'role'}>
@@ -654,12 +623,23 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   const [rerunning, setRerunning] = useState<PromptEntry | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
+  // New state for split-pane focus
+  const [focusPane, setFocusPane] = useState<'list' | 'preview'>('list');
+  const [scrollOffset, setScrollOffset] = useState(0);
+
   const currentThemeName = 'dark'; // Could be made stateful later
   const theme = THEMES[currentThemeName] || THEMES.dark;
 
   const { columns: termWidth, rows: termHeight } = useStdoutDimensions();
-  // Adjusted PAGE_SIZE for the new header/footer layout (approx 4-5 lines of vertical space)
-  const PAGE_SIZE = Math.max(1, Math.floor(termHeight - 5));
+  
+  const SPLIT_THRESHOLD = 100;
+  const isWide = termWidth >= SPLIT_THRESHOLD;
+  const leftPaneWidth = isWide ? Math.max(32, Math.min(50, Math.floor(termWidth * 0.33))) : termWidth;
+
+  // Wide mode: header(1) + searchbar(1) + footer(1) + pane-header(1) = 4 overhead lines.
+  // n list entries occupy 3n-1 lines (2 per entry + 1 separator, except last).
+  // n = floor((termHeight - 4 + 1) / 3) = floor((termHeight - 3) / 3)
+  const PAGE_SIZE = Math.max(1, Math.floor((termHeight - 3) / 3));
 
   // Derived filtered entries — recomputed when filters or refreshKey change
   const entries = useMemo(
@@ -673,7 +653,17 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
     setCursor(c => Math.min(c, Math.max(0, entries.length - 1)));
   }, [entries.length]);
 
-  const pageStart = Math.max(0, Math.min(cursor - Math.floor(PAGE_SIZE / 2), entries.length - PAGE_SIZE));
+  // Scroll vim-style: muovi il viewport solo quando il cursore esce dal range visibile.
+  useEffect(() => {
+    setScrollOffset(prev => {
+      const clamped = Math.max(0, Math.min(prev, Math.max(0, entries.length - PAGE_SIZE)));
+      if (cursor < clamped)                  return cursor;
+      if (cursor >= clamped + PAGE_SIZE)     return cursor - PAGE_SIZE + 1;
+      return clamped;
+    });
+  }, [cursor, PAGE_SIZE, entries.length]);
+
+  const pageStart = scrollOffset;
   const visible   = entries.slice(pageStart, pageStart + PAGE_SIZE);
 
   const triggerRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
@@ -704,47 +694,66 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   const handleFilterUpdate = useCallback((filters: ActiveFilters) => {
     setActiveFilters(filters);
     setCursor(0);
+    setScrollOffset(0);
   }, []);
-
-  const activeFilterCount = Object.values(activeFilters).filter(v => v !== undefined && v !== false).length;
 
   useInput((char, key) => {
     if (detail || editing || showFilterPanel || rerunning) return;
 
+    // Search mode
     if (isTextFiltering) {
-      if (key.escape) {
-        setTextFiltering(false);
-        setTextFilter('');
-      } else if (key.return) {
-        setTextFiltering(false);
-      } else if (key.backspace || key.delete) {
-        setTextFilter(v => v.slice(0, -1));
-      } else if (char && !key.ctrl) {
-        setTextFilter(v => v + char);
-      }
+      if (key.escape) { setTextFiltering(false); setTextFilter(''); }
+      else if (key.return) { setTextFiltering(false); }
+      else if (key.backspace || key.delete) { setTextFilter(v => v.slice(0, -1)); }
+      else if (char && !key.ctrl) { setTextFilter(v => v + char); }
       return;
     }
 
-    if (char === 'q' || key.escape)  { exit(); }
-    else if (key.upArrow)            { setCursor(c => Math.max(0, c - 1)); }
-    else if (key.downArrow)          { setCursor(c => Math.min(entries.length - 1, c + 1)); }
-    else if (key.pageUp)             { setCursor(c => Math.max(0, c - PAGE_SIZE)); }
-    else if (key.pageDown)           { setCursor(c => Math.min(entries.length - 1, c + PAGE_SIZE)); }
-    else if (key.return)             { if (entries[cursor]) setDetail(entries[cursor]); }
+    // Global shortcuts
+    if (key.escape) {
+      if (isWide && focusPane === 'preview') { setFocusPane('list'); return; }
+      exit();
+      return;
+    }
+    else if (char === 'q') { exit(); }
+    else if (char === '/')           { setTextFiltering(true); }
     else if (char === 's')           { if (entries[cursor]) toggleStar(entries[cursor]); }
     else if (char === 'e')           { if (entries[cursor]) setEditing(entries[cursor]); }
     else if (char === 'r')           { if (entries[cursor]) setRerunning(entries[cursor]); }
-    else if (char === 'y')           {
+    else if (char === 'x')           { if (entries[cursor]) handleDelete(entries[cursor]); }
+    else if (char === 'f')           { setFilterPanel(true); }
+    else if (char === 'c')           { setActiveFilters({}); setTextFilter(''); setCursor(0); setScrollOffset(0); }
+    else if (char === 'y') {
       if (entries[cursor]) {
         copyToClipboard(entries[cursor].prompt);
         setCopiedId(entries[cursor].id);
         setTimeout(() => setCopiedId(null), 2000);
       }
     }
-    else if (char === 'x')           { if (entries[cursor]) handleDelete(entries[cursor]); }
-    else if (char === '/')           { setTextFiltering(true); }
-    else if (char === 'f')           { setFilterPanel(true); }
-    else if (char === 'c')           { setActiveFilters({}); setTextFilter(''); setCursor(0); }
+
+    // Tab: in wide mode switch focus
+    else if (key.tab && isWide) {
+      setFocusPane(p => p === 'list' ? 'preview' : 'list');
+    }
+
+    // List navigation
+    else if (focusPane === 'list' || !isWide) {
+      if (key.upArrow)    { setCursor(c => Math.max(0, c - 1)); }
+      else if (key.downArrow) { setCursor(c => Math.min(entries.length - 1, c + 1)); }
+      else if (key.pageUp)    { setCursor(c => Math.max(0, c - PAGE_SIZE)); }
+      else if (key.pageDown)  { setCursor(c => Math.min(entries.length - 1, c + PAGE_SIZE)); }
+      else if (key.return) {
+        if (isWide) {
+          if (entries[cursor]) {
+            copyToClipboard(entries[cursor].prompt);
+            setCopiedId(entries[cursor].id);
+            setTimeout(() => setCopiedId(null), 2000);
+          }
+        } else {
+          if (entries[cursor]) setDetail(entries[cursor]);
+        }
+      }
+    }
   });
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -782,7 +791,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
         theme={theme}
       />
     );
-  } else if (detail) {
+  } else if (detail && !isWide) {
     mainContent = (
       <DetailView
         entry={detail}
@@ -793,24 +802,86 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
         theme={theme}
       />
     );
+  } else if (isWide) {
+    const listFocused    = focusPane === 'list';
+    const previewFocused = focusPane === 'preview';
+    mainContent = (
+      <Box flexDirection="row" flexGrow={1}>
+        {/* Left Pane: List */}
+        <Box flexDirection="column" width={leftPaneWidth}>
+          {/* Pane header — focus indicator */}
+          <Box paddingX={1}>
+            <Text color={listFocused ? theme.primary : theme.dim} bold={listFocused}>
+              {listFocused ? '❯ ' : '  '}HISTORY
+            </Text>
+            {entries.length > 0 && (
+              <Text color={theme.dim}>  {cursor + 1}/{entries.length}</Text>
+            )}
+          </Box>
+          {entries.length === 0 ? (
+            <Box paddingX={1}>
+              <Text dimColor>(no results)</Text>
+            </Box>
+          ) : (
+            visible.map((entry, i) => (
+              <React.Fragment key={entry.id}>
+                <ListEntry
+                  entry={entry}
+                  isSelected={pageStart + i === cursor}
+                  paneWidth={leftPaneWidth}
+                  theme={theme}
+                />
+                {i < visible.length - 1 && (
+                  <Box>
+                    <Text color={theme.dim}>{'─'.repeat(leftPaneWidth)}</Text>
+                  </Box>
+                )}
+              </React.Fragment>
+            ))
+          )}
+        </Box>
+        {/* Vertical separator + Preview Pane — border color reflects focus */}
+        <Box
+          borderLeft
+          borderStyle="single"
+          borderColor={previewFocused ? theme.primary : theme.dim}
+          flexGrow={1}
+          flexDirection="column"
+        >
+          <PreviewPane
+            entry={entries[cursor] ?? null}
+            paneWidth={termWidth - leftPaneWidth - 1}
+            paneHeight={termHeight - 3}
+            isFocused={previewFocused}
+            theme={theme}
+          />
+        </Box>
+      </Box>
+    );
+
   } else {
+    // Narrow Mode List
     mainContent = (
       <Box flexDirection="column" paddingX={1} flexGrow={1}>
         {entries.length === 0 ? (
           <Box marginTop={1}>
-            <Text color={theme.dim}>
-              (no results{activeFilterCount > 0 || textFilter ? ' — press c to clear filters' : ''})
-            </Text>
+            <Text color={theme.dim}>(no results)</Text>
           </Box>
         ) : (
           visible.map((entry, i) => (
-            <PromptRow
-              key={entry.id}
-              entry={entry}
-              isSelected={pageStart + i === cursor}
-              termWidth={termWidth}
-              theme={theme}
-            />
+            <React.Fragment key={entry.id}>
+               <ListEntry
+                entry={entry}
+                isSelected={pageStart + i === cursor}
+                paneWidth={termWidth}
+                theme={theme}
+              />
+              {i < visible.length - 1 && (
+                <Box>
+                  <Text color={theme.dim}>{'─'.repeat(termWidth)}</Text>
+                </Box>
+              )}
+            </React.Fragment>
           ))
         )}
       </Box>
@@ -824,9 +895,11 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
         allEntriesCount={allEntries.length}
         activeFilters={activeFilters}
         textFilter={textFilter}
-        isTextFiltering={isTextFiltering}
+        isTextFiltering={false} // SearchBar handles it
         theme={currentThemeName}
       />
+      
+      <SearchBar value={textFilter} isActive={isTextFiltering} theme={theme} />
 
       <Box flexGrow={1}>
         {mainContent}
