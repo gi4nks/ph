@@ -4,7 +4,7 @@
   "description": "Transparent CLI wrapper that captures and indexes AI prompts",
   "type": "module",
   "bin": {
-    "ph": "./dist/cli.js"
+    "ph": "dist/cli.js"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
