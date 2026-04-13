@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.3.1](https://github.com/gi4nks/ph/compare/v1.3.0...v1.3.1) (2026-04-13)
+
+
+### Features
+
+* **ui:** major redesign of browse view with split-pane and topic extraction ([53d9008](https://github.com/gi4nks/ph/commit/53d90087709ffda5913fc3026b6554f0aae4ddf4))
+
+
+### Bug Fixes
+
+* resolve npm publish auth error and bin path warning ([5dfe49a](https://github.com/gi4nks/ph/commit/5dfe49ab6c169ec2eed8c16fe73139381efdf0ed))
+
 ## [1.3.0](https://github.com/gi4nks/ph/compare/v1.2.0...v1.3.0) (2026-04-12)
 
 ## [1.2.0](https://github.com/gi4nks/ph/compare/v1.1.2...v1.2.0) (2026-04-06)
