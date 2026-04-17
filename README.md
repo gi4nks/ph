@@ -132,14 +132,10 @@ After the release, remember to push the tags to trigger the **GitHub Action** fo
 ```bash
 git push --follow-tags origin main
 ```
-The package will be automatically built and published to [GitHub Packages](https://github.com/gi4nks/ph/packages).
+The package will be automatically built and published to [npmjs.org](https://www.npmjs.com/package/@gi4nks/ph).
 
-### Installation via GitHub Packages
-Configure your `.npmrc` to include the `@gi4nks` scope:
-```bash
-@gi4nks:registry=https://npm.pkg.github.com
-```
-Then install with:
+### Installation via npm
+Install globally with:
 ```bash
 npm install -g @gi4nks/ph
 ```

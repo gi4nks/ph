@@ -190,13 +190,10 @@ make build
 make install    # installs the global 'ph' symlink
 ```
 
-### Via GitHub Packages
+### Via npm
 
 ```bash
-# Add to ~/.npmrc:
-@gi4nks:registry=https://npm.pkg.github.com
-
-# Then install globally:
+# Install globally:
 npm install -g @gi4nks/ph
 ```
 
