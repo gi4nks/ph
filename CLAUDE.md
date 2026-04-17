@@ -35,7 +35,7 @@ ph capture --role debug "test prompt" # Manual capture test
 - Always use **Conventional Commits** (e.g., `feat: add semantic search`, `fix: resolved database bug`).
 - Releases must be performed via `Makefile` targets (`make release-patch|minor|major`).
 - Do not manually modify the version in `package.json`.
-- Pushing tags triggers the GitHub Actions workflow for publication on the `@gi4nks` registry.
+- Pushing tags triggers the GitHub Actions workflow for publication on npm.
 
 ## Maintenance Tasks
 

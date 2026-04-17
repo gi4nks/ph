@@ -42,7 +42,7 @@ At the time of capture (`ph capture`), always collect:
   - Before a release, ensure the build is correct (`make build`).
   - Run `make release-patch` (or minor/major) to update the version and `CHANGELOG.md`.
   - Do not commit version changes outside of the release process.
-  - Pushing tags (`git push --follow-tags`) triggers the GitHub workflow for publication on GitHub Packages.
+  - Pushing tags (`git push --follow-tags`) triggers the GitHub Actions workflow for publication on npmjs.org.
 
 ## Maintenance
 
