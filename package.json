@@ -19,6 +19,11 @@
     "type": "git",
     "url": "git+https://github.com/gi4nks/ph.git"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli.ts",
