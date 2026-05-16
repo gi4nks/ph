@@ -9,19 +9,18 @@ interface SearchBarProps {
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({ value, isActive, theme }) => {
-  if (isActive) {
-    return (
-      <Box paddingX={1}>
-        <Text color={theme.primary}>⌕  {value}█</Text>
-      </Box>
-    );
-  }
+  const isEmpty = value === '';
 
-  const content = value === '' ? 'type / to search…' : value;
+  const bgColor = isActive ? theme.primary : theme.dim;
 
   return (
-    <Box paddingX={1}>
-      <Text dimColor>⌕  {content}</Text>
+    <Box paddingX={1} paddingY={0}>
+      <Text color={bgColor} bold={isActive}>
+        {isActive ? '⌕' : '⌕'}
+      </Text>
+      <Text color={isActive ? 'white' : theme.dim}>
+        {' '}{isEmpty ? (isActive ? '' : 'search (/)') : value}{isActive ? '█' : ''}
+      </Text>
     </Box>
   );
 };

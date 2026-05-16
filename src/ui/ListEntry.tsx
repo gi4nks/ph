@@ -19,6 +19,7 @@ const ROLE_COLOR: Record<string, string> = {
 function toolIndicator(tool: string): { char: string; color: string } {
   if (tool === 'claude') return { char: '●', color: '#f5a623' };
   if (tool === 'gemini') return { char: '●', color: '#4fc3f7' };
+  if (tool === 'opencode') return { char: '●', color: '#e040fb' };
   return { char: '○', color: 'gray' };
 }
 
@@ -53,39 +54,54 @@ export const ListEntry: React.FC<ListEntryProps> = ({ entry, isSelected, paneWid
   const role = meta.role ? truncate(meta.role, 6) : '';
   const roleColor = meta.role ? ROLE_COLOR[meta.role] || 'white' : 'white';
 
+  const hasAnalysis = Boolean(meta.summary || meta.role || (meta.tags && meta.tags.length > 0));
+  const roleBar = meta.role ? ROLE_COLOR[meta.role] || theme.dim : theme.dim;
   const rawTitle = meta.title || extractTopic(entry.prompt);
-  // Truncate to paneWidth - 3 to leave room for ' ❯ ' prefix
-  const displayPrompt = truncate(rawTitle, paneWidth - 3);
+  const displayPrompt = truncate(rawTitle, paneWidth - 5);
+
+  let summaryLine = '';
+  if (meta.summary) {
+    summaryLine = truncate(meta.summary.replace(/\n/g, ' '), paneWidth - 5);
+  }
 
   return (
     <Box flexDirection="column">
-      {/* Row 1 — info contestuali in dimColor per gerarchia visiva */}
       <Box flexDirection="row" width={paneWidth} overflow="hidden">
-        <Text color={indicator.color}>{indicator.char} </Text>
-        <Text dimColor>{entry.tool.padEnd(7)}</Text>
-        {meta.starred ? <Text color={theme.warning}>★ </Text> : <Text>  </Text>}
+        <Text color={roleBar}>│</Text>
+        <Text color={indicator.color}> {indicator.char}</Text>
+        <Text dimColor> {entry.tool.padEnd(8)}</Text>
+        {meta.starred ? <Text color={theme.warning}>★</Text> : <Text> </Text>}
+        {hasAnalysis ? <Text color={theme.success}>●</Text> : <Text dimColor>○</Text>}
+        <Text>{' '}</Text>
         <Text dimColor>{hhmm}  </Text>
-        {role && (
-          <Text color={roleColor} dimColor>
-            {role}
+        {role && <Text color={roleColor}>{role}</Text>}
+        {meta.quality !== undefined && (
+          <Text color={theme.success}> Q{meta.quality}</Text>
+        )}
+        {meta.relevance !== undefined && (
+          <Text color={theme.warning}> R{meta.relevance}</Text>
+        )}
+      </Box>
+
+      <Box flexDirection="row">
+        <Text color={roleBar}>│</Text>
+        {isSelected ? (
+          <Text inverse bold>
+            {' '}{displayPrompt.padEnd(paneWidth - 3)}
+          </Text>
+        ) : (
+          <Text>
+            {' '}{displayPrompt}
           </Text>
         )}
       </Box>
 
-      {/* Row 2 — titolo con inverse video su selezione (barra a piena larghezza) */}
-      <Box flexDirection="row">
-        {isSelected ? (
-          <Text inverse bold>
-            {' ❯ '}
-            {displayPrompt.padEnd(paneWidth - 3)}
-          </Text>
-        ) : (
-          <Text>
-            {'  '}
-            {displayPrompt}
-          </Text>
-        )}
-      </Box>
+      {summaryLine && (
+        <Box flexDirection="row">
+          <Text color={roleBar}>│</Text>
+          <Text dimColor> {summaryLine}</Text>
+        </Box>
+      )}
     </Box>
   );
 };

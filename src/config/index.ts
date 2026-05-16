@@ -12,6 +12,9 @@ export interface PhConfig {
   filterMinRelevance?: number;           // default: 3 (0 = disable)
   backgroundAnalysis?: boolean;          // default: false
   ollamaEmbedModel?: string;             // default: nomic-embed-text-v2-moe
+  remoteUrl?: string;                    // HTTP URL of remote ph server (or set PH_REMOTE_URL env)
+  remoteApiKey?: string;                 // optional API key for remote server
+  remoteLastPull?: string;               // ISO timestamp of last successful pull
 }
 
 const CONFIG_PATH = path.join(os.homedir(), '.ph_config.json');

@@ -165,16 +165,94 @@ ln -sf /path/to/ph/hooks/gemini/ph-hook.sh ~/.gemini/ph-hook.sh
 
 ---
 
+### OpenCode Hook
+
+OpenCode uses a JavaScript/TypeScript **plugin** system (rather than shell scripts). The `ph` integration is a plugin that hooks into OpenCode's message lifecycle to capture prompts and responses.
+
+#### How the plugin captures data
+
+The plugin registers two hooks inside OpenCode's runtime:
+
+| Hook | Purpose |
+|------|---------|
+| `chat.message` | Intercepts every message in the conversation. User messages become prompts; assistant messages become response snapshots. |
+| `experimental.text.complete` | Fires after streaming completes. Replaces the snapshot with the full, final response text. |
+
+**Data flow:**
+
+```
+User types prompt
+  → chat.message fires (role: user)
+  → plugin stores the prompt text + metadata (agent, model, workdir)
+
+Assistant streams response
+  → experimental.text.complete fires for each text part
+  → plugin accumulates the complete response text
+
+Next user message or session end
+  → plugin pairs prompt + accumulated response
+  → pipes {"tool":"opencode","prompt":"...","response":"..."} to ph log
+  → runs in background — never blocks OpenCode
+```
+
+#### Hook installation — OpenCode
+
+OpenCode loads plugins from two directories:
+- `~/.config/opencode/plugins/` — global (all projects)
+- `.opencode/plugins/` — per-project
+
+**Option A: Quick install (global)**
+
+```bash
+# Link the plugin into OpenCode's global plugin directory
+mkdir -p ~/.config/opencode/plugins
+ln -sf /path/to/ph/hooks/opencode/ph-plugin.ts ~/.config/opencode/plugins/ph-plugin.ts
+```
+
+Or use the install script:
+
+```bash
+./hooks/opencode/install.sh              # global (default)
+./hooks/opencode/install.sh --project    # current project only
+```
+
+**Option B: Manual copy**
+
+```bash
+cp hooks/opencode/ph-plugin.ts ~/.config/opencode/plugins/
+```
+
+The plugin is automatically loaded on the next OpenCode startup. No config changes needed — Bun handles TypeScript natively.
+
+**Verify:**
+
+```bash
+# Start OpenCode — the plugin loads silently
+opencode
+
+# Check that prompts are being captured
+ph search --tool opencode --limit 3
+```
+
+**Uninstall:**
+
+```bash
+rm ~/.config/opencode/plugins/ph-plugin.ts
+```
+
+---
+
 ### Hook Comparison
 
-| Aspect | Claude Code | Gemini CLI |
-|--------|------------|------------|
-| Hook name | `Stop` | `AfterAgent` |
-| Data delivery | `transcript_path` (JSONL file) | Direct JSON on stdin |
-| Prompt extraction | Parse JSONL with `jq` slurp | `jq .prompt` field |
-| Response extraction | Last assistant text block | `jq .prompt_response` field |
-| Async support | Yes (`async: true` in config) | Yes (`& + disown` in script) |
-| Blocks AI exit? | Never (exits `0`) | Never (exits `0`) |
+| Aspect | Claude Code | Gemini CLI | OpenCode |
+|--------|------------|------------|----------|
+| Hook mechanism | `Stop` shell script | `AfterAgent` shell script | JS/TS plugin |
+| Data delivery | `transcript_path` (JSONL) | Direct JSON on stdin | Event hooks (`chat.message`, `experimental.text.complete`) |
+| Prompt extraction | Parse JSONL with `jq` slurp | `jq .prompt` | `message.role === 'user'` parts |
+| Response extraction | Last assistant text block | `jq .prompt_response` | `experimental.text.complete` accumulation |
+| Async support | Yes (`async: true`) | Yes (`& + disown`) | Yes (Promise fire-and-forget) |
+| Blocks AI exit? | Never | Never | Never |
+| Install method | Symlink + settings.json | Symlink + settings.json | Copy plugin file to `plugins/` dir |
 
 ---
 

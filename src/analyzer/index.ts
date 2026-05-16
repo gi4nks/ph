@@ -9,17 +9,23 @@ export interface AnalysisResult {
   tags?: string[];
   relevance?: number;  // 0-10: how useful/informative this prompt is for future reference
   quality?: number;    // 0-10: how well-structured, detailed and clear the prompt is
+  summary?: string;
+  key_insights?: string[];
+  technical_decisions?: string[];
 }
 
 const ANALYSIS_PROMPT = (text: string) => `\
-Analyze this AI tool prompt and return ONLY a JSON object with these exact fields:
+Analyze this AI tool prompt and response and return ONLY a JSON object with these exact fields:
 {
   "project": "<project name if clearly identifiable, else empty string>",
   "language": "<programming language if identifiable, else empty string>",
   "role": "<ONE of: debug, refactor, explain, review, architect, test, docs, generate, research — or empty string>",
   "tags": ["<tag1>", "<tag2>"],
   "relevance": <integer 0-10>,
-  "quality": <integer 0-10>
+  "quality": <integer 0-10>,
+  "summary": "<a concise 1-sentence summary of the interaction>",
+  "key_insights": ["<insight1>", "<insight2>"],
+  "technical_decisions": ["<decision1>", "<decision2>"]
 }
 
 Rules:
@@ -30,11 +36,14 @@ Rules:
   0=completely useless (single word, greeting, yes/no), 5=average technical question, 10=highly detailed technical question
 - quality: how well-structured is the prompt?
   0=messy/vague, 5=clear but simple, 10=professional prompt engineering (context, instructions, examples, constraints)
+- summary: Focus on the technical achievement or question asked.
+- key_insights: List 1-3 specific technical decisions, library choices, or architectural findings.
+- technical_decisions: List 1-3 concrete technology choices, architectural decisions, or trade-offs made (e.g. "Using SQLite over Postgres for simplicity", "Chose tsup for ESM build"). Empty array if not applicable.
 - Return ONLY the JSON object — no markdown fences, no explanation, no other text
 
-Prompt to analyze:
+Interaction to analyze:
 """
-${text.slice(0, 1500)}
+${text.slice(0, 2000)}
 """`;
 
 /**
@@ -85,6 +94,21 @@ export function parseAnalysisResponse(raw: string): AnalysisResult {
   if (typeof parsed['quality'] === 'number') {
     result.quality = Math.max(0, Math.min(10, Math.round(parsed['quality'])));
   }
+  if (typeof parsed['summary'] === 'string' && parsed['summary'].trim()) {
+    result.summary = parsed['summary'].trim();
+  }
+  if (Array.isArray(parsed['key_insights'])) {
+    const insights = (parsed['key_insights'] as unknown[])
+      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      .slice(0, 5);
+    if (insights.length > 0) result.key_insights = insights;
+  }
+  if (Array.isArray(parsed['technical_decisions'])) {
+    const decisions = (parsed['technical_decisions'] as unknown[])
+      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      .slice(0, 5);
+    if (decisions.length > 0) result.technical_decisions = decisions;
+  }
 
   return result;
 }
@@ -116,12 +140,20 @@ export function mergeMetadata(
   if (force || !merged.language) merged.language = result.language || merged.language;
   if (force || !merged.role)     merged.role     = result.role     || merged.role;
   if (force || !merged.tags?.length) merged.tags = result.tags    ?? merged.tags;
+  
   if (result.relevance !== undefined && (force || merged.relevance === undefined)) {
     merged.relevance = result.relevance;
   }
   if (result.quality !== undefined && (force || merged.quality === undefined)) {
     merged.quality = result.quality;
   }
+  if (result.summary && (force || !merged.summary)) {
+    merged.summary = result.summary;
+  }
+  if (result.key_insights && (force || !merged.key_insights?.length)) {
+    merged.key_insights = result.key_insights;
+  }
+
   // Clean up empty strings set by LLM
   if (!merged.project)  delete merged.project;
   if (!merged.language) delete merged.language;
@@ -129,6 +161,7 @@ export function mergeMetadata(
   if (!merged.tags?.length) delete merged.tags;
   return merged;
 }
+
 
 function parseMeta(raw: string): PromptMetadata {
   try { return JSON.parse(raw) as PromptMetadata; } catch { return {}; }
@@ -189,6 +222,16 @@ export async function analyzeAll(
         stats.pruned++;
       } else {
         db.updateMetadata(entry.id, JSON.stringify(merged));
+        // Populate project memory if we have a project + summary
+        if (result.project && result.summary) {
+          db.upsertProjectMemory({
+            project: result.project,
+            prompt_id: entry.id,
+            summary: result.summary,
+            key_insights: result.key_insights ?? [],
+            technical_decisions: result.technical_decisions ?? [],
+          });
+        }
         stats.updated++;
       }
     } catch (e: unknown) {
