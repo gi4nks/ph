@@ -568,6 +568,23 @@ export class PhDB {
     };
   }
 
+  getAllPromptsByProject(project: string): PromptEntry[] {
+    return this.db
+      .prepare(`
+        SELECT * FROM prompts
+        WHERE json_extract(metadata, '$.project') = ?
+        ORDER BY timestamp ASC
+      `)
+      .all(project) as PromptEntry[];
+  }
+
+  getAllMemoriesByProject(project: string): MemoryEntry[] {
+    const rows = this.db
+      .prepare('SELECT * FROM memories WHERE project = ? ORDER BY created_at ASC')
+      .all(project) as Record<string, unknown>[];
+    return rows.map(r => this.hydrateMemory(r));
+  }
+
   close(): void {
     this.db.close();
   }

@@ -29,6 +29,7 @@ import { cmdStats } from './commands/stats.js';
 import { cmdCluster } from './commands/cluster.js';
 import { cmdAnalyzeReusability } from './commands/analyze-reusability.js';
 import { cmdCleanupReusability } from './commands/cleanup-reusability.js';
+import { cmdTimeline } from './commands/timeline.js';
 import { cmdWrap } from './commands/wrap.js';
 import { cmdChat } from './commands/chat.js';
 import { parseFlags } from './commands/_utils.js';
@@ -53,6 +54,7 @@ USAGE:
   ph analyze [--limit n] [--force] [--prune] [--dry-run]  Analyze prompts with LLM
   ph mcp                                Start MCP server (Stdio)
   ph server [--port 3001]               Start HTTP REST server for remote sync
+  ph timeline [project]                 Show full project history with prompts and memories
   ph remote push|pull|status            Sync prompts with remote ph server
   ph cleanup [--dry-run] [--min-length N] [--min-score N]  Remove useless prompts
   ph cleanup-reusability [--dry-run] [--threshold 0.7] [--force]  Cleanup based on reusability
@@ -384,6 +386,13 @@ async function main(): Promise<void> {
 
     case 'chat': {
       await cmdChat(dbPath, cfg, cmdArgs);
+      break;
+    }
+
+    case 'timeline': {
+      const db = new PhDB(dbPath);
+      await cmdTimeline(db, cfg, cmdArgs);
+      db.close();
       break;
     }
 
