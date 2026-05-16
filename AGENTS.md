@@ -21,6 +21,9 @@ Remote sync infrastructure: HTTP server for cross-laptop prompt history sharing,
 - **Remote sync (`ph remote`)**: `src/commands/remote.ts` — `push` (sends unsynced local prompts to remote by timestamp), `pull` (fetches remote prompts since last pull, dedup by `sync_hash`), `status` (shows sync state). Dedup via sha256 of `tool|prompt|response` stored in metadata as `sync_hash`.
 - **Background push on log**: `src/commands/log.ts` — after each `ph log`, fire-and-forget push to remote if configured (no blocking).
 - **Env/config remote URL**: `PH_REMOTE_URL` env var takes precedence over `ph config set remoteUrl`. Config comment uses generic placeholder — no hardcoded server names.
+- **semantic-release**: Replaced `standard-version` with `semantic-release` for automated CI/CD. Release workflow runs on push to `main`, bumps version via conventional commits, publishes to npm with OIDC provenance.
+- **OIDC trusted publishing**: Package published with provenance attestation via GitHub Actions (`id-token: write`). Publisher identity: `GitHub Actions <npm-oidc-no-reply@github.com>`.
+- **Ubuntu server setup**: Added systemd service template for `ph server` as a remote sync daemon.
 
 ### Next Steps
 - Task 2.4: git state tracking to avoid duplicate memories when project hasn't changed
@@ -139,7 +142,7 @@ dist/                 # Build output (gitignored)
 | Validation | `zod` 4.3 |
 | Linting | ESLint 9 + TypeScript + React |
 | Testing | `vitest` 4.1 |
-| Release | `standard-version` 9.5 |
+| Release | `semantic-release` 25 (conventional commits) |
 | Dev Runner | `tsx` 4.21 |
 
 ## Commands
