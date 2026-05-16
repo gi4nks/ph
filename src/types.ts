@@ -1,26 +1,43 @@
 export interface PromptEntry {
   id: number;
-  timestamp: string; // ISO-8601 string, stored as TEXT in SQLite
+  timestamp: string;
   tool: string;
   prompt: string;
-  response: string;  // AI response text, empty string if not captured
+  response: string;
   args: string;
   workdir: string;
   hostname: string;
   exit_code: number;
-  metadata: string; // JSON string: { project?, language?, tags?, starred? }
+  metadata: string;
 }
 
 export interface PromptMetadata {
-  title?: string;       // ← NUOVO: titolo breve estratto o impostato manualmente
+  $schema_version?: number;
+  title?: string;
   project?: string;
   language?: string;
-  role?: string;        // e.g. 'debug', 'refactor', 'explain', 'review', 'architect', 'test', 'docs'
+  role?: string;
   tags?: string[];
   starred?: boolean;
-  relevance?: number;   // 0-10: LLM-assigned usefulness score
-  quality?: number;     // 0-10: LLM-assigned prompt engineering quality score
+  relevance?: number;
+  quality?: number;
   git_context?: { branch: string; files: string[]; diff: string };
+  summary?: string;
+  key_insights?: string[];
+}
+
+export interface MemoryEntry {
+  id: number;
+  project: string;
+  prompt_ids: number[];
+  summary: string;
+  key_insights: string[];
+  technical_decisions: string[];
+  git_context_snapshot?: string;
+  created_at: string;
+  updated_at: string;
+  access_count: number;
+  last_accessed?: string;
 }
 
 export interface SearchOptions {

@@ -1,6 +1,5 @@
 import pty from '@lydell/node-pty';
 import fs from 'fs';
-import os from 'os';
 
 export type PromptCallback = (prompt: string, timestamp: Date) => number; // returns prompt ID
 export type ResponseCallback = (id: number, response: string) => void;

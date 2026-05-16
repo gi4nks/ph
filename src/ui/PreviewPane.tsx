@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
-import type { PromptEntry, PromptMetadata } from '../types.js';
+import type { PromptEntry, PromptMetadata, MemoryEntry } from '../types.js';
 import type { Theme } from './themes.js';
 
 const ROLE_COLOR: Record<string, string> = {
@@ -61,6 +61,7 @@ interface PreviewPaneProps {
   paneHeight: number;
   isFocused: boolean;
   theme: Theme;
+  getProjectMemories?: (project: string) => MemoryEntry[];
 }
 
 export const PreviewPane: React.FC<PreviewPaneProps> = ({
@@ -69,12 +70,13 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
   paneHeight,
   isFocused,
   theme,
+  getProjectMemories,
 }) => {
-  const [activeTab, setActiveTab] = useState<'prompt' | 'response'>('prompt');
+  const [activeTab, setActiveTab] = useState<'prompt' | 'response' | 'memory'>('prompt');
   const [scrollOffset, setScrollOffset] = useState(0);
 
   useEffect(() => {
-    setActiveTab('prompt');
+    setActiveTab(entry?.response ? 'response' : 'prompt');
     setScrollOffset(0);
   }, [entry?.id]);
 
@@ -88,23 +90,62 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
 
   const allLines = useMemo(() => {
     if (!entry) return [];
-    const text = activeTab === 'prompt' ? entry.prompt : (entry.response || '(no response captured)');
-    return wrapTextLines(text, contentWidth);
-  }, [entry, activeTab, contentWidth]);
+    if (activeTab === 'prompt') return wrapTextLines(entry.prompt, contentWidth);
+    if (activeTab === 'response') return wrapTextLines(entry.response || '(no response captured)', contentWidth);
+    
+    // Memory tab
+    const lines: string[] = [];
+    // Project-level memories
+    if (meta.project && getProjectMemories) {
+      const memories = getProjectMemories(meta.project);
+      if (memories.length > 0) {
+        lines.push(`── Project Knowledge: ${meta.project} ──`);
+        lines.push('');
+        for (const mem of memories) {
+          if (mem.summary) {
+            lines.push(...wrapTextLines(mem.summary, contentWidth));
+            lines.push('');
+          }
+          if (mem.key_insights.length > 0) {
+            lines.push('Key Insights:');
+            for (const i of mem.key_insights) lines.push(...wrapTextLines(`  • ${i}`, contentWidth));
+            lines.push('');
+          }
+          if (mem.technical_decisions.length > 0) {
+            lines.push('Technical Decisions:');
+            for (const d of mem.technical_decisions) lines.push(...wrapTextLines(`  • ${d}`, contentWidth));
+            lines.push('');
+          }
+        }
+        lines.push('── This Entry ──');
+        lines.push('');
+      }
+    }
+    // Entry-level insights
+    if (meta.summary) {
+      lines.push(...wrapTextLines(meta.summary, contentWidth));
+      lines.push('');
+    }
+    if (meta.key_insights && meta.key_insights.length > 0) {
+      for (const insight of meta.key_insights) {
+        lines.push(...wrapTextLines(`• ${insight}`, contentWidth));
+      }
+      lines.push('');
+    }
+    if (lines.length === 0) {
+      lines.push('(no AI analysis - run ph analyze)');
+    }
+    return lines;
+  }, [entry, activeTab, contentWidth, meta, getProjectMemories]);
 
   const maxScroll = Math.max(0, allLines.length - contentHeight);
 
   useInput((_char, key) => {
     if (!isFocused) return;
 
-    if (_char === '1') {
-      setActiveTab('prompt');
-      return;
-    }
-    if (_char === '2') {
-      setActiveTab('response');
-      return;
-    }
+    if (_char === '1') setActiveTab('prompt');
+    if (_char === '2') setActiveTab('response');
+    if (_char === '3') setActiveTab('memory');
 
     if (key.upArrow) setScrollOffset((s) => Math.max(0, s - 1));
     if (key.downArrow) setScrollOffset((s) => Math.min(maxScroll, s + 1));
@@ -130,9 +171,11 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
 
   const isPromptActive = activeTab === 'prompt';
   const isResponseActive = activeTab === 'response';
+  const isMemoryActive = activeTab === 'memory';
 
   const tabPromptColor = isPromptActive && isFocused ? theme.primary : theme.dim;
   const tabResponseColor = isResponseActive && isFocused ? theme.primary : theme.dim;
+  const tabMemoryColor = isMemoryActive && isFocused ? theme.primary : theme.dim;
 
   return (
     <Box flexDirection="column" paddingX={2}>
@@ -162,7 +205,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
           bold={isPromptActive && isFocused}
           underline={isPromptActive && isFocused}
         >
-          {isPromptActive ? '● ' : '○ '}PROMPT
+          {isPromptActive ? '● ' : '○ '}1:PROMPT
         </Text>
         <Text>{'   '}</Text>
         <Text
@@ -170,7 +213,15 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
           bold={isResponseActive && isFocused}
           underline={isResponseActive && isFocused}
         >
-          {isResponseActive ? '● ' : '○ '}RESPONSE
+          {isResponseActive ? '● ' : '○ '}2:RESPONSE
+        </Text>
+        <Text>{'   '}</Text>
+        <Text
+          color={tabMemoryColor}
+          bold={isMemoryActive && isFocused}
+          underline={isMemoryActive && isFocused}
+        >
+          {isMemoryActive ? '● ' : '○ '}3:MEMORY
         </Text>
       </Box>
 

@@ -1,83 +1,45 @@
-# ph Implementation Status — Complete Report
+# ph Hook System — Status Report
 
-    ✅ Completed
+## Completed Hooks
 
-    ┌───────────────────────────────────────────────────────────┬────────────────────────────┬────────┐
-    │                          Feature                          │            File            │ Status │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Git Context Snapshot                                      │ src/runner/git-context.ts  │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Background Analysis                                       │ src/background/analyzer.ts │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Work Sessions (ph sessions)                               │ src/sessions/index.ts      │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Prompt Rerunning (TUI r)                                  │ src/ui/BrowseApp.tsx       │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Ollama embeddings (nomic-embed-text-v2-moe)               │ src/embedding/index.ts     │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Response column in DB + FTS5 migration                    │ src/db/index.ts            │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ ph log command (flag + stdin JSON)                        │ src/cli.ts                 │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ TUI detail view with response                             │ src/ui/BrowseApp.tsx       │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Export markdown with response + git context               │ src/cli.ts                 │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Gemini importer response capture                          │ src/importer/gemini.ts     │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Claude importer from transcript files                     │ src/importer/claude.ts     │ ✅     │
-    ├───────────────────────────────────────────────────────────┼────────────────────────────┼────────┤
-    │ Documentation (README, CLAUDE.md, GEMINI.md, ROADMAP.md)  │ various                    │ ✅     │
-    └───────────────────────────────────────────────────────────┴────────────────────────────┴────────┘
+| Tool | Type | File | Status |
+|------|------|------|--------|
+| Claude Code | Shell script (Stop hook) | `hooks/claude/ph-hook.sh` | ✅ |
+| Gemini CLI | Shell script (AfterAgent hook) | `hooks/gemini/ph-hook.sh` | ✅ |
+| OpenCode | JS/TS Plugin | `hooks/opencode/ph-plugin.ts` | ✅ |
 
-    🔄 In Progress (background agent)
+## How Hooks Work
 
-    - Claude Code hook (~/.claude/settings.json + ~/.claude/ph-hook.sh): Stop hook that calls ph log after each response
-    - Gemini CLI skill/hook: similar integration for the Gemini CLI
+Each supported AI CLI tool exposes a native hook mechanism:
 
-    📋 Hook Architecture (being implemented)
+- **Claude Code** — `Stop` hook, triggered after each agent session completes.
+  Reads the JSONL transcript, extracts last user prompt + assistant response, pipes to `ph log`.
 
-    Claude finishes a response
-      → Stop hook in settings.json
-      → ~/.claude/ph-hook.sh receives JSON on stdin
-      → jq extracts last user prompt + assistant response text
-      → ph log --tool claude --prompt "..." --response "..."
-      → record inserted into DB with background analysis
+- **Gemini CLI** — `AfterAgent` hook, triggered after each agent turn.
+  Receives JSON with `prompt` and `prompt_response` fields directly, pipes to `ph log`.
 
-    ⏳ Still To Do (after hooks)
+- **OpenCode** — Plugin system with `chat.message` + `experimental.text.complete` hooks.
+  Intercepts messages, pairs user prompts with streamed assistant responses, pipes to `ph log`.
 
-    - Claude importer from history.jsonl: already replaced by the new transcript importer — ✅ covered
-    - End-to-end testing of hooks in a real session
-    - ph import claude update in cli.ts: verify that cmdImport calls the new importer correctly (the file was rewritten but the caller in cli.ts might still reference history.jsonl in the output log)
+All hooks run in the background (`& + disown` for shell scripts; Promise fire-and-forget for the plugin).
+Never block the AI tool from exiting.
 
-    Final Data Flow
+## Data Flow
 
-    Gemini CLI / Claude Code
-        ↓ (automatic hook after each exchange)
-    ph log (stdin JSON)
-        ↓
-    SQLite (~/.prompt_history.db)
-        ↓
-    background analysis (Ollama gemma3:1b)
-        ↓
-    metadata: project, language, role, tags, relevance
-        ↓
-    ph browse / ph search / ph sessions
+```
+AI CLI Tool
+    ↓ (automatic hook after each exchange)
+ph log (stdin JSON)
+    ↓
+SQLite (~/.prompt_history.db)
+    ↓
+background analysis (Ollama)
+    ↓
+metadata: project, language, role, tags, relevance
+    ↓
+ph browse / ph search / ph sessions
+```
 
-    The main agent is completing the hook part — once finished you will have the completely automatic system without having to use ph as a wrapper.
+## Installation
 
-
-    ⏺ Everything is set. Summary of what has been done:
-
-  ---
-  Claude Code — Stop hook registered in ~/.claude/settings.json:
-  - Reads the session's JSONL transcript
-  - Extracts the last user prompt (those with promptId, not tool-result) and the last assistant response
-  - Calls ph log in the background (disown) → never blocks Claude
-
-  Gemini CLI — AfterAgent hook registered in ~/.gemini/settings.json:
-  - Directly receives the JSON payload containing prompt and prompt_response from Gemini CLI
-  - Extracts the user prompt and the assistant response
-  - Calls ph log in the background → never blocks Gemini
-
-  From this moment, every exchange in Claude Code or Gemini CLI is automatically saved in ph without the need to use it as a wrapper.
+See `docs/ph-manual.md` for detailed installation instructions per tool.

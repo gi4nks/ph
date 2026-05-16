@@ -10,22 +10,13 @@ import { SearchBar } from './SearchBar.js';
 import { ListEntry } from './ListEntry.js';
 import { PreviewPane } from './PreviewPane.js';
 import { extractTopic } from '../utils/extractTopic.js';
+import { load as loadConfig, save as saveConfig } from '../config/index.js';
+import type { PhConfig } from '../config/index.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 const FILTER_CATEGORIES = ['project', 'language', 'role', 'tool', 'tag', 'starred', 'quality', 'relevance'] as const;
 type FilterCategory = (typeof FILTER_CATEGORIES)[number];
-
-const CATEGORY_LABEL: Record<FilterCategory, string> = {
-  project: 'Project',
-  language: 'Language',
-  role: 'Role',
-  tool: 'Tool',
-  tag: 'Tag',
-  starred: 'Starred',
-  quality: 'Quality',
-  relevance: 'Relevance',
-};
 
 // Role → color mapping
 const ROLE_COLOR: Record<string, string> = {
@@ -110,6 +101,31 @@ function parseMeta(raw: string): PromptMetadata {
   try { return JSON.parse(raw) as PromptMetadata; } catch { return {}; }
 }
 
+function hasProject(entry: PromptEntry | undefined): boolean {
+  if (!entry) return false;
+  const meta = parseMeta(entry.metadata);
+  return Boolean(meta.project);
+}
+
+const SESSION_GAP_MS = 2 * 60 * 60 * 1000;
+
+function formatDateLabel(ts: string): string {
+  try {
+    const d = new Date(ts);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[d.getMonth()]} ${d.getDate()}`;
+  } catch {
+    return ts.slice(0, 10);
+  }
+}
+
+function needsSessionSeparator(entries: PromptEntry[], idx: number): boolean {
+  if (idx <= 0) return false;
+  const prev = new Date(entries[idx - 1].timestamp).getTime();
+  const curr = new Date(entries[idx].timestamp).getTime();
+  return (prev - curr) > SESSION_GAP_MS;
+}
+
 function getDistinctValues(entries: PromptEntry[], category: FilterCategory): string[] {
   const set = new Set<string>();
   for (const e of entries) {
@@ -176,7 +192,7 @@ interface DetailProps {
 
 const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, termHeight, theme }) => {
   const meta = parseMeta(entry.metadata);
-  const [activeTab, setActiveTab] = useState<'prompt' | 'response'>(entry.response ? 'response' : 'prompt');
+  const [activeTab, setActiveTab] = useState<'prompt' | 'response' | 'memory'>(entry.response ? 'response' : 'prompt');
   const [scrollOffset, setScrollOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
@@ -186,25 +202,50 @@ const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, 
 
   const contentWidth = Math.max(10, termWidth - 4);
   const text = activeTab === 'prompt' ? entry.prompt : (entry.response || '(no response captured)');
-  const lines = useMemo(() => wrapTextLines(text, contentWidth), [text, contentWidth]);
+  
+  const lines = useMemo(() => {
+    if (activeTab === 'prompt' || activeTab === 'response') {
+      return wrapTextLines(text, contentWidth);
+    }
+    
+    // Memory tab logic
+    const memLines: string[] = [];
+    if (meta.summary) {
+      memLines.push('SUMMARY:');
+      memLines.push(...wrapTextLines(meta.summary, contentWidth));
+      memLines.push('');
+    }
+    if (meta.key_insights && meta.key_insights.length > 0) {
+      memLines.push('KEY INSIGHTS:');
+      for (const insight of meta.key_insights) {
+        memLines.push(...wrapTextLines(`• ${insight}`, contentWidth));
+      }
+    }
+    if (memLines.length === 0) {
+      memLines.push('(no AI analysis found - run ph analyze)');
+    }
+    return memLines;
+  }, [activeTab, text, contentWidth, meta]);
 
-  // overhead = meta1(1) + meta2(1) + blank(1) + tabbar(1) + scroll-top(1) + scroll-bot(1) = 6
-  // But we also have Header(1), SearchBar(1), Footer(1) = 3
-  // Plus paddingTop(1) = 1.
-  // Total overhead = 10.
   const contentHeight = Math.max(1, termHeight - 10);
   const maxScroll = Math.max(0, lines.length - contentHeight);
 
   useInput((char, key) => {
     if (key.escape || key.return) onClose();
     else if (char === 'e') onEdit();
-    else if (key.tab || char === '1' || char === '2') {
+    else if (key.tab || char === '1' || char === '2' || char === '3') {
       if (char === '1') setActiveTab('prompt');
       else if (char === '2') setActiveTab('response');
-      else setActiveTab(t => t === 'prompt' ? 'response' : 'prompt');
+      else if (char === '3') setActiveTab('memory');
+      else setActiveTab(t => {
+        if (t === 'prompt') return 'response';
+        if (t === 'response') return 'memory';
+        return 'prompt';
+      });
     }
     else if (char === 'y') {
-      copyToClipboard(text);
+      const copyText = activeTab === 'memory' ? lines.join('\n') : text;
+      copyToClipboard(copyText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -243,12 +284,16 @@ const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, 
       {/* tab bar */}
       <Box marginBottom={0} justifyContent="space-between">
         <Box>
-          <Text color={theme.primary} bold underline>
-            {activeTab === 'prompt' ? '●' : '○'} PROMPT
+          <Text color={theme.primary} bold underline={activeTab === 'prompt'}>
+            {activeTab === 'prompt' ? '●' : '○'} 1:PROMPT
           </Text>
           <Text>   </Text>
-          <Text color={theme.primary} bold underline>
-            {activeTab === 'response' ? '●' : '○'} RESPONSE
+          <Text color={theme.primary} bold underline={activeTab === 'response'}>
+            {activeTab === 'response' ? '●' : '○'} 2:RESPONSE
+          </Text>
+          <Text>   </Text>
+          <Text color={theme.primary} bold underline={activeTab === 'memory'}>
+            {activeTab === 'memory' ? '●' : '○'} 3:MEMORY
           </Text>
         </Box>
         <Box>
@@ -443,6 +488,13 @@ const RerunView: React.FC<RerunProps> = ({ entry, onConfirm, onClose, theme }) =
 
 // ─── FilterPanel ──────────────────────────────────────────────────────────────
 
+interface FilterOption {
+  category: FilterCategory;
+  label: string;
+  count: number;
+  active: boolean;
+}
+
 interface FilterPanelProps {
   allEntries: PromptEntry[];
   active: ActiveFilters;
@@ -452,79 +504,87 @@ interface FilterPanelProps {
 }
 
 const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate, onClose, theme }) => {
-  const [catIdx, setCatIdx] = useState(0);
-  const [itemIdx, setItemIdx] = useState(0);
-
-  const category = FILTER_CATEGORIES[catIdx];
-  const isStarred = category === 'starred';
-  const isQuality = category === 'quality';
-  const isRelevance = category === 'relevance';
-
-  const values = useMemo(
-    () => {
-      if (isStarred) return [];
-      if (isQuality || isRelevance) return ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
-      return getDistinctValues(allEntries, category);
-    },
-    [allEntries, category, isStarred, isQuality, isRelevance]
-  );
-  const allValues = isStarred ? [] : ['(all)', ...values];
-
-  const currentCatValue = useMemo(() => {
-    if (isStarred) return active.starred ? 'yes' : undefined;
-    if (isQuality) return active.minQuality?.toString();
-    if (isRelevance) return active.minRelevance?.toString();
-    return (active[category as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>]);
-  }, [active, category, isStarred, isQuality, isRelevance]);
-
-  const ITEMS_VISIBLE = 14;
-  const pageStart = Math.max(0, Math.min(itemIdx - Math.floor(ITEMS_VISIBLE / 2), allValues.length - ITEMS_VISIBLE));
-  const visibleValues = allValues.slice(pageStart, pageStart + ITEMS_VISIBLE);
-
-  useInput((char, key) => {
-    if (key.escape) { onClose(); return; }
-
-    if (key.tab) {
-      const next = (catIdx + 1) % FILTER_CATEGORIES.length;
-      setCatIdx(next);
-      setItemIdx(0);
-      return;
-    }
-    if (key.leftArrow) {
-      setCatIdx(i => (i - 1 + FILTER_CATEGORIES.length) % FILTER_CATEGORIES.length);
-      setItemIdx(0);
-    } else if (key.rightArrow) {
-      setCatIdx(i => (i + 1) % FILTER_CATEGORIES.length);
-      setItemIdx(0);
-    } else if (key.upArrow) {
-      setItemIdx(i => Math.max(0, i - 1));
-    } else if (key.downArrow) {
-      if (isStarred) {
-        onUpdate({ ...active, starred: !active.starred || undefined });
+  const options = useMemo<FilterOption[]>(() => {
+    const opts: FilterOption[] = [];
+    for (const cat of FILTER_CATEGORIES) {
+      if (cat === 'starred') {
+        const count = allEntries.filter(e => { try { return JSON.parse(e.metadata).starred; } catch { return false; } }).length;
+        opts.push({ category: 'starred', label: '★ Only starred', count, active: !!active.starred });
+      } else if (cat === 'quality') {
+        const qActive = active.minQuality !== undefined;
+        opts.push({ category: 'quality', label: `Q ≥ ${active.minQuality ?? '?'}`, count: 0, active: qActive });
+        for (const v of [1,2,3,4,5,6,7,8,9,10]) {
+          const c = allEntries.filter(e => { try { return (JSON.parse(e.metadata).quality ?? 0) >= v; } catch { return false; } }).length;
+          opts.push({ category: 'quality', label: `Q ≥ ${v}`, count: c, active: active.minQuality === v });
+        }
+      } else if (cat === 'relevance') {
+        const rActive = active.minRelevance !== undefined;
+        opts.push({ category: 'relevance', label: `R ≥ ${active.minRelevance ?? '?'}`, count: 0, active: rActive });
+        for (const v of [1,2,3,4,5,6,7,8,9,10]) {
+          const c = allEntries.filter(e => { try { return (JSON.parse(e.metadata).relevance ?? 0) >= v; } catch { return false; } }).length;
+          opts.push({ category: 'relevance', label: `R ≥ ${v}`, count: c, active: active.minRelevance === v });
+        }
       } else {
-        setItemIdx(i => Math.min(allValues.length - 1, i + 1));
-      }
-    } else if (key.return || char === ' ') {
-      if (isStarred) {
-        onUpdate({ ...active, starred: !active.starred || undefined });
-      } else {
-        const selected = allValues[itemIdx];
-        if (!selected) return;
-        if (selected === '(all)') {
-          const updated = { ...active };
-          if (isQuality) delete updated.minQuality;
-          else if (isRelevance) delete updated.minRelevance;
-          else delete (updated as Record<string, unknown>)[category];
-          onUpdate(updated);
-        } else {
-          if (isQuality) onUpdate({ ...active, minQuality: Number(selected) });
-          else if (isRelevance) onUpdate({ ...active, minRelevance: Number(selected) });
-          else onUpdate({ ...active, [category]: selected });
+        const vals = getDistinctValues(allEntries, cat);
+        for (const v of vals) {
+          const c = allEntries.filter(e => {
+            try {
+              const m = JSON.parse(e.metadata) as PromptMetadata;
+              if (cat === 'project') return m.project === v;
+              if (cat === 'language') return m.language === v;
+              if (cat === 'role') return m.role === v;
+              if (cat === 'tool') return e.tool === v;
+              if (cat === 'tag') return m.tags?.includes(v);
+              return false;
+            } catch { return false; }
+          }).length;
+          const currentVal = active[cat as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>];
+          opts.push({ category: cat, label: v, count: c, active: currentVal === v });
         }
       }
     }
- else if (char === 'c') {
-      onUpdate({});
+    return opts;
+  }, [allEntries, active]);
+
+  const [cursor, setCursor] = useState(0);
+  const visibleCount = Math.min(options.length, 16);
+  const scrollOffset = Math.max(0, Math.min(cursor - Math.floor(visibleCount / 2), options.length - visibleCount));
+  const visible = options.slice(Math.max(0, scrollOffset), scrollOffset + visibleCount);
+
+  useInput((char, key) => {
+    if (key.escape) { onClose(); return; }
+    if (char === 'c') { onUpdate({}); return; }
+    if (key.return || char === ' ') {
+      const opt = options[cursor];
+      if (!opt) return;
+      if (opt.category === 'starred') {
+        onUpdate({ ...active, starred: !opt.active || undefined });
+      } else if (opt.category === 'quality') {
+        const v = parseInt(opt.label.replace('Q ≥ ', ''), 10);
+        onUpdate({ ...active, minQuality: opt.active ? undefined : v });
+      } else if (opt.category === 'relevance') {
+        const v = parseInt(opt.label.replace('R ≥ ', ''), 10);
+        onUpdate({ ...active, minRelevance: opt.active ? undefined : v });
+      } else {
+        const key = opt.category as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>;
+        if (opt.active) {
+          const updated = { ...active };
+          delete updated[key];
+          onUpdate(updated);
+        } else {
+          onUpdate({ ...active, [key]: opt.label });
+        }
+      }
+      return;
+    }
+    if (key.upArrow) setCursor(c => Math.max(0, c - 1));
+    if (key.downArrow) setCursor(c => Math.min(options.length - 1, c + 1));
+    if (key.pageUp) setCursor(c => Math.max(0, c - visibleCount));
+    if (key.pageDown) setCursor(c => Math.min(options.length - 1, c + visibleCount));
+    // Jump to category by first letter
+    if (char && /^[a-z]$/.test(char)) {
+      const idx = options.findIndex((o, i) => i > cursor && o.category[0] === char);
+      if (idx !== -1) setCursor(idx);
     }
   });
 
@@ -532,66 +592,152 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate,
 
   return (
     <Box flexDirection="column" padding={1}>
-      {/* Header */}
       <Box marginBottom={1}>
-        <Text color={theme.primary} bold>Filter Panel  </Text>
+        <Text color={theme.primary} bold>Filters  </Text>
         {activeCount > 0
-          ? <Text color={theme.warning}>{activeCount} active filter{activeCount > 1 ? 's' : ''}  </Text>
-          : <Text dimColor>no filters active  </Text>
+          ? <Text color={theme.warning}>{activeCount} active  </Text>
+          : <Text dimColor>none active  </Text>
         }
-        {activeCount > 0 && <Text dimColor>(c to clear all)</Text>}
+        {activeCount > 0 && <Text dimColor>(c clear)</Text>}
       </Box>
 
-      {/* Category tabs */}
+      <Box borderStyle="single" borderColor={theme.dim} flexDirection="column" padding={1} minHeight={18}>
+        <Box flexDirection="column">
+          {visible.map((opt, i) => {
+            const absIdx = Math.max(0, scrollOffset) + i;
+            const isCur = absIdx === cursor;
+            const catColor = opt.category === 'project' ? 'blue' : opt.category === 'language' ? 'green' : opt.category === 'role' ? ROLE_COLOR[opt.label] || 'cyan' : opt.category === 'tool' ? 'yellow' : opt.category === 'tag' ? 'cyan' : 'white';
+            return (
+              <Box key={`${opt.category}-${opt.label}`}>
+                <Text bold={isCur} color={isCur ? theme.primary : theme.dim}>
+                  {isCur ? '❯ ' : '  '}
+                </Text>
+                <Text color={opt.active ? theme.warning : catColor} bold={opt.active || isCur}>
+                  {opt.category}:{opt.label}
+                </Text>
+                <Text dimColor> [{opt.count}]</Text>
+                {opt.active && <Text color={theme.success}> ✓</Text>}
+              </Box>
+            );
+          })}
+        </Box>
+        {options.length > visibleCount && (
+          <Box marginTop={1}>
+            <Text dimColor>  {cursor + 1}/{options.length} · ↑↓ navigate · Enter toggle · c clear · ESC close</Text>
+          </Box>
+        )}
+      </Box>
+
+      <Box marginTop={1}>
+        <Text dimColor>↑↓ navigate · Enter toggle · c clear all · ESC close · letter jumps to category</Text>
+      </Box>
+    </Box>
+  );
+};
+
+// ─── SettingsView ─────────────────────────────────────────────────────────────
+
+const SETTING_FIELDS: { key: keyof PhConfig; label: string; type: 'boolean' | 'string' | 'number' }[] = [
+  { key: 'backgroundAnalysis', label: 'Auto-analysis on capture', type: 'boolean' },
+  { key: 'ollamaUrl', label: 'Ollama URL', type: 'string' },
+  { key: 'ollamaModel', label: 'Ollama model (analysis)', type: 'string' },
+  { key: 'ollamaEmbedModel', label: 'Ollama model (embeddings)', type: 'string' },
+  { key: 'analyzeProvider', label: 'Analysis provider', type: 'string' },
+  { key: 'filterMinLength', label: 'Min prompt length filter', type: 'number' },
+  { key: 'filterMinRelevance', label: 'Min relevance filter', type: 'number' },
+];
+
+interface SettingsViewProps {
+  onClose: () => void;
+  theme: Theme;
+}
+
+const SettingsView: React.FC<SettingsViewProps> = ({ onClose, theme }) => {
+  const [cfg, setCfg] = useState<PhConfig>(() => loadConfig());
+  const [cursor, setCursor] = useState(0);
+  const [dirty, setDirty] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const toggleField = (key: keyof PhConfig) => {
+    const updated = { ...cfg };
+    if (key === 'backgroundAnalysis') {
+      updated[key] = !(cfg[key] as boolean);
+    }
+    setCfg(updated);
+    setDirty(true);
+    setSaved(false);
+  };
+
+  const save = () => {
+    saveConfig(cfg);
+    setDirty(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  useInput((char, key) => {
+    if (key.escape) { onClose(); return; }
+    if (char === 'q') { onClose(); return; }
+    if (char === 's' && dirty) { save(); return; }
+
+    if (key.upArrow) setCursor(c => Math.max(0, c - 1));
+    if (key.downArrow) setCursor(c => Math.min(SETTING_FIELDS.length - 1, c + 1));
+
+    if (key.return || char === ' ') {
+      const field = SETTING_FIELDS[cursor];
+      if (!field) return;
+      if (field.type === 'boolean') {
+        toggleField(field.key);
+      }
+    }
+  });
+
+  return (
+    <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        {FILTER_CATEGORIES.map((cat, i) => {
-          let catVal: string | undefined;
-          if (cat === 'starred') catVal = active.starred ? '★' : undefined;
-          else if (cat === 'quality') catVal = active.minQuality ? `≥${active.minQuality}` : undefined;
-          else if (cat === 'relevance') catVal = active.minRelevance ? `≥${active.minRelevance}` : undefined;
-          else catVal = active[cat as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>];
-          
-          const isActive = i === catIdx;
+        <Text color={theme.primary} bold>Settings  </Text>
+        {dirty && <Text color={theme.warning}>modified  </Text>}
+        {saved && <Text color={theme.success}>✓ saved</Text>}
+      </Box>
+
+      <Box borderStyle="single" borderColor={theme.dim} flexDirection="column" padding={1}>
+        {SETTING_FIELDS.map((field, i) => {
+          const isCur = i === cursor;
+          const val = cfg[field.key];
+          let display: string;
+          if (field.type === 'boolean') {
+            display = val ? 'true' : 'false';
+          } else {
+            display = val !== undefined ? String(val) : '(default)';
+          }
+          const valColor = field.type === 'boolean'
+            ? (val ? theme.success : theme.dim)
+            : (val !== undefined ? 'white' : theme.dim);
+
           return (
-            <Box key={cat} marginRight={2}>
-              <Text color={isActive ? theme.primary : catVal ? theme.warning : theme.dim} bold={isActive}>
-                {CATEGORY_LABEL[cat]}{catVal ? `[${catVal}]` : ''}
+            <Box key={field.key}>
+              <Text bold={isCur} color={isCur ? theme.primary : theme.dim}>
+                {isCur ? '❯ ' : '  '}
               </Text>
+              <Text color={isCur ? theme.primary : 'white'}>
+                {field.label}
+              </Text>
+              <Text>{'  '.repeat(Math.max(1, 30 - field.label.length))}</Text>
+              <Text color={valColor} bold={field.type === 'boolean' && isCur}>
+                {display}
+              </Text>
+              {field.type === 'boolean' && isCur && (
+                <Text color={theme.warning}>  [Enter toggle]</Text>
+              )}
             </Box>
           );
         })}
       </Box>
 
-      {/* Values list */}
-      <Box borderStyle="single" borderColor={theme.dim} flexDirection="column" padding={1} minHeight={16}>
-        {isStarred ? (
-          <Box>
-            <Text color={active.starred ? theme.warning : theme.dim} bold={active.starred}>
-              {'❯ '}{active.starred ? '★' : '☆'} Only starred prompts{active.starred ? ' ✓' : ''}
-            </Text>
-          </Box>
-        ) : allValues.length === 0 ? (
-          <Text dimColor>(no values found)</Text>
-        ) : (
-          visibleValues.map((val, i) => {
-            const absIdx = pageStart + i;
-            const isCurrent = val === currentCatValue || (val === '(all)' && !currentCatValue);
-            return (
-              <Box key={val}>
-                <Text
-                  color={absIdx === itemIdx ? theme.primary : isCurrent ? theme.warning : theme.dim}
-                  bold={absIdx === itemIdx}
-                >
-                  {absIdx === itemIdx ? '❯ ' : '  '}{val}{isCurrent && val !== '(all)' ? ' ✓' : ''}
-                </Text>
-              </Box>
-            );
-          })
-        )}
-      </Box>
-
       <Box marginTop={1}>
-        <Text dimColor>←→/Tab switch category · ↑↓ navigate · Enter/Space select · c clear all · ESC close</Text>
+        <Text dimColor>
+          ↑↓ navigate · Enter toggle boolean · {dirty ? 's save · ' : ''}q/ESC close
+        </Text>
       </Box>
     </Box>
   );
@@ -616,6 +762,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   const [isTextFiltering, setTextFiltering] = useState(false);
   const [activeFilters, setActiveFilters]  = useState<ActiveFilters>(initialFilters ?? {});
   const [showFilterPanel, setFilterPanel]  = useState(false);
+  const [showSettings, setShowSettings]    = useState(false);
 
   const [cursor, setCursor]   = useState(0);
   const [detail, setDetail]   = useState<PromptEntry | null>(null);
@@ -637,9 +784,9 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   const leftPaneWidth = isWide ? Math.max(32, Math.min(50, Math.floor(termWidth * 0.33))) : termWidth;
 
   // Wide mode: header(1) + searchbar(1) + footer(1) + pane-header(1) = 4 overhead lines.
-  // n list entries occupy 3n-1 lines (2 per entry + 1 separator, except last).
-  // n = floor((termHeight - 4 + 1) / 3) = floor((termHeight - 3) / 3)
-  const PAGE_SIZE = Math.max(1, Math.floor((termHeight - 3) / 3));
+  // n list entries occupy 4n-1 lines (3 per entry + 1 separator, except last).
+  // n = floor((termHeight - 4 + 1) / 4) = floor((termHeight - 3) / 4)
+  const PAGE_SIZE = Math.max(1, Math.floor((termHeight - 3) / 4));
 
   // Derived filtered entries — recomputed when filters or refreshKey change
   const entries = useMemo(
@@ -698,7 +845,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   }, []);
 
   useInput((char, key) => {
-    if (detail || editing || showFilterPanel || rerunning) return;
+    if (detail || editing || showFilterPanel || showSettings || rerunning) return;
 
     // Search mode
     if (isTextFiltering) {
@@ -722,7 +869,43 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
     else if (char === 'r')           { if (entries[cursor]) setRerunning(entries[cursor]); }
     else if (char === 'x')           { if (entries[cursor]) handleDelete(entries[cursor]); }
     else if (char === 'f')           { setFilterPanel(true); }
+    else if (char === 'o')           { setShowSettings(true); }
     else if (char === 'c')           { setActiveFilters({}); setTextFilter(''); setCursor(0); setScrollOffset(0); }
+    else if (char === 'C') {
+      // Chat: launch tool with project context injected
+      const entry = entries[cursor];
+      if (!entry) return;
+      const meta = parseMeta(entry.metadata);
+      const project = meta.project;
+      if (!project) return;
+      const memories = db.searchMemories(project, 3);
+      const recent = db.getProjectMemory(project, 5);
+      const ctx: string[] = [];
+      if (memories.length > 0) {
+        ctx.push(`## Project Knowledge: ${project}`);
+        for (const mem of memories) {
+          if (mem.summary) ctx.push(`\n${mem.summary}`);
+          if (mem.key_insights.length > 0) {
+            ctx.push('\nKey Insights:');
+            for (const i of mem.key_insights) ctx.push(`  - ${i}`);
+          }
+          if (mem.technical_decisions.length > 0) {
+            ctx.push('\nTechnical Decisions:');
+            for (const d of mem.technical_decisions) ctx.push(`  - ${d}`);
+          }
+        }
+      }
+      if (recent.length > 0) {
+        ctx.push('\n---\n## Recent Context');
+        for (const p of recent) {
+          const pm = parseMeta(p.metadata);
+          ctx.push(`\n- #${p.id}: ${pm.summary || p.prompt.slice(0, 100).replace(/\n/g, ' ')}`);
+        }
+      }
+      const fullPrompt = `Context from project "${project}":\n\n${ctx.join('\n')}\n\n---\n\n${entry.prompt}`;
+      onRerun?.(entry.tool, fullPrompt);
+      exit();
+    }
     else if (char === 'y') {
       if (entries[cursor]) {
         copyToClipboard(entries[cursor].prompt);
@@ -759,7 +942,14 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   // ── Render ────────────────────────────────────────────────────────────────
 
   let mainContent;
-  if (showFilterPanel) {
+  if (showSettings) {
+    mainContent = (
+      <SettingsView
+        onClose={() => setShowSettings(false)}
+        theme={theme}
+      />
+    );
+  } else if (showFilterPanel) {
     mainContent = (
       <FilterPanel
         allEntries={allEntries}
@@ -823,21 +1013,32 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
               <Text dimColor>(no results)</Text>
             </Box>
           ) : (
-            visible.map((entry, i) => (
-              <React.Fragment key={entry.id}>
-                <ListEntry
-                  entry={entry}
-                  isSelected={pageStart + i === cursor}
-                  paneWidth={leftPaneWidth}
-                  theme={theme}
-                />
-                {i < visible.length - 1 && (
-                  <Box>
-                    <Text color={theme.dim}>{'─'.repeat(leftPaneWidth)}</Text>
-                  </Box>
-                )}
-              </React.Fragment>
-            ))
+            visible.map((entry, i) => {
+              const absIdx = pageStart + i;
+              const isNewSession = needsSessionSeparator(entries, absIdx);
+              return (
+                <React.Fragment key={entry.id}>
+                  {isNewSession && (
+                    <Box>
+                      <Text color={theme.dim}>
+                        {'╌'.repeat(2)} {formatDateLabel(entry.timestamp)} {'╌'.repeat(leftPaneWidth - 4 - formatDateLabel(entry.timestamp).length)}
+                      </Text>
+                    </Box>
+                  )}
+                  <ListEntry
+                    entry={entry}
+                    isSelected={absIdx === cursor}
+                    paneWidth={leftPaneWidth}
+                    theme={theme}
+                  />
+                  {i < visible.length - 1 && !needsSessionSeparator(entries, absIdx + 1) && (
+                    <Box>
+                      <Text color={theme.dim}>{'·'.repeat(Math.max(1, leftPaneWidth - 2))}</Text>
+                    </Box>
+                  )}
+                </React.Fragment>
+              );
+            })
           )}
         </Box>
         {/* Vertical separator + Preview Pane — border color reflects focus */}
@@ -854,6 +1055,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
             paneHeight={termHeight - 3}
             isFocused={previewFocused}
             theme={theme}
+            getProjectMemories={(p) => db.searchMemories(p, 3)}
           />
         </Box>
       </Box>
@@ -868,21 +1070,32 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
             <Text color={theme.dim}>(no results)</Text>
           </Box>
         ) : (
-          visible.map((entry, i) => (
-            <React.Fragment key={entry.id}>
-               <ListEntry
-                entry={entry}
-                isSelected={pageStart + i === cursor}
-                paneWidth={termWidth}
-                theme={theme}
-              />
-              {i < visible.length - 1 && (
-                <Box>
-                  <Text color={theme.dim}>{'─'.repeat(termWidth)}</Text>
-                </Box>
-              )}
-            </React.Fragment>
-          ))
+          visible.map((entry, i) => {
+            const absIdx = pageStart + i;
+            const isNewSession = needsSessionSeparator(entries, absIdx);
+            return (
+              <React.Fragment key={entry.id}>
+                  {isNewSession && (
+                    <Box>
+                      <Text color={theme.dim}>
+                        {'╌'.repeat(2)} {formatDateLabel(entry.timestamp)} {'╌'.repeat(termWidth - 4 - formatDateLabel(entry.timestamp).length)}
+                      </Text>
+                    </Box>
+                  )}
+                  <ListEntry
+                    entry={entry}
+                    isSelected={absIdx === cursor}
+                    paneWidth={termWidth}
+                    theme={theme}
+                  />
+                {i < visible.length - 1 && !needsSessionSeparator(entries, absIdx + 1) && (
+                  <Box>
+                    <Text color={theme.dim}>{'·'.repeat(Math.max(1, termWidth - 2))}</Text>
+                  </Box>
+                )}
+              </React.Fragment>
+            );
+          })
         )}
       </Box>
     );
@@ -909,6 +1122,9 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
         cursor={cursor} 
         total={entries.length} 
         copiedId={copiedId} 
+        isWide={isWide}
+        hasDetail={Boolean(entries[cursor] && isWide)}
+        hasProject={hasProject(entries[cursor])}
         theme={currentThemeName}
       />
     </Box>

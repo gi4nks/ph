@@ -2,19 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-### [1.3.2](https://github.com/gi4nks/ph/compare/v1.3.1...v1.3.2) (2026-04-17)
+## [2.0.0](https://github.com/gi4nks/ph/compare/v1.3.2...v2.0.0) (2026-05-16)
 
-### [1.3.1](https://github.com/gi4nks/ph/compare/v1.3.0...v1.3.1) (2026-04-13)
 
+### ⚠ BREAKING CHANGES
+
+* **cli:** major refactor of cli.ts into command modules. All commands keep the same interface but the internal architecture changed significantly.
 
 ### Features
 
-* **ui:** major redesign of browse view with split-pane and topic extraction ([53d9008](https://github.com/gi4nks/ph/commit/53d90087709ffda5913fc3026b6554f0aae4ddf4))
+* **server:** `ph server` — HTTP REST server (zero deps, Node http module). Endpoints: /health, /api/prompts/search, /api/prompts/by-id, /api/prompts/semantic, /api/sync/push, /api/sync/pull, /api/memories/search, /api/memories/summary, /api/stats
+* **remote:** `ph remote push|pull|status` — sync prompts across laptops. Dedup via sha256(tool|prompt|response). Background push on each `ph log`.
+* **mcp:** `search_prompts`, `get_prompt`, `search_prompts_semantic` tools for querying raw prompt history via MCP
+* **config:** `remote-url`, `remote-api-key` config keys + `PH_REMOTE_URL` env var support
+* **opencode:** native importer (`ph import opencode`) + real-time plugin hook
 
+### (prima di continuare con il commit fammi vedere se ti piace la situazione ) vabene?  
 
-### Bug Fixes
-
-* resolve npm publish auth error and bin path warning ([5dfe49a](https://github.com/gi4nks/ph/commit/5dfe49ab6c169ec2eed8c16fe73139381efdf0ed))
 
 ## [1.3.0](https://github.com/gi4nks/ph/compare/v1.2.0...v1.3.0) (2026-04-12)
 
