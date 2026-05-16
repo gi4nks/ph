@@ -14,18 +14,20 @@
 
 ## Installation
 
+### From npm
+
 ```bash
-# Clone and local build
+npm install -g @gi4nks/ph
+```
+
+### From source
+
+```bash
 git clone git@github.com:gi4nks/ph.git
 cd ph
 npm install
 make build
 make install
-```
-
-Or install from npm:
-```bash
-npm install -g @gi4nks/ph
 ```
 
 ## Quick Start
@@ -62,6 +64,127 @@ ph config set remote-url http://server:3001  # remote sync target
 ```
 
 Environment variable `PH_REMOTE_URL` takes precedence over config.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `analyze-provider` | `ollama` | LLM provider for analysis (`ollama` or `gemini`) |
+| `gemini-api-key` | — | API key for Gemini provider |
+| `ollama-url` | `http://localhost:11434` | Ollama server URL |
+| `ollama-model` | `llama3.1:latest` | Ollama model for analysis |
+| `ollama-embed-model` | `nomic-embed-text-v2-moe` | Ollama model for embeddings |
+| `background-analysis` | `false` | Auto-analyze after each `ph log` |
+| `remote-url` | — | HTTP URL of remote ph server |
+| `remote-api-key` | — | Optional API key for remote server |
+| `db-path` | `~/.prompt_history.db` | Custom database path |
+| `filter-min-length` | `15` | Ignore prompts shorter than N chars |
+| `filter-min-relevance` | `3` | Minimum relevance score (0–10) |
+
+## Remote Server Setup
+
+### Ubuntu (systemd)
+
+Install ph on your remote server:
+
+```bash
+sudo npm install -g @gi4nks/ph
+```
+
+Create `/etc/systemd/system/ph.service`:
+
+```ini
+[Unit]
+Description=ph remote sync server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=<path-to-ph> server --port 3001 --host 0.0.0.0
+Restart=always
+RestartSec=5
+User=<your-user>
+Environment=NODE_ENV=production
+StandardOutput=append:/var/log/ph-server.log
+StandardError=append:/var/log/ph-server.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Find `<path-to-ph>` with `which ph` on the server. Start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ph.service
+sudo ufw allow 3001/tcp   # if firewall is active
+```
+
+### macOS (launchd)
+
+Create `~/Library/LaunchAgents/com.gi4nks.ph.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gi4nks.ph</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ph</string>
+        <string>server</string>
+        <string>--port</string>
+        <string>3001</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ph-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ph-server.err</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.gi4nks.ph.plist
+```
+
+### Client configuration
+
+```bash
+# Set remote URL (config or env)
+ph config set remote-url http://your-server:3001
+# export PH_REMOTE_URL=http://your-server:3001
+
+# Sync
+ph remote push   # send local prompts to server
+ph remote pull   # fetch server prompts locally
+ph remote status # check sync state
+```
+
+## How Releases Work
+
+Releases are automated via **semantic-release** on push to `main`:
+
+1. Push conventional commits (`feat:`, `fix:`, `chore:`, etc.) to `main`
+2. GitHub Actions runs `npx semantic-release`
+3. Semantic-release analyzes commits since last release
+4. Bumps version automatically (major/minor/patch)
+5. Generates `CHANGELOG.md`
+6. Creates a git tag
+7. Publishes to npm with **OIDC trusted publishing** (provenance attestation)
+8. Creates a GitHub Release
+
+The published package is signed with provenance — you can verify it with:
+
+```bash
+npm audit signatures
+```
 
 ## Storage
 

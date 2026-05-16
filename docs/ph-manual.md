@@ -356,6 +356,166 @@ ph treats your prompt history as a first-class artifact: searchable, annotated, 
 
 ---
 
+---
+
+## 7. Remote Server Setup
+
+ph can act as a central sync hub for prompt history across multiple machines.
+
+### Server Installation
+
+```bash
+# Install globally
+sudo npm install -g @gi4nks/ph
+
+# Verify
+ph --help
+```
+
+### Ubuntu (systemd service)
+
+Create `/etc/systemd/system/ph.service`:
+
+```ini
+[Unit]
+Description=ph remote sync server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=<path-to-ph> server --port 3001 --host 0.0.0.0
+Restart=always
+RestartSec=5
+User=<your-user>
+Environment=NODE_ENV=production
+StandardOutput=append:/var/log/ph-server.log
+StandardError=append:/var/log/ph-server.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Replace `<path-to-ph>` with the output of `which ph` on the server, and `<your-user>` with the user running the service.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ph.service
+sudo systemctl status ph.service
+sudo ufw allow 3001/tcp   # if firewall is enabled
+```
+
+### macOS (launchd)
+
+Create `~/Library/LaunchAgents/com.gi4nks.ph.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gi4nks.ph</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ph</string>
+        <string>server</string>
+        <string>--port</string>
+        <string>3001</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ph-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ph-server.err</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.gi4nks.ph.plist
+```
+
+### Client Setup
+
+```bash
+# Configure remote server URL
+ph config set remote-url http://<server-ip>:3001
+# Or via env var (takes precedence)
+export PH_REMOTE_URL=http://<server-ip>:3001
+
+# Sync commands
+ph remote push    # send unsynced local prompts to server
+ph remote pull    # fetch remote prompts since last pull
+ph remote status  # show sync state
+```
+
+After `ph remote-url` is configured, every `ph log` automatically does a background push to the server (fire-and-forget, never blocks).
+
+### Logs
+
+```bash
+# systemd
+sudo journalctl -u ph.service -f
+
+# launchd
+cat /tmp/ph-server.log
+```
+
+---
+
+## 8. Release Process
+
+Releases are fully automated via **semantic-release** using conventional commits.
+
+### How it works
+
+1. All commits must follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+   ```
+   feat: add new feature          → minor release (1.x.0)
+   fix: resolve bug               → patch release (1.0.x)
+   chore: bump deps               → no release
+   BREAKING CHANGE: ...           → major release (x.0.0)
+   ```
+
+2. Push to `main` triggers GitHub Actions workflow `.github/workflows/release.yml`
+
+3. The workflow runs:
+   - `actions/checkout@v4` with full git history (`fetch-depth: 0`)
+   - `actions/setup-node@v4` with Node 22
+   - `npm ci` — clean install
+   - `npm run build` — tsup bundle
+   - `npx semantic-release` — analyzes commits, bumps version, updates CHANGELOG.md, creates git tag, publishes to npm
+
+### npm publish details
+
+- **OIDC Trusted Publishing**: Package is signed with provenance attestation via GitHub Actions OIDC token
+- **Publisher identity**: `GitHub Actions <npm-oidc-no-reply@github.com>`
+- **Registry**: `https://registry.npmjs.org/`
+- **Access**: public
+
+### Verify provenance
+
+```bash
+npm audit signatures
+```
+
+### Manual release (emergency)
+
+Create a tag manually and push:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+---
+
 ## Repository
 
 [https://github.com/gi4nks/ph](https://github.com/gi4nks/ph)
