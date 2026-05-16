@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/gi4nks/ph/compare/v1.4.0...v1.5.0) (2026-05-16)
+
+
+### Features
+
+* add timeline CLI command and two new MCP tools (get_project_timeline, check_project_knowledge) ([12d667c](https://github.com/gi4nks/ph/commit/12d667c69e35f4aff31a2e13018a00949587fb55))
+
 # [1.4.0](https://github.com/gi4nks/ph/compare/v1.3.2...v1.4.0) (2026-05-16)
 
 
