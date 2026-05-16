@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2.0.1](https://github.com/gi4nks/ph/compare/v1.3.2...v2.0.1) (2026-05-16)
+
+
+### Features
+
+* v2.0.0 — HTTP server, remote sync, MCP prompt tools, OpenCode plugin ([a9c0b03](https://github.com/gi4nks/ph/commit/a9c0b032b91275edfb8948c7d136d93eb734fa12))
+
+
+### Bug Fixes
+
+* remove provenance from publishConfig, restore scope+npm ci in release workflow ([734df6c](https://github.com/gi4nks/ph/commit/734df6cf53b15ff661ad95c530a897a802571ecc))
+
 ## [2.0.0](https://github.com/gi4nks/ph/compare/v1.3.2...v2.0.0) (2026-05-16)
 
 
