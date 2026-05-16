@@ -107,6 +107,30 @@ export async function runMCPServer() {
             required: ["query"],
           },
         },
+        {
+          name: "get_project_timeline",
+          description: "Get full chronological timeline of a project: all prompts, analysis summaries, key insights, and technical decisions in sequence.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              project: { type: "string", description: "The project name" },
+            },
+            required: ["project"],
+          },
+        },
+        {
+          name: "check_project_knowledge",
+          description: "Before implementing a feature, check if it already exists in project history. Searches memories and prompts for previous implementations, discussions, and technical decisions related to a task.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              project: { type: "string", description: "The project name" },
+              task: { type: "string", description: "Description of the feature or task to check" },
+              limit: { type: "number", description: "Max results per search (default 5)", default: 5 },
+            },
+            required: ["project", "task"],
+          },
+        },
       ],
     };
   });
@@ -288,6 +312,144 @@ export async function runMCPServer() {
 
         return {
           content: [{ type: "text", text: formatPromptList(filtered, query) }],
+        };
+      }
+
+      if (name === "get_project_timeline") {
+        const { project } = z.object({
+          project: z.string(),
+        }).parse(args);
+
+        const prompts = db.getAllPromptsByProject(project);
+        const memories = db.getAllMemoriesByProject(project);
+
+        if (prompts.length === 0 && memories.length === 0) {
+          return {
+            content: [{ type: "text", text: `No history found for project "${project}".` }],
+          };
+        }
+
+        const events: Array<{ timestamp: string; text: string }> = [];
+
+        for (const p of prompts) {
+          let meta: PromptMetadata = {};
+          try { meta = JSON.parse(p.metadata); } catch {}
+          events.push({
+            timestamp: p.timestamp,
+            text: [
+              `### #${p.id} — ${p.tool}`,
+              meta.role ? `Role: ${meta.role}` : '',
+              meta.title ? `Title: ${meta.title}` : '',
+              meta.tags?.length ? `Tags: ${meta.tags.join(', ')}` : '',
+              meta.summary ? `Summary: ${meta.summary}` : '',
+              `Prompt: ${p.prompt.slice(0, 500)}${p.prompt.length > 500 ? '...' : ''}`,
+              p.response ? `Response: ${p.response.slice(0, 300)}${p.response.length > 300 ? '...' : ''}` : '',
+              meta.key_insights?.length ? `Insights:\n${meta.key_insights.map(i => `- ${i}`).join('\n')}` : '',
+            ].filter(Boolean).join('\n'),
+          });
+        }
+
+        for (const m of memories) {
+          events.push({
+            timestamp: m.created_at,
+            text: [
+              `📌 Memory #${m.id}`,
+              m.prompt_ids.length > 0 ? `From prompts: #${m.prompt_ids.join(', #')}` : '',
+              m.summary ? `Summary: ${m.summary}` : '',
+              m.key_insights.length > 0 ? `Key Insights:\n${m.key_insights.map(i => `- ${i}`).join('\n')}` : '',
+              m.technical_decisions.length > 0 ? `Technical Decisions:\n${m.technical_decisions.map(d => `- ${d}`).join('\n')}` : '',
+            ].filter(Boolean).join('\n'),
+          });
+        }
+
+        events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+        const header = `# Timeline: ${project}\n\n${prompts.length} prompts · ${memories.length} memory entries\n\n`;
+        const body = events.map(e => {
+          const date = new Date(e.timestamp).toLocaleDateString('en-CA');
+          const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          return `## ${date} ${time}\n\n${e.text}\n`;
+        }).join('---\n');
+
+        return {
+          content: [{ type: "text", text: header + body }],
+        };
+      }
+
+      if (name === "check_project_knowledge") {
+        const { project, task, limit = 5 } = z.object({
+          project: z.string(),
+          task: z.string(),
+          limit: z.number().optional(),
+        }).parse(args);
+
+        const parts: string[] = [];
+        parts.push(`# Knowledge Check: "${task}" in ${project}\n`);
+
+        // 1. Search memories
+        const memories = db.searchMemories(project, limit);
+        const relevantMemories = memories.filter(m =>
+          m.summary.toLowerCase().includes(task.toLowerCase()) ||
+          m.key_insights.some(k => k.toLowerCase().includes(task.toLowerCase())) ||
+          m.technical_decisions.some(d => d.toLowerCase().includes(task.toLowerCase()))
+        );
+
+        if (relevantMemories.length > 0) {
+          parts.push(`## Found in Project Memories\n`);
+          for (const m of relevantMemories) {
+            parts.push(`### Memory #${m.id}`);
+            if (m.summary) parts.push(`Summary: ${m.summary}`);
+            if (m.key_insights.length > 0) {
+              parts.push(`Key Insights:\n${m.key_insights.map(i => `- ${i}`).join('\n')}`);
+            }
+            if (m.technical_decisions.length > 0) {
+              parts.push(`Technical Decisions:\n${m.technical_decisions.map(d => `- ${d}`).join('\n')}`);
+            }
+            parts.push('');
+          }
+        }
+
+        // 2. Search prompts semantically
+        const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
+        const embedModel = cfg.ollamaEmbedModel ?? 'nomic-embed-text-v2-moe';
+
+        try {
+          const [queryVec] = await getEmbeddings([`${project}: ${task}`], ollamaUrl, embedModel, 1);
+          if (queryVec) {
+            const results = db.searchSemantic(queryVec, limit * 3);
+            const projectPrompts = results.filter(e => {
+              try {
+                const meta = JSON.parse(e.metadata) as PromptMetadata;
+                return meta.project === project;
+              } catch { return false; }
+            }).slice(0, limit);
+
+            if (projectPrompts.length > 0) {
+              parts.push(`## Related Prompts\n`);
+              for (const p of projectPrompts) {
+                let meta: PromptMetadata = {};
+                try { meta = JSON.parse(p.metadata); } catch {}
+                parts.push(`### #${p.id} — ${p.tool} (${new Date(p.timestamp).toLocaleDateString()})`);
+                if (meta.role) parts.push(`Role: ${meta.role}`);
+                if (meta.summary) parts.push(`Summary: ${meta.summary}`);
+                parts.push(`Prompt: ${p.prompt.slice(0, 400)}${p.prompt.length > 400 ? '...' : ''}`);
+                parts.push('');
+              }
+            }
+          }
+        } catch {
+          parts.push('(Semantic search unavailable — Ollama may not be running)\n');
+        }
+
+        if (relevantMemories.length === 0 && !parts.some(p => p.startsWith('## Related Prompts'))) {
+          parts.push('No existing knowledge found for this task. This appears to be new work.\n');
+        }
+
+        parts.push('---\n');
+        parts.push('**Recommendation**: Review the above before implementing. If a previous implementation exists, consider reusing or adapting it.\n');
+
+        return {
+          content: [{ type: "text", text: parts.join('\n') }],
         };
       }
 
