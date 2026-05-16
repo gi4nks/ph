@@ -1,6 +1,6 @@
 {
   "name": "@gi4nks/ph",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Transparent CLI wrapper that captures and indexes AI prompts",
   "type": "module",
   "license": "MIT",
