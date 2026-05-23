@@ -1,0 +1,85 @@
+# [1.4.0](https://github.com/gi4nks/ph/compare/v1.3.2...v1.4.0) (2026-05-16)
+
+
+### Bug Fixes
+
+* remove provenance from publishConfig, restore scope+npm ci in release workflow ([734df6c](https://github.com/gi4nks/ph/commit/734df6cf53b15ff661ad95c530a897a802571ecc))
+
+
+### Features
+
+* v2.0.0 — HTTP server, remote sync, MCP prompt tools, OpenCode plugin ([a9c0b03](https://github.com/gi4nks/ph/commit/a9c0b032b91275edfb8948c7d136d93eb734fa12))
+
+# Changelog
+
+All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
+
+### [2.0.1](https://github.com/gi4nks/ph/compare/v1.3.2...v2.0.1) (2026-05-16)
+
+
+### Features
+
+* v2.0.0 — HTTP server, remote sync, MCP prompt tools, OpenCode plugin ([a9c0b03](https://github.com/gi4nks/ph/commit/a9c0b032b91275edfb8948c7d136d93eb734fa12))
+
+
+### Bug Fixes
+
+* remove provenance from publishConfig, restore scope+npm ci in release workflow ([734df6c](https://github.com/gi4nks/ph/commit/734df6cf53b15ff661ad95c530a897a802571ecc))
+
+## [2.0.0](https://github.com/gi4nks/ph/compare/v1.3.2...v2.0.0) (2026-05-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** major refactor of cli.ts into command modules. All commands keep the same interface but the internal architecture changed significantly.
+
+### Features
+
+* **server:** `ph server` — HTTP REST server (zero deps, Node http module). Endpoints: /health, /api/prompts/search, /api/prompts/by-id, /api/prompts/semantic, /api/sync/push, /api/sync/pull, /api/memories/search, /api/memories/summary, /api/stats
+* **remote:** `ph remote push|pull|status` — sync prompts across laptops. Dedup via sha256(tool|prompt|response). Background push on each `ph log`.
+* **mcp:** `search_prompts`, `get_prompt`, `search_prompts_semantic` tools for querying raw prompt history via MCP
+* **config:** `remote-url`, `remote-api-key` config keys + `PH_REMOTE_URL` env var support
+* **opencode:** native importer (`ph import opencode`) + real-time plugin hook
+
+### (prima di continuare con il commit fammi vedere se ti piace la situazione ) vabene?  
+
+
+## [1.3.0](https://github.com/gi4nks/ph/compare/v1.2.0...v1.3.0) (2026-04-12)
+
+## [1.2.0](https://github.com/gi4nks/ph/compare/v1.1.2...v1.2.0) (2026-04-06)
+
+
+### Features
+
+* add cleanup-reusability command for strategic database cleanup ([efeefec](https://github.com/gi4nks/ph/commit/efeefec2552a850cae275925b5c64f0542eac8bf))
+* use AppHeader and AppFooter from @gi4nks/ink ([bc48011](https://github.com/gi4nks/ph/commit/bc480119d4509d02926a698531e84ecf14cd05d5))
+
+### [1.1.2](https://github.com/gi4nks/ph/compare/v1.1.1...v1.1.2) (2026-03-28)
+
+### [1.1.1](https://github.com/gi4nks/ph/compare/v1.1.0...v1.1.1) (2026-03-28)
+
+
+### Features
+
+* **hooks:** improve portability and update documentation ([861f0ac](https://github.com/gi4nks/ph/commit/861f0ac6b62d91881af11d0a488b3e6d688c6f5b))
+
+## [1.1.0](https://github.com/gi4nks/ph/compare/v1.0.1...v1.1.0) (2026-03-28)
+
+
+### Features
+
+* add database maintenance commands (cleanup --days and vacuum) ([5657b14](https://github.com/gi4nks/ph/commit/5657b1424b582228516118be25021a60309025c7))
+
+### [1.0.1](https://github.com/gi4nks/ph/compare/v1.0.0...v1.0.1) (2026-03-28)
+
+
+### Features
+
+* add github packages workflow ([5185983](https://github.com/gi4nks/ph/commit/5185983b8fecd7be1ee8db6e821c675007571654))
+
+## 1.0.0 (2026-03-28)
+
+
+### Features
+
+* initial commit ([3803d81](https://github.com/gi4nks/ph/commit/3803d816ecf06ca0068f541a67a148d4c67215a2))
