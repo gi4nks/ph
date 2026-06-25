@@ -237,6 +237,13 @@ export async function runMCPServer() {
           access_count: 0,
         });
 
+        db.upsertProjectSummary({
+          project,
+          summary,
+          key_insights: keyInsights ?? [],
+          technical_decisions: technicalDecisions ?? [],
+        });
+
         return {
           content: [{ type: "text", text: `Decision saved as memory #${id} for project "${project}".\n\nSummary: ${summary}\nKey Insights: ${(keyInsights ?? []).length}\nTechnical Decisions: ${(technicalDecisions ?? []).length}` }],
         };
