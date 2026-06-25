@@ -82,6 +82,7 @@ SEARCH OPTIONS:
   --min-quality <n>   Filter by min quality (0-10)
   --min-relevance <n> Filter by min relevance (0-10)
   --top               Show only top quality prompts (quality >= 8)
+  --semantic          Use semantic search (requires embeddings)
   --archive           Search archived prompts
   --since YYYY-MM-DD
   --until YYYY-MM-DD
