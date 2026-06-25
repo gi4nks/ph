@@ -30,6 +30,7 @@ import { cmdCluster } from './commands/cluster.js';
 import { cmdAnalyzeReusability } from './commands/analyze-reusability.js';
 import { cmdCleanupReusability } from './commands/cleanup-reusability.js';
 import { cmdTimeline } from './commands/timeline.js';
+import { cmdMemoryMigrate } from './commands/memory-migrate.js';
 import { cmdWrap } from './commands/wrap.js';
 import { cmdChat } from './commands/chat.js';
 import { parseFlags } from './commands/_utils.js';
@@ -55,6 +56,7 @@ USAGE:
   ph mcp                                Start MCP server (Stdio)
   ph server [--port 3001]               Start HTTP REST server for remote sync
   ph timeline [project]                 Show full project history with prompts and memories
+  ph memory-migrate                      Merge existing memories into project_summaries
   ph remote push|pull|status            Sync prompts with remote ph server
   ph cleanup [--dry-run] [--min-length N] [--min-score N]  Remove useless prompts
   ph cleanup-reusability [--dry-run] [--threshold 0.7] [--force]  Cleanup based on reusability
@@ -97,6 +99,7 @@ SESSIONS OPTIONS:
   --limit <n>         Max sessions to show (default 20)
   --min-size <n>      Minimum prompts per session (default 1)
   --no-cohesion       Skip semantic cohesion computation
+  --export <n>        Export session N as markdown
 
 CLUSTER OPTIONS:
   -k <number>         Number of clusters (default 5)
@@ -310,6 +313,12 @@ async function main(): Promise<void> {
     case 'analyze': {
       const db = new PhDB(dbPath);
       await cmdAnalyze(db, cfg, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'memory-migrate': {
+      const db = new PhDB(dbPath);
+      cmdMemoryMigrate(db);
       db.close();
       break;
     }
