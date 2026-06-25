@@ -790,6 +790,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
 
   const [allEntries, setAllEntries] = useState<PromptEntry[]>(() => db.search({ limit: 1000 }));
   const [refreshKey, setRefreshKey] = useState(0);
+  const [archiveCount, setArchiveCount] = useState(() => db.getArchiveStats().total);
 
   const [textFilter, setTextFilter]     = useState(initialTextFilter ?? '');
   const [isTextFiltering, setTextFiltering] = useState(false);
@@ -1155,6 +1156,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
       <Header 
         entriesCount={entries.length} 
         allEntriesCount={allEntries.length}
+        archiveCount={archiveCount}
         activeFilters={activeFilters}
         textFilter={textFilter}
         isTextFiltering={false} // SearchBar handles it

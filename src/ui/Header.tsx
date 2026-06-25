@@ -29,6 +29,7 @@ export interface ActiveFilters {
 interface HeaderProps {
   entriesCount: number;
   allEntriesCount: number;
+  archiveCount?: number;
   activeFilters: ActiveFilters;
   textFilter: string;
   isTextFiltering: boolean;
@@ -65,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   const leftExtra = (
     <Text color="white" dimColor>
       {'  '}{entriesCount}{entriesCount < allEntriesCount ? `/${allEntriesCount}` : ''} prompts
+      {archiveCount !== undefined && archiveCount > 0 ? <Text color="yellow"> ({archiveCount} archived)</Text> : null}
     </Text>
   );
 
