@@ -254,6 +254,12 @@ export async function analyzeAll(
             technical_decisions: result.technical_decisions ?? [],
             git_context_snapshot: gitFp,
           });
+          db.upsertProjectSummary({
+            project: result.project,
+            summary: result.summary,
+            key_insights: result.key_insights ?? [],
+            technical_decisions: result.technical_decisions ?? [],
+          });
         }
         stats.updated++;
       }
