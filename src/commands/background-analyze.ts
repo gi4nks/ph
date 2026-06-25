@@ -60,6 +60,12 @@ export async function cmdBackgroundAnalyze(dbPath: string, args: string[]): Prom
         technical_decisions: result.technical_decisions ?? [],
         git_context_snapshot: gitFp,
       });
+      db.upsertProjectSummary({
+        project: result.project,
+        summary: result.summary,
+        key_insights: result.key_insights ?? [],
+        technical_decisions: result.technical_decisions ?? [],
+      });
     }
   } catch (_err: unknown) {
   } finally {
