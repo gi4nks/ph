@@ -59,6 +59,7 @@ USAGE:
   ph memory-migrate                      Merge existing memories into project_summaries
   ph remote push|pull|status            Sync prompts with remote ph server
   ph cleanup [--dry-run] [--min-length N] [--min-score N]  Remove useless prompts
+  ph cleanup --retention [--dry-run]          Archive prompts per retention policy
   ph cleanup-reusability [--dry-run] [--threshold 0.7] [--force]  Cleanup based on reusability
   ph embed-all                          Generate embeddings for all prompts
   ph log --tool <name> --prompt <text> [--response <text>]  Log a prompt+response directly
