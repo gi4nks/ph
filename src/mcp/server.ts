@@ -31,6 +31,54 @@ export async function runMCPServer() {
     return {
       tools: [
         {
+          name: "list_prompts",
+          description: "List prompts for a project with pagination. Use page=1, pageSize=10 to browse.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              project: { type: "string", description: "Project name to list prompts for" },
+              page: { type: "number", description: "Page number (1-based)", default: 1 },
+              pageSize: { type: "number", description: "Results per page (max 100)", default: 20 },
+            },
+            required: ["project"],
+          },
+        },
+        {
+          name: "save_decision",
+          description: "Save an architectural decision or key insight to project memory.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              project: { type: "string", description: "Project name" },
+              summary: { type: "string", description: "Brief summary of the decision" },
+              keyInsights: {
+                type: "array",
+                items: { type: "string" },
+                description: "Key insights or takeaways",
+              },
+              technicalDecisions: {
+                type: "array",
+                items: { type: "string" },
+                description: "Technical decisions made",
+              },
+            },
+            required: ["project", "summary"],
+          },
+        },
+        {
+          name: "get_project_diff",
+          description: "Compare project state between two points in time. Shows prompts and memory entries created in the date range.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              project: { type: "string", description: "Project name" },
+              since: { type: "string", description: "Start date (ISO 8601, e.g. 2026-01-01)" },
+              until: { type: "string", description: "End date (ISO 8601, defaults to now)" },
+            },
+            required: ["project", "since"],
+          },
+        },
+        {
           name: "search_project_memory",
           description: "Search for past interactions and technical decisions in a specific project using semantic search.",
           inputSchema: {
@@ -114,6 +162,9 @@ export async function runMCPServer() {
             type: "object",
             properties: {
               project: { type: "string", description: "The project name" },
+              since: { type: "string", description: "Start date (ISO 8601, optional)" },
+              until: { type: "string", description: "End date (ISO 8601, optional)" },
+              limit: { type: "number", description: "Max events to return (default 100)", default: 100 },
             },
             required: ["project"],
           },
@@ -139,6 +190,111 @@ export async function runMCPServer() {
     const { name, arguments: args } = request.params;
 
     try {
+      if (name === "list_prompts") {
+        const { project, page = 1, pageSize = 20 } = z.object({
+          project: z.string(),
+          page: z.number().optional(),
+          pageSize: z.number().max(100).optional(),
+        }).parse(args);
+
+        const result = db.getPromptsByProjectPaginated(project, page, pageSize);
+        const totalPages = Math.ceil(result.total / pageSize);
+
+        const text = [
+          `## Prompts for "${project}"`,
+          `Page ${page}/${totalPages} (${result.total} total)\n`,
+          ...result.entries.map(e => {
+            let meta: PromptMetadata = {};
+            try { meta = JSON.parse(e.metadata); } catch {}
+            const date = new Date(e.timestamp).toLocaleString();
+            const title = meta.title ? ` — ${meta.title}` : '';
+            const roleStr = meta.role ? ` (${meta.role})` : '';
+            return `### #${e.id} — ${e.tool}${roleStr} (${date})${title}\n${(meta.summary ? `Summary: ${meta.summary}\n` : '')}Prompt: ${e.prompt.slice(0, 200)}${e.prompt.length > 200 ? '...' : ''}`;
+          }).join('\n\n'),
+          '',
+          `Page ${page}/${totalPages} | ${result.total} total prompts`,
+        ].join('\n');
+
+        return { content: [{ type: "text", text }] };
+      }
+
+      if (name === "save_decision") {
+        const { project, summary, keyInsights, technicalDecisions } = z.object({
+          project: z.string(),
+          summary: z.string(),
+          keyInsights: z.array(z.string()).optional(),
+          technicalDecisions: z.array(z.string()).optional(),
+        }).parse(args);
+
+        const id = db.insertMemory({
+          project,
+          prompt_ids: [],
+          summary,
+          key_insights: keyInsights ?? [],
+          technical_decisions: technicalDecisions ?? [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          access_count: 0,
+        });
+
+        return {
+          content: [{ type: "text", text: `Decision saved as memory #${id} for project "${project}".\n\nSummary: ${summary}\nKey Insights: ${(keyInsights ?? []).length}\nTechnical Decisions: ${(technicalDecisions ?? []).length}` }],
+        };
+      }
+
+      if (name === "get_project_diff") {
+        const { project, since, until } = z.object({
+          project: z.string(),
+          since: z.string(),
+          until: z.string().optional(),
+        }).parse(args);
+
+        const sinceDate = new Date(since);
+        const untilDate = until ? new Date(until) : new Date();
+
+        const prompts = db.search({
+          project,
+          since: sinceDate,
+          until: untilDate,
+          limit: 1000,
+        });
+
+        const memories = db.getAllMemoriesByProject(project)
+          .filter(m => {
+            const created = new Date(m.created_at);
+            return created >= sinceDate && created <= untilDate;
+          });
+
+        const lines: string[] = [
+          `## Project Diff: ${project}`,
+          `From: ${since}  To: ${until || 'now'}`,
+          `Prompts: ${prompts.length}  Memories: ${memories.length}\n`,
+        ];
+
+        if (prompts.length > 0) {
+          lines.push('### Prompts\n');
+          for (const p of prompts.reverse()) {
+            let meta: PromptMetadata = {};
+            try { meta = JSON.parse(p.metadata); } catch {}
+            const title = meta.title ? ` — ${meta.title}` : '';
+            const roleStr = meta.role ? ` (${meta.role})` : '';
+            lines.push(`- **#${p.id}** ${p.tool}${roleStr}${title} (${new Date(p.timestamp).toLocaleDateString()})`);
+            if (meta.summary) lines.push(`  Summary: ${meta.summary}`);
+          }
+        }
+
+        if (memories.length > 0) {
+          lines.push('\n### Memory Entries\n');
+          for (const m of memories) {
+            lines.push(`- **Memory #${m.id}**: ${m.summary}`);
+            for (const i of m.key_insights) lines.push(`  - Insight: ${i}`);
+            for (const d of m.technical_decisions) lines.push(`  - Decision: ${d}`);
+          }
+        }
+
+        return { content: [{ type: "text", text: lines.join('\n') }] };
+      }
+
       if (name === "search_project_memory") {
         const { query, project, limit = 5 } = z.object({
           query: z.string(),
@@ -175,27 +331,37 @@ export async function runMCPServer() {
           limit: z.number().optional(),
         }).parse(args);
 
-        const memories = db.searchMemories(project, 3);
-        const prompts = db.getProjectMemory(project, limit);
         const parts: string[] = [];
 
-        if (memories.length > 0) {
-          parts.push('## Project Knowledge\n');
-          for (const mem of memories) {
-            if (mem.summary) parts.push(`${mem.summary}\n`);
-            if (mem.key_insights.length > 0) {
-              parts.push('Key Insights:');
-              for (const i of mem.key_insights) parts.push(`  - ${i}`);
-              parts.push('');
-            }
-            if (mem.technical_decisions.length > 0) {
-              parts.push('Technical Decisions:');
-              for (const d of mem.technical_decisions) parts.push(`  - ${d}`);
-              parts.push('');
-            }
+        // Start with merged project summary if available
+        const merged = db.getProjectSummary(project);
+        if (merged) {
+          parts.push('## Project Knowledge (merged)\n');
+          if (merged.summary) parts.push(`${merged.summary}\n`);
+          if (merged.key_insights.length > 0) {
+            parts.push('Key Insights:');
+            for (const i of merged.key_insights) parts.push(`  - ${i}`);
+            parts.push('');
+          }
+          if (merged.technical_decisions.length > 0) {
+            parts.push('Technical Decisions:');
+            for (const d of merged.technical_decisions) parts.push(`  - ${d}`);
+            parts.push('');
           }
         }
 
+        // Also pull recent memories (detailed entries)
+        const memories = db.searchMemories(project, 3);
+        if (memories.length > 0) {
+          if (parts.length > 0) parts.push('---\n');
+          parts.push('## Recent Memory Entries\n');
+          for (const mem of memories) {
+            if (mem.summary) parts.push(`- ${mem.summary}`);
+          }
+          parts.push('');
+        }
+
+        const prompts = db.getProjectMemory(project, limit);
         if (prompts.length > 0) {
           if (parts.length > 0) parts.push('---\n');
           parts.push('## Recent Interactions\n');
@@ -212,27 +378,26 @@ export async function runMCPServer() {
           project: z.string(),
         }).parse(args);
 
-        const memories = db.searchMemories(project, 5);
+        const summary = db.getProjectSummary(project);
 
-        if (memories.length === 0) {
+        if (!summary) {
           return {
             content: [{ type: "text", text: `No accumulated knowledge for project "${project}". Run "ph analyze" to generate insights.` }],
           };
         }
 
         const parts: string[] = [];
-        for (const mem of memories) {
-          parts.push(`## ${mem.summary || 'Project Memory'}\n`);
-          if (mem.key_insights.length > 0) {
-            parts.push('**Key Insights:**');
-            for (const i of mem.key_insights) parts.push(`- ${i}`);
-            parts.push('');
-          }
-          if (mem.technical_decisions.length > 0) {
-            parts.push('**Technical Decisions:**');
-            for (const d of mem.technical_decisions) parts.push(`- ${d}`);
-            parts.push('');
-          }
+        parts.push(`## ${summary.summary || 'Project Memory'}\n`);
+        parts.push(`Based on ${summary.prompt_count} interactions.\n`);
+        if (summary.key_insights.length > 0) {
+          parts.push('**Key Insights:**');
+          for (const i of summary.key_insights) parts.push(`- ${i}`);
+          parts.push('');
+        }
+        if (summary.technical_decisions.length > 0) {
+          parts.push('**Technical Decisions:**');
+          for (const d of summary.technical_decisions) parts.push(`- ${d}`);
+          parts.push('');
         }
 
         return {
@@ -316,22 +481,37 @@ export async function runMCPServer() {
       }
 
       if (name === "get_project_timeline") {
-        const { project } = z.object({
+        const { project, since, until, limit = 100 } = z.object({
           project: z.string(),
+          since: z.string().optional(),
+          until: z.string().optional(),
+          limit: z.number().optional(),
         }).parse(args);
 
-        const prompts = db.getAllPromptsByProject(project);
-        const memories = db.getAllMemoriesByProject(project);
+        let allPrompts = db.getAllPromptsByProject(project);
+        let memories = db.getAllMemoriesByProject(project);
 
-        if (prompts.length === 0 && memories.length === 0) {
+        // Apply date filters
+        if (since) {
+          const sinceDate = new Date(since);
+          allPrompts = allPrompts.filter(p => new Date(p.timestamp) >= sinceDate);
+          memories = memories.filter(m => new Date(m.created_at) >= sinceDate);
+        }
+        if (until) {
+          const untilDate = new Date(until);
+          allPrompts = allPrompts.filter(p => new Date(p.timestamp) <= untilDate);
+          memories = memories.filter(m => new Date(m.created_at) <= untilDate);
+        }
+
+        if (allPrompts.length === 0 && memories.length === 0) {
           return {
-            content: [{ type: "text", text: `No history found for project "${project}".` }],
+            content: [{ type: "text", text: `No history found for project "${project}"${since ? ` since ${since}` : ''}${until ? ` until ${until}` : ''}.` }],
           };
         }
 
         const events: Array<{ timestamp: string; text: string }> = [];
 
-        for (const p of prompts) {
+        for (const p of allPrompts.slice(0, limit)) {
           let meta: PromptMetadata = {};
           try { meta = JSON.parse(p.metadata); } catch {}
           events.push({
@@ -364,7 +544,8 @@ export async function runMCPServer() {
 
         events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-        const header = `# Timeline: ${project}\n\n${prompts.length} prompts · ${memories.length} memory entries\n\n`;
+        const range = since || until ? ` (${since || '…'} → ${until || 'now'})` : '';
+        const header = `# Timeline: ${project}${range}\n\n${allPrompts.length} prompts · ${memories.length} memory entries\n\n`;
         const body = events.map(e => {
           const date = new Date(e.timestamp).toLocaleDateString('en-CA');
           const time = new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
