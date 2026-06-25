@@ -10,6 +10,19 @@ export function defaultPath(): string {
 }
 
 export class PhDB {
+  private static readonly PROJECT_SUMMARIES_SCHEMA = `
+    CREATE TABLE IF NOT EXISTS project_summaries (
+      project     TEXT    PRIMARY KEY,
+      summary     TEXT    NOT NULL DEFAULT '',
+      key_insights TEXT   NOT NULL DEFAULT '[]',
+      technical_decisions TEXT NOT NULL DEFAULT '[]',
+      prompt_count INTEGER NOT NULL DEFAULT 0,
+      first_analyzed TEXT  NOT NULL,
+      last_analyzed TEXT   NOT NULL,
+      git_context_snapshot TEXT
+    );
+  `;
+
   private db: Database.Database;
 
   constructor(dbPath: string) {
@@ -87,6 +100,8 @@ export class PhDB {
       );
       CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
     `);
+
+    this.db.exec(PhDB.PROJECT_SUMMARIES_SCHEMA);
 
     // Migration: $schema_version in existing metadata
     const rowsWithoutSchema = this.db
@@ -584,6 +599,30 @@ export class PhDB {
         ORDER BY timestamp ASC
       `)
       .all(project) as PromptEntry[];
+  }
+
+  getPromptsByProjectPaginated(project: string, page: number, pageSize: number): { entries: PromptEntry[]; total: number } {
+    const total = this.db
+      .prepare("SELECT COUNT(*) as count FROM prompts WHERE json_extract(metadata, '$.project') = ?")
+      .get(project) as { count: number };
+
+    const entries = this.db
+      .prepare(`
+        SELECT * FROM prompts
+        WHERE json_extract(metadata, '$.project') = ?
+        ORDER BY timestamp DESC
+        LIMIT ? OFFSET ?
+      `)
+      .all(project, pageSize, (page - 1) * pageSize) as PromptEntry[];
+
+    return { entries, total: total.count };
+  }
+
+  getPromptCountByProject(project: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM prompts WHERE json_extract(metadata, '$.project') = ?")
+      .get(project) as { count: number };
+    return row.count;
   }
 
   getAllMemoriesByProject(project: string): MemoryEntry[] {

@@ -40,6 +40,17 @@ export interface MemoryEntry {
   last_accessed?: string;
 }
 
+export interface ProjectSummary {
+  project: string;
+  summary: string;
+  key_insights: string[];
+  technical_decisions: string[];
+  prompt_count: number;
+  first_analyzed: string;
+  last_analyzed: string;
+  git_context_snapshot?: string;
+}
+
 export interface SearchOptions {
   query?: string;
   tool?: string;
