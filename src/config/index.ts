@@ -15,6 +15,10 @@ export interface PhConfig {
   remoteUrl?: string;                    // HTTP URL of remote ph server (or set PH_REMOTE_URL env)
   remoteApiKey?: string;                 // optional API key for remote server
   remoteLastPull?: string;               // ISO timestamp of last successful pull
+  retentionDays?: number;              // default: 90 — auto-archive prompts older than N days
+  retentionMinStarred?: boolean;       // default: true — never archive starred prompts
+  retentionMinAnalyzed?: boolean;      // default: true — never archive analyzed prompts (has summary or role)
+  retentionMinRelevance?: number;      // default: 3 — prompts below this relevance are archived first
 }
 
 const CONFIG_PATH = path.join(os.homedir(), '.ph_config.json');
