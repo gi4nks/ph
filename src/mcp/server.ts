@@ -327,6 +327,27 @@ export async function runMCPServer() {
           })
           .slice(0, limit);
 
+        if (filtered.length === 0) {
+          const merged = db.getProjectSummary(project);
+          if (merged) {
+            const parts: string[] = [
+              `## Project Knowledge: ${project}\n`,
+              `Based on ${merged.prompt_count} interactions.\n`,
+            ];
+            if (merged.summary) parts.push(`${merged.summary}\n`);
+            if (merged.key_insights.length > 0) {
+              parts.push('\n**Key Insights:**');
+              for (const i of merged.key_insights) parts.push(`- ${i}`);
+            }
+            if (merged.technical_decisions.length > 0) {
+              parts.push('\n**Technical Decisions:**');
+              for (const d of merged.technical_decisions) parts.push(`- ${d}`);
+            }
+            return { content: [{ type: "text", text: parts.join('\n') }] };
+          }
+          return { content: [{ type: "text", text: `No relevant memory found for project "${project}".` }] };
+        }
+
         return {
           content: [{ type: "text", text: formatResultsAsMarkdown(filtered) }],
         };
