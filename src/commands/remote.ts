@@ -1,8 +1,8 @@
-import { createHash } from 'crypto';
 import { PhDB } from '../db/index.js';
 import { load as loadConfig, save as saveConfig } from '../config/index.js';
 import type { PhConfig } from '../config/index.js';
 import type { PromptEntry } from '../types.js';
+import { syncHash } from '../utils/syncHash.js';
 
 function remoteUrl(cfg: PhConfig): string {
   return process.env.PH_REMOTE_URL || cfg.remoteUrl || '';
@@ -41,7 +41,6 @@ async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const db = new PhDB(dbPath);
   const since = cfg.remoteLastPush || '1970-01-01T00:00:00.000Z';
   const prompts = db.getPromptsSince(since, 5000);
-
   if (prompts.length === 0) {
     process.stdout.write('Nothing to push.\n');
     db.close();
@@ -114,7 +113,7 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
     let imported = 0;
     let skipped = 0;
     for (const p of result.prompts) {
-      const hash = sha256(`${p.tool}|${p.prompt}|${p.response}`);
+      const hash = syncHash(p);
       const existing = db.getPromptBySyncHash(hash);
       if (existing) { skipped++; continue; }
 
@@ -163,8 +162,4 @@ async function status(dbPath: string, cfg: PhConfig, url: string): Promise<void>
   process.stdout.write(`Last pull:   ${lastPull}\n`);
   process.stdout.write(`Pending:     ${pending} prompts to push\n`);
   db.close();
-}
-
-function sha256(s: string): string {
-  return createHash('sha256').update(s).digest('hex');
 }

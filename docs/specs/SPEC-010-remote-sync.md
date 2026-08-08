@@ -89,10 +89,12 @@ CLI progress lines (`Pushing N prompts…`, `Imported: X, Skipped: Y`).
 | Dedup primitive | src/db/index.ts:403-407 |
 
 ## 9. Open questions / discrepancies
-- sync_hash excludes args/workdir — same tool+prompt with different args dedups
-  (SPEC-ISSUES-012).
-- The server NEVER verifies `remoteApiKey` — the Authorization header is sent by
-  the client but ignored server-side (SPEC-ISSUES-013, security).
+- ~~sync_hash excludes args/workdir~~ ✅ Fixed 2026-08-08: shared `syncHash`
+  helper (src/utils/syncHash.ts) — args included only when present, backward
+  compatible with the legacy `tool|prompt|response` hash.
+- ~~The server NEVER verifies `remoteApiKey`~~ ✅ Fixed 2026-08-08: auth gate in
+  `createRequestHandler` (Bearer + timingSafeEqual) on every endpoint except
+  /health when `remoteApiKey` is configured.
 - `remoteLastPush` uses the CLIENT clock; clock skew between laptops breaks
   incremental sync.
 - No pagination beyond the 10000/5000 caps; a laptop with >5000 unsynced
