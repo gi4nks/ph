@@ -5,14 +5,30 @@ import { load as loadConfig } from '../config/index.js';
 import type { PhConfig } from '../config/index.js';
 import { getEmbeddings } from '../embedding/index.js';
 import type { PromptMetadata } from '../types.js';
-import { createHash } from 'crypto';
+import { syncHash } from '../utils/syncHash.js';
+import { timingSafeEqual } from 'crypto';
 
 export async function runServer(port: number = 3001, host: string = '0.0.0.0'): Promise<void> {
   const cfg = loadConfig();
   const dbPath = process.env.PH_DB ?? cfg.dbPath ?? defaultPath();
   const db = new PhDB(dbPath);
 
-  const server = http.createServer(async (req, res) => {
+  const server = http.createServer(createRequestHandler(db, cfg));
+
+  return new Promise((resolve) => {
+    server.listen(port, host, () => {
+      console.error(`ph server listening on http://${host}:${port}`);
+      resolve();
+    });
+  });
+}
+
+/**
+ * Builds the request handler for a PhDB + config. Exported for testability
+ * (SPEC-ISSUES-013: auth enforcement lives here).
+ */
+export function createRequestHandler(db: PhDB, cfg: PhConfig) {
+  return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -23,20 +39,30 @@ export async function runServer(port: number = 3001, host: string = '0.0.0.0'): 
       return;
     }
 
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+    // Auth gate (SPEC-ISSUES-013): when remoteApiKey is configured, every
+    // endpoint except /health requires `Authorization: Bearer <key>`.
+    if (url.pathname !== '/health' && !authorized(req, cfg)) {
+      json(res, 401, { error: 'unauthorized' });
+      return;
+    }
+
     try {
       const body = await readBody(req);
       await route(req, res, body, db, cfg);
     } catch (err) {
       json(res, 500, { error: (err as Error).message });
     }
-  });
+  };
+}
 
-  return new Promise((resolve) => {
-    server.listen(port, host, () => {
-      console.error(`ph server listening on http://${host}:${port}`);
-      resolve();
-    });
-  });
+function authorized(req: http.IncomingMessage, cfg: PhConfig): boolean {
+  if (!cfg.remoteApiKey) return true;
+  const expected = `Bearer ${cfg.remoteApiKey}`;
+  const a = Buffer.from(req.headers.authorization ?? '');
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 async function route(req: http.IncomingMessage, res: http.ServerResponse, body: string, db: PhDB, cfg: PhConfig): Promise<void> {
@@ -102,7 +128,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
 
     for (const p of prompts) {
       try {
-        const hash = sha256(`${p.tool}|${p.prompt}|${p.response}`);
+        const hash = syncHash(p);
         const existing = db.getPromptBySyncHash(hash);
         if (existing) { skipped++; continue; }
 
@@ -172,8 +198,4 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
     req.on('error', reject);
   });
-}
-
-function sha256(s: string): string {
-  return createHash('sha256').update(s).digest('hex');
 }

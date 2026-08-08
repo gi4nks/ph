@@ -67,14 +67,17 @@ Status: Open → assigned SPEC / fixed.
   filter panel, settings) live in one component (src/ui/BrowseApp.tsx) with
   components extracted only for Header/Footer/ListEntry/PreviewPane/SearchBar.
   → component extraction follow-up.
-- **ISSUE-012 — sync_hash excludes args/workdir** — dedup hash is
-  sha256(`tool|prompt|response`) (src/server/index.ts:104, remote.ts:116): two
-  runs of the same tool+prompt with different args collapse to one entry on pull.
-  → include args in the hash (behavior change — verify before applying).
-- **ISSUE-013 — server auth is declared but never enforced** — `remoteApiKey`
-  config exists and the client sends `Authorization: Bearer` (remote.ts:96) but
-  the HTTP server never checks the header (src/server/index.ts has no auth
-  branch). Anyone reaching the port can read/write the prompt DB.
+- **ISSUE-012 — sync_hash excludes args/workdir (FIXED 2026-08-08)** — dedup
+  hash was `sha256(tool|prompt|response)` duplicated inline in server
+  (src/server/index.ts:104) and remote (remote.ts:116) — drift risk. Now a
+  shared `syncHash` helper (src/utils/syncHash.ts) that includes `args` ONLY
+  when present — backward compatible: entries without args keep the legacy
+  hash (no mass re-push), entries with different args no longer collapse. ✅ Fixed.
+- **ISSUE-013 — server auth is declared but never enforced (FIXED 2026-08-08)** —
+  `remoteApiKey` was sent by the client but the HTTP server never checked it.
+  Now `createRequestHandler` (exported for tests) gates every endpoint except
+  `/health` with `Authorization: Bearer <key>` (timingSafeEqual) when
+  `remoteApiKey` is configured (src/server/index.ts:30-60). ✅ Fixed.
 - **ISSUE-014 — memories prompt_ids unused after summaries** — `prompt_ids` in
   `memories` (src/db/index.ts:109) is written but the summary merge path
   (project_summaries) tracks prompt_count instead; the timeline joins via
@@ -98,8 +101,8 @@ Status: Open → assigned SPEC / fixed.
 | 009 | — (chore) | Open |
 | 010 | SPEC-001 | Open |
 | 011 | SPEC-012 | Open |
-| 012 | SPEC-010 | Open (behavior change) |
-| 013 | SPEC-010 | Open (security) |
+| 012 | SPEC-010 | ✅ Fixed 2026-08-08 (shared syncHash, args-aware, backward compatible) |
+| 013 | SPEC-010 | ✅ Fixed 2026-08-08 (auth gate on createRequestHandler) |
 | 014 | SPEC-007 | Open |
 | 015 | SPEC-012 | Open |
 | 016 | SPEC-004 | ✅ Fixed 2026-08-08 |
