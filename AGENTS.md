@@ -151,7 +151,7 @@ dist/                 # Build output (gitignored)
 | MCP | `@modelcontextprotocol/sdk` 1.29 |
 | Validation | `zod` 4.3 |
 | Linting | ESLint 9 + TypeScript + React (`@eslint/js` in devDeps) |
-| Testing | `vitest` 4.1 — 51 tests / 5 files |
+| Testing | `vitest` 4.1 — 67 tests / 7 files |
 | Release | `semantic-release` 25 (conventional commits) |
 | Dev Runner | `tsx` 4.21 |
 
@@ -397,3 +397,4 @@ Dopo ogni `ph log ...` o hook invocation, partirà automaticamente l'analisi in 
 | 2026-08-08 | Baseline specs SPEC-001…015 + SPEC-INDEX + SPEC-ISSUES (17 findings: response-column ALTER, private db access, remoteLastPush, node-pty/TS6/eslint, zero tests, stale stack table, standard-version leftover, TUI bootstrap ×3, BrowseApp monolith, sync_hash senza args, server auth mai enforced, memories.prompt_ids, display duplication) |
 | 2026-08-08 | Test suite GWT: 51 test (PhDB search FTS/scan/semantic primitives, dedup sync_hash, archive move/purge, memories append-only + summary merge, filter rules, analyzer parse/merge, sessions gaps, config load/save) — trovati e fixati 2 bug filter (NON_PRINTABLE pattern matchava parole normali; filler 'grazie' mancante) |
 | 2026-08-08 | refactor: openBrowser/runRerun in cli.ts (bootstrap TUI duplicato ×3 → helper unico); rimosso standard-version (semantic-release lo ha sostituito) |
+| 2026-08-08 | Auth server enforced (remoteApiKey → Bearer gate su ogni endpoint tranne /health, timingSafeEqual) + syncHash condiviso args-aware retrocompatibile (era sha256 duplicato tool\|prompt\|response) + test HTTP server end-to-end su porta effimera (health/search/stats/sync dedup/auth 401-200) — 67 test |
