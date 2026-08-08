@@ -145,6 +145,42 @@ EXAMPLES:
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
+type BrowseAppProps = React.ComponentProps<typeof BrowseApp>;
+
+/**
+ * Opens the TUI browser inside the alternate screen (SPEC-001).
+ * Shared by the default, `browse` and `search -i` paths (SPEC-ISSUES-010).
+ * Resolves with the rerun request (or null) after the TUI exits.
+ */
+async function openBrowser(
+  db: PhDB,
+  opts: Pick<BrowseAppProps, 'initialTextFilter' | 'initialFilters'> = {},
+): Promise<{ tool: string; prompt: string } | null> {
+  let pendingRerun: { tool: string; prompt: string } | null = null;
+  process.stdout.write('\x1b[?1049h');
+  try {
+    const { waitUntilExit } = render(
+      React.createElement(BrowseApp, {
+        db,
+        ...opts,
+        onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; },
+      })
+    );
+    await waitUntilExit();
+  } finally {
+    process.stdout.write('\x1b[?1049l');
+  }
+  return pendingRerun;
+}
+
+/** Executes a TUI rerun request after the browser closed. */
+function runRerun(rerun: { tool: string; prompt: string } | null): void {
+  if (!rerun) return;
+  const realBin = resolveRealBinary(rerun.tool);
+  const child = spawnSync(realBin, [rerun.prompt], { stdio: 'inherit' });
+  process.exit(child.status ?? 0);
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
 
@@ -159,26 +195,9 @@ async function main(): Promise<void> {
   if (argv.length === 0) {
     if (isTerminal()) {
       const db = new PhDB(dbPath);
-      process.stdout.write('\x1b[?1049h');
-      let pendingRerun: { tool: string; prompt: string } | null = null;
-      try {
-        const { waitUntilExit } = render(
-          React.createElement(BrowseApp, {
-            db,
-            onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; }
-          })
-        );
-        await waitUntilExit();
-      } finally {
-        process.stdout.write('\x1b[?1049l');
-        db.close();
-      }
-      if (pendingRerun) {
-        const { tool, prompt } = pendingRerun;
-        const realBin = resolveRealBinary(tool);
-        const child = spawnSync(realBin, [prompt], { stdio: 'inherit' });
-        process.exit(child.status ?? 0);
-      }
+      const rerun = await openBrowser(db);
+      db.close();
+      runRerun(rerun);
       process.exit(0);
     } else {
       process.stdout.write(USAGE);
@@ -213,37 +232,21 @@ async function main(): Promise<void> {
       
       if (flags['i'] || flags['interactive']) {
         const db = new PhDB(dbPath);
-        process.stdout.write('\x1b[?1049h');
-        let pendingRerun: { tool: string; prompt: string } | null = null;
-        try {
-          const { waitUntilExit } = render(
-            React.createElement(BrowseApp, {
-              db,
-              initialTextFilter: query,
-              initialFilters: {
-                tool: flags['tool'] as string,
-                project: flags['project'] as string,
-                language: flags['language'] as string,
-                role: flags['role'] as string,
-                tag: flags['tag'] as string,
-                starred: Boolean(flags['starred']),
-                minQuality: flags['top'] ? 8 : (flags['min-quality'] ? Number(flags['min-quality']) : undefined),
-                minRelevance: flags['min-relevance'] ? Number(flags['min-relevance']) : undefined,
-              },
-              onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; }
-            })
-          );
-          await waitUntilExit();
-        } finally {
-          process.stdout.write('\x1b[?1049l');
-          db.close();
-        }
-        if (pendingRerun) {
-          const { tool, prompt } = pendingRerun;
-          const realBin = resolveRealBinary(tool);
-          const child = spawnSync(realBin, [prompt], { stdio: 'inherit' });
-          process.exit(child.status ?? 0);
-        }
+        const rerun = await openBrowser(db, {
+          initialTextFilter: query,
+          initialFilters: {
+            tool: flags['tool'] as string,
+            project: flags['project'] as string,
+            language: flags['language'] as string,
+            role: flags['role'] as string,
+            tag: flags['tag'] as string,
+            starred: Boolean(flags['starred']),
+            minQuality: flags['top'] ? 8 : (flags['min-quality'] ? Number(flags['min-quality']) : undefined),
+            minRelevance: flags['min-relevance'] ? Number(flags['min-relevance']) : undefined,
+          },
+        });
+        db.close();
+        runRerun(rerun);
         break;
       }
 
@@ -372,26 +375,9 @@ async function main(): Promise<void> {
 
     case 'browse': {
       const db = new PhDB(dbPath);
-      process.stdout.write('\x1b[?1049h');
-      let pendingRerun: { tool: string; prompt: string } | null = null;
-      try {
-        const { waitUntilExit } = render(
-          React.createElement(BrowseApp, {
-            db,
-            onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; }
-          })
-        );
-        await waitUntilExit();
-      } finally {
-        process.stdout.write('\x1b[?1049l');
-        db.close();
-      }
-      if (pendingRerun) {
-        const { tool, prompt } = pendingRerun;
-        const realBin = resolveRealBinary(tool);
-        const child = spawnSync(realBin, [prompt], { stdio: 'inherit' });
-        process.exit(child.status ?? 0);
-      }
+      const rerun = await openBrowser(db);
+      db.close();
+      runRerun(rerun);
       break;
     }
 
