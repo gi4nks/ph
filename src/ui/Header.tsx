@@ -53,6 +53,7 @@ const FilterBadges: React.FC<{ active: ActiveFilters; textFilter: string }> = ({
 export const Header: React.FC<HeaderProps> = ({
   entriesCount,
   allEntriesCount,
+  archiveCount,
   activeFilters,
   textFilter,
   isTextFiltering,

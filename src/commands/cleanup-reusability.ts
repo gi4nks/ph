@@ -76,7 +76,7 @@ export async function cmdCleanupReusability(db: PhDB, _cfg: PhConfig, args: stri
   if (!force) {
     process.stdout.write(`\nContinue and delete ${candidates.length} prompts? (y/N) `);
     const buffer = Buffer.alloc(16);
-    const bytesRead = fs.readSync(0, buffer, 0, 16);
+    const bytesRead = fs.readSync(0, buffer, 0, 16, null);
     const answer = buffer.toString('utf8', 0, bytesRead).trim().toLowerCase();
     if (answer !== 'y' && answer !== 'yes') {
       console.log('Aborted.');

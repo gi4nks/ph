@@ -44,7 +44,11 @@ export class PhDB {
 
   private db: Database.Database;
 
+  /** Absolute path of the SQLite file (used by the HTTP server health endpoint). */
+  readonly dbPath: string;
+
   constructor(dbPath: string) {
+    this.dbPath = dbPath;
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     sqliteVec.load(this.db);
@@ -195,7 +199,8 @@ export class PhDB {
     }
   }
 
-  insert(entry: Omit<PromptEntry, 'id'>): number {
+  /** `response` is optional at the call site (runtime defaults to ''). */
+  insert(entry: Omit<PromptEntry, 'id' | 'response'> & { response?: string }): number {
     const meta = entry.metadata || '{}';
     const response = entry.response ?? '';
     const info = this.db
@@ -398,6 +403,19 @@ export class PhDB {
 
   getPromptCount(): number {
     return (this.db.prepare('SELECT count(*) as c FROM prompts').get() as { c: number }).c;
+  }
+
+  getPromptCountSince(timestamp: string): number {
+    return (this.db.prepare('SELECT count(*) as c FROM prompts WHERE timestamp > ?').get(timestamp) as { c: number }).c;
+  }
+
+  getStats(): { total: number; totalMemories: number; byTool: Array<{ tool: string; count: number }> } {
+    const total = (this.db.prepare('SELECT count(*) as c FROM prompts').get() as { c: number }).c;
+    const totalMemories = (this.db.prepare('SELECT count(*) as c FROM memories').get() as { c: number }).c;
+    const byTool = this.db
+      .prepare('SELECT tool, count(*) as count FROM prompts GROUP BY tool ORDER BY count DESC')
+      .all() as Array<{ tool: string; count: number }>;
+    return { total, totalMemories, byTool };
   }
 
   getPromptBySyncHash(hash: string): PromptEntry | undefined {

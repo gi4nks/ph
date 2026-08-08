@@ -1,8 +1,10 @@
 import { createHash } from 'crypto';
-import { PhDB, defaultPath } from '../db/index.js';
+import { PhDB } from '../db/index.js';
 import { load as loadConfig, save as saveConfig } from '../config/index.js';
+import type { PhConfig } from '../config/index.js';
+import type { PromptEntry } from '../types.js';
 
-function remoteUrl(cfg: Record<string, any>): string {
+function remoteUrl(cfg: PhConfig): string {
   return process.env.PH_REMOTE_URL || cfg.remoteUrl || '';
 }
 
@@ -35,7 +37,7 @@ Remote: ${url}\n`);
   }
 }
 
-async function push(dbPath: string, cfg: Record<string, any>, url: string): Promise<void> {
+async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const db = new PhDB(dbPath);
   const since = cfg.remoteLastPush || '1970-01-01T00:00:00.000Z';
   const prompts = db.getPromptsSince(since, 5000);
@@ -81,7 +83,7 @@ async function push(dbPath: string, cfg: Record<string, any>, url: string): Prom
   }
 }
 
-async function pull(dbPath: string, cfg: Record<string, any>, url: string): Promise<void> {
+async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const db = new PhDB(dbPath);
   const since = cfg.remoteLastPull || '';
 
@@ -102,7 +104,7 @@ async function pull(dbPath: string, cfg: Record<string, any>, url: string): Prom
       throw new Error(`Remote error ${res.status}: ${err}`);
     }
 
-    const result = await res.json() as { prompts: any[]; hasMore: boolean };
+    const result = await res.json() as { prompts: PromptEntry[]; hasMore: boolean };
     if (result.prompts.length === 0) {
       process.stdout.write('No new prompts on remote.\n');
       db.close();
@@ -133,7 +135,7 @@ async function pull(dbPath: string, cfg: Record<string, any>, url: string): Prom
 
     process.stdout.write(`Imported: ${imported}, Skipped (already local): ${skipped}\n`);
 
-    const maxTs = result.prompts.reduce((max: string, p: any) => p.timestamp > max ? p.timestamp : max, '');
+    const maxTs = result.prompts.reduce((max: string, p: PromptEntry) => p.timestamp > max ? p.timestamp : max, '');
     cfg.remoteLastPull = maxTs;
     saveConfig(cfg);
   } catch (err) {
@@ -144,7 +146,7 @@ async function pull(dbPath: string, cfg: Record<string, any>, url: string): Prom
   }
 }
 
-async function status(dbPath: string, cfg: Record<string, any>, url: string): Promise<void> {
+async function status(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const db = new PhDB(dbPath);
 
   const localTotal = db.getPromptCount();
@@ -152,7 +154,7 @@ async function status(dbPath: string, cfg: Record<string, any>, url: string): Pr
   const lastPull = cfg.remoteLastPull || 'never';
 
   const pending = cfg.remoteLastPush
-    ? (db.db.prepare('SELECT count(*) as c FROM prompts WHERE timestamp > ?').get(cfg.remoteLastPush) as { c: number }).c
+    ? db.getPromptCountSince(cfg.remoteLastPush)
     : localTotal;
 
   process.stdout.write(`Remote:      ${url}\n`);
