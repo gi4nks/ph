@@ -22,14 +22,16 @@ export interface FilterOptions {
 
 // Patterns that indicate trivial/useless prompts (conversational filler)
 const TRIVIAL_PATTERN =
-  /^(yes|no|ok|okay|sure|thanks|thank you|continue|go on|next|exit|quit|stop|help|y|n|👍|👎|che dici\??|dimmi|vai|go|do it|tell me|vadi|procedi|aspetta|wait|[.!?,;:]+|\s*)$/i;
+  /^(yes|no|ok|okay|sure|thanks|thank you|continue|go on|next|exit|quit|stop|help|y|n|👍|👎|che dici\??|dimmi|vai|go|do it|tell me|vadi|procedi|grazie|aspetta|wait|[.!?,;:]+|\s*)$/i;
 
 // Fragments that look like orphan code or syntax noise
 const ORPHAN_CODE_PATTERN = /^([{}()[\]<>|&!=\-+*/%^~#@\\:;.,\s]+|\.\.\.|console\.log.*|print.*)$/i;
 
-// Non-printable / PTY noise: only control chars and escape sequences
+// Non-printable / PTY noise: escape sequences and control chars. The lookahead
+// requires at least one actual control char — plain words must NOT match here
+// (they fall through to the trivial/pattern rules).
 // eslint-disable-next-line no-control-regex
-const NON_PRINTABLE_PATTERN = /^[\x00-\x1f\x7f\x1b[\]()#;\d;A-Za-z]*$/;
+const NON_PRINTABLE_PATTERN = /^(?=.*[\x00-\x1f\x7f])[\x00-\x1f\x7f\x1b[\]()#;\d;A-Za-z]*$/;
 
 export class FilterPipeline {
   private readonly minLength: number;
