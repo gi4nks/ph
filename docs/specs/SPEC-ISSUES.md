@@ -36,8 +36,17 @@ Status: Open → assigned SPEC / fixed.
   adding the missing `@eslint/js` devDep (eslint.config.js imported it but it was
   never in package.json → lint was completely broken). ✅ Fixed (downgrade).
 - **ISSUE-007 — ZERO test files** — no `*.test.ts` anywhere; `vitest run` exits
-  with "No test files found". A published npm package with no suite (the TS6
-  breakage above shipped unnoticed). → SPEC-002/005/009/010 GWT wiring.
+  with "No test files found". ⚠️ **Partially fixed 2026-08-08**: 51 GWT tests
+  added (SPEC-002/004/005/006/007/009/010/014/015) — capture/PTY, MCP, server,
+  TUI and importers still uncovered.
+- **ISSUE-016 — NON_PRINTABLE pattern matched plain words (FIXED 2026-08-08)** —
+  the filter's non-printable regex `^[\x00-\x1f\x7f\x1b\[\]()#;\d;A-Za-z]*$`
+  matched ANY all-alphanumeric string (e.g. "yes") because of `[A-Za-z\d]` in
+  the class, classifying normal prompts as PTY noise. Fixed with a control-char
+  lookahead (src/filter/index.ts:32-35). Found by the SPEC-004 GWT suite. ✅ Fixed.
+- **ISSUE-017 — trivial filler list missing 'grazie' (FIXED 2026-08-08)** —
+  the Italian filler set (che dici/dimmi/vai/procedi/aspetta) lacked 'grazie';
+  added (src/filter/index.ts:25). Found by the SPEC-004 GWT suite. ✅ Fixed.
 
 ## Docs
 
@@ -84,7 +93,7 @@ Status: Open → assigned SPEC / fixed.
 | 004 | SPEC-003 | ✅ Fixed 2026-08-08 |
 | 005 | SPEC-002 | ✅ Fixed 2026-08-08 |
 | 006 | — (tooling) | ✅ Fixed 2026-08-08 (eslint 9 + @eslint/js) |
-| 007 | SPEC-002/005/009/010 | Open (Fase 2 test wiring) |
+| 007 | SPEC-002/005/009/010 | ⚠️ Partially fixed 2026-08-08 (51 tests; capture/MCP/server/TUI uncovered) |
 | 008 | — (docs) | Open |
 | 009 | — (chore) | Open |
 | 010 | SPEC-001 | Open |
@@ -93,3 +102,5 @@ Status: Open → assigned SPEC / fixed.
 | 013 | SPEC-010 | Open (security) |
 | 014 | SPEC-007 | Open |
 | 015 | SPEC-012 | Open |
+| 016 | SPEC-004 | ✅ Fixed 2026-08-08 |
+| 017 | SPEC-004 | ✅ Fixed 2026-08-08 |
