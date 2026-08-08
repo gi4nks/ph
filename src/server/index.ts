@@ -2,6 +2,7 @@ import http from 'http';
 import { URL } from 'url';
 import { PhDB, defaultPath } from '../db/index.js';
 import { load as loadConfig } from '../config/index.js';
+import type { PhConfig } from '../config/index.js';
 import { getEmbeddings } from '../embedding/index.js';
 import type { PromptMetadata } from '../types.js';
 import { createHash } from 'crypto';
@@ -38,13 +39,13 @@ export async function runServer(port: number = 3001, host: string = '0.0.0.0'): 
   });
 }
 
-async function route(req: http.IncomingMessage, res: http.ServerResponse, body: string, db: PhDB, cfg: Record<string, any>): Promise<void> {
+async function route(req: http.IncomingMessage, res: http.ServerResponse, body: string, db: PhDB, cfg: PhConfig): Promise<void> {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const path = url.pathname;
   const method = req.method || 'GET';
 
   if (method === 'GET' && path === '/health') {
-    return json(res, 200, { status: 'ok', dbPath: (db as any).db?.name || 'unknown' });
+    return json(res, 200, { status: 'ok', dbPath: db.dbPath });
   }
 
   if (method === 'POST' && path === '/api/prompts/search') {
@@ -102,7 +103,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
     for (const p of prompts) {
       try {
         const hash = sha256(`${p.tool}|${p.prompt}|${p.response}`);
-        const existing = db.db.prepare("SELECT id FROM prompts WHERE json_extract(metadata, '$.sync_hash') = ?").get(hash) as { id: number } | undefined;
+        const existing = db.getPromptBySyncHash(hash);
         if (existing) { skipped++; continue; }
 
         const metaObj = { ...JSON.parse(p.metadata || '{}'), sync_hash: hash };
@@ -129,12 +130,9 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
   if (method === 'POST' && path === '/api/sync/pull') {
     const { since } = JSON.parse(body);
     const limit = 10000;
-    let results;
-    if (since) {
-      results = db.db.prepare('SELECT * FROM prompts WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?').all(since, limit) as any[];
-    } else {
-      results = db.db.prepare('SELECT * FROM prompts ORDER BY timestamp ASC LIMIT ?').all(limit) as any[];
-    }
+    const results = since
+      ? db.getPromptsSince(since, limit)
+      : db.getAllPrompts(limit);
     return json(res, 200, { prompts: results, hasMore: results.length >= limit });
   }
 
@@ -154,9 +152,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
   }
 
   if (method === 'GET' && path === '/api/stats') {
-    const total = (db.db.prepare('SELECT count(*) as c FROM prompts').get() as any).c;
-    const totalMemories = (db.db.prepare('SELECT count(*) as c FROM memories').get() as any).c;
-    const byTool = db.db.prepare('SELECT tool, count(*) as count FROM prompts GROUP BY tool ORDER BY count DESC').all();
+    const { total, totalMemories, byTool } = db.getStats();
     return json(res, 200, { total, totalMemories, byTool });
   }
 

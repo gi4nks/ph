@@ -1,6 +1,7 @@
 import os from 'os';
 import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
+import type { PromptEntry } from '../types.js';
 import { detectProject, detectLanguage } from '../runner/project.js';
 import { extractTopic } from '../utils/extractTopic.js';
 import { spawnBackgroundAnalysis } from '../background/analyzer.js';
@@ -69,7 +70,7 @@ export async function cmdLog(dbPath: string, cfg: PhConfig, args: string[]): Pro
   }
 }
 
-async function pushToRemote(url: string, apiKey: string | undefined, entry: Record<string, any>): Promise<void> {
+async function pushToRemote(url: string, apiKey: string | undefined, entry: Omit<PromptEntry, 'id'>): Promise<void> {
   const res = await fetch(`${url}/api/sync/push`, {
     method: 'POST',
     headers: {

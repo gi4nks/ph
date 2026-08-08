@@ -29,9 +29,9 @@ export class OllamaProvider implements LLMProvider {
       clearTimeout(timer);
       const msg = (err as Error).message ?? String(err);
       if (msg.includes('abort') || msg.includes('timeout')) {
-        throw new Error(`Ollama request timed out (60s). Is Ollama running at ${this.url}?`);
+        throw new Error(`Ollama request timed out (60s). Is Ollama running at ${this.url}?`, { cause: err });
       }
-      throw new Error(`Ollama unreachable at ${this.url}: ${msg}`);
+      throw new Error(`Ollama unreachable at ${this.url}: ${msg}`, { cause: err });
     } finally {
       clearTimeout(timer);
     }
