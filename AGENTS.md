@@ -7,12 +7,14 @@ Remote sync infrastructure: HTTP server for cross-laptop prompt history sharing,
 
 ### Completed
 - **Phase 0**: `cli.ts` ~1500→~80 lines; 19 command handlers → `src/commands/*.ts`
-- **Phase 1**: `sqlite-vec` integrated, `vec_embeddings` + `memories` tables, auto-migration from old BLOB embeddings
+- **Phase 1 (original)**: `sqlite-vec` integrated, `vec_embeddings` + `memories` tables, auto-migration from old BLOB embeddings
 - **Phase 2.1–2.3**: `ANALYSIS_PROMPT` requests `summary`/`key_insights`/`technical_decisions`; `analyzeAll`/`_bg-analyze` populate `memories` (append-only); `ph context` outputs memories + prompts in markdown
 - **Phase 3.2**: MCP tools `search_project_memory`, `get_project_context`, `get_project_summary`
 - **Phase 4.2–4.3**: `C` (Shift+C) in TUI launches tool with project context; `ph chat <tool> <prompt>` injects RAG context
 - **TUI**: FilterPanel redesigned (flat list, counts `[N]`, Enter toggle, letter-jump); `ListEntry` role-colored bar `│`, summary line, analysis indicator `●/○`, Q/R badges; `SearchBar` always visible; `Footer` context-sensitive hints; session separators `╌╌ date ╌╌`
 - **Memory**: `upsertProjectMemory` is append-only → full timeline per project
+- **Memory merging**: `upsertProjectSummary()` merges new analysis into existing project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
+- **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
 - **Docs**: `AGENTS.md` fully rewritten; `ROADMAP_RAG.md` updated with completed phases checked
 - **OpenCode importer**: `src/importer/opencode.ts` reads from SQLite DB (`~/.local/share/opencode/opencode.db`), paired 186 user messages with responses, imported 151 prompts into ph after dedup
 - **OpenCode plugin**: `hooks/opencode/ph-plugin.ts` — real-time capture via OpenCode plugin hooks (`chat.message` + `experimental.text.complete`). Pairs user prompts with streamed assistant responses, calls `ph log` in background. Install script at `hooks/opencode/install.sh`.
@@ -30,13 +32,16 @@ Remote sync infrastructure: HTTP server for cross-laptop prompt history sharing,
 - **MCP `get_project_timeline`**: Returns full project timeline (prompts + memories in chronological order) via stdio. Auto-discovered by any MCP client.
 - **MCP `check_project_knowledge`**: AI agents call this before implementing a feature. Searches memories (keyword match) + semantic prompt search for previous implementations, discussions, and technical decisions. Returns "found" or "new work" recommendation.
 
-### Next Steps
-- Task 2.4: git state tracking to avoid duplicate memories when project hasn't changed
-- Optionally fix pre-existing React lint errors in `BrowseApp.tsx:198` / `PreviewPane.tsx:79,84`
+### Next Steps (Evolution Plan — `docs/superpowers/specs/2026-06-12-ph-evolution-design.md`)
+- **Phase 1 (Evolution)**: ✅ `project_summaries` table created, `upsertProjectSummary()` (merge/dedup), `getProjectSummary()`, `ph memory-migrate` command (83 projects migrated), analysis pipeline writes to both tables, MCP tools read from `project_summaries`. `save_decision` also writes to summaries.
+- **Phase 2**: ✅ `prompts_archive` table, `ph cleanup --retention` (2 priority rules), config keys `retentionDays`/`retentionMinStarred`/`retentionMinAnalyzed`/`retentionMinRelevance`, auto-purge of 2× retentionDays old entries.
+- **Phase 3**: ✅ MCP `search_project_memory` falls back to `project_summaries` when semantic search returns empty; `check_project_knowledge` already exists; `save_decision` writes to summaries
+- **Phase 4**: ✅ TUI header shows archive count (`N prompts (M archived)`), `ph search --archive` searches archived prompts, auto-purge on cleanup
+- Task 2.4 (git state tracking) deferred
 
 ### Known Issues
-- 5 pre-existing lint issues (3 React lint in `BrowseApp`/`PreviewPane`, 2 `any` in `mcp/server.ts`) — no regressions
-- Build passes (`npm run build` → ESM dist, ~170 KB)
+- ~~5 pre-existing lint issues (3 React lint in `BrowseApp`/`PreviewPane`, 2 `any` in `mcp/server.ts`)~~ — lint ripulito 2026-08-08 (eslint 9 + @eslint/js, zero errori/warning)
+- Build passes (`npm run build` → ESM dist, ~237 KB)
 
 ## Project Overview
 
@@ -136,17 +141,17 @@ dist/                 # Build output (gitignored)
 
 | Layer | Technology |
 |-------|-----------|
-| Language | TypeScript 5.9 ESM (`"type": "module"`) |
+| Language | TypeScript 6.0 ESM (`"type": "module"`) |
 | Runtime | Node.js 20+ |
 | Build | `tsup` 8.5 — `src/cli.ts` → `dist/cli.js` |
 | DB | SQLite via `better-sqlite3` 12.8 (WAL mode, FTS5) |
 | Vector | `sqlite-vec` 0.1 (native `vec0`, 768-dim) |
-| TUI | `ink` 6.8 + `react` 19.2 |
-| PTY | `@lydell/node-pty` 1.2 |
+| TUI | `ink` 7.0 + `react` 19.2 |
+| PTY | `@lydell/node-pty` 1.2 (local typings shim, `src/pty/node-pty.d.ts`) |
 | MCP | `@modelcontextprotocol/sdk` 1.29 |
 | Validation | `zod` 4.3 |
-| Linting | ESLint 9 + TypeScript + React |
-| Testing | `vitest` 4.1 |
+| Linting | ESLint 9 + TypeScript + React (`@eslint/js` in devDeps) |
+| Testing | `vitest` 4.1 — 51 tests / 5 files |
 | Release | `semantic-release` 25 (conventional commits) |
 | Dev Runner | `tsx` 4.21 |
 
@@ -273,6 +278,10 @@ interface PhConfig {
   filterMinLength?: number;           // default: 15
   filterMinRelevance?: number;        // default: 3
   backgroundAnalysis?: boolean;       // default: false — runs _bg-analyze after each ph log
+  retentionDays?: number;             // default: 90 — auto-archive prompts older than N days
+  retentionMinStarred?: boolean;      // default: true — starred prompts never auto-archived
+  retentionMinAnalyzed?: boolean;     // default: true — analyzed prompts never auto-archived
+  retentionMinRelevance?: number;     // default: 3 — prompts with relevance below threshold pruned first
   remoteUrl?: string;                 // HTTP URL of remote ph server (or set PH_REMOTE_URL env)
   remoteApiKey?: string;              // optional API key for remote server
   remoteLastPull?: string;            // ISO timestamp of last successful pull
@@ -331,6 +340,11 @@ Dopo ogni `ph log ...` o hook invocation, partirà automaticamente l'analisi in 
 - **Memory pipeline**: analysis → `upsertProjectMemory()` creates new memory entry with `key_insights` + `technical_decisions` per project
 - **`ph context`**: outputs both project-level knowledge (from `memories`) + recent prompt interactions (markdown, pipe-ready)
 - **Import with analysis**: `ph import gemini --analyze` runs inline LLM analysis on imported prompts (supports `gemini`, `claude`, `opencode`)
+- **Memory merging**: `upsertProjectSummary()` merges new analysis into existing project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
+- **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
+- **MCP summary fallback**: `search_project_memory` returns `project_summaries` content when semantic search yields no results
+- **Search archive**: `ph search --archive` queries the `prompts_archive` table
+- **TUI archive count**: Header shows `N prompts (M archived)` when archive has entries
 - **MCP server**: exposes `search_project_memory`, `get_project_context` (with memories), `get_project_summary` tools
 - **Hooks**: shell scripts in `hooks/<tool>/ph-hook.sh`, invoked by AI CLI tools, pipe JSON to `ph log`
 - **OpenCode importer**: reads from the SQLite DB at `~/.local/share/opencode/opencode.db` — queries `session`, `message`, and `part` tables; assistant messages link to user via `parentID` in `message.data` JSON
@@ -359,3 +373,27 @@ Dopo ogni `ph log ...` o hook invocation, partirà automaticamente l'analisi in 
 - `hooks/claude/ph-hook.sh` — Claude Code hook
 - `hooks/gemini/ph-hook.sh` — Gemini CLI hook
 - `docs/ph-manual.md` — comprehensive architecture guide
+
+## Spec-Driven Development (2026-08-08)
+
+- Baseline specs in `docs/specs/` — `SPEC-INDEX.md` (registry + cluster map),
+  `SPEC-ISSUES.md` (cross-cutting discrepancies), `_TEMPLATE.md`.
+- **SPEC-001…015** = baseline reverse-engineered from code (ph as it is today;
+  regression targets). Same format as lens/harness (`path:line` evidence, ≥3 GWT
+  per spec, §9 open questions — never invent behavior).
+- ph è un'applicazione: specs baseline-only (niente target specs tipo
+  harness-integration; le integrazioni descritte sono le feature esistenti:
+  MCP, server HTTP, sync).
+- Quando cambi comportamento: aggiorna la spec pertinente (status + GWT) e le
+  entry SPEC-ISSUES; quando un fix atterra, marca l'issue fixed con la data.
+- GWT criteri → test vitest: 51 test in `src/**/__tests__/` (DB/search/memory/
+  archive/sync dedup, filter, analyzer parse/merge, sessions, config).
+
+## Change Log
+
+| Data | Cosa |
+|------|------|
+| 2026-08-08 | Baseline repair: 12 type errors TS6/@types-node-25 fixed (PhDB metodi pubblici al posto di `db.db` privato in server/remote, insert response opzionale, Float32Array, readSync, node-pty shim), lint ripristinato (eslint 9 + @eslint/js mancante), ABI better-sqlite3 rebuild — tsc/eslint/build verdi |
+| 2026-08-08 | Baseline specs SPEC-001…015 + SPEC-INDEX + SPEC-ISSUES (17 findings: response-column ALTER, private db access, remoteLastPush, node-pty/TS6/eslint, zero tests, stale stack table, standard-version leftover, TUI bootstrap ×3, BrowseApp monolith, sync_hash senza args, server auth mai enforced, memories.prompt_ids, display duplication) |
+| 2026-08-08 | Test suite GWT: 51 test (PhDB search FTS/scan/semantic primitives, dedup sync_hash, archive move/purge, memories append-only + summary merge, filter rules, analyzer parse/merge, sessions gaps, config load/save) — trovati e fixati 2 bug filter (NON_PRINTABLE pattern matchava parole normali; filler 'grazie' mancante) |
+| 2026-08-08 | refactor: openBrowser/runRerun in cli.ts (bootstrap TUI duplicato ×3 → helper unico); rimosso standard-version (semantic-release lo ha sostituito) |
