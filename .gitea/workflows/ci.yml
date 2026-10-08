@@ -8,7 +8,7 @@ on:
 
 jobs:
   checks:
-    uses: self:gianluca/gitea-ci/.gitea/workflows/node-app-ci.yml@v1.0.3
+    uses: gianluca/gitea-ci/.gitea/workflows/node-app-ci.yml@v1.0.3
     with:
       node-version: '22'
       run-tests: true
