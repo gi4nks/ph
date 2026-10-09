@@ -1,60 +1,47 @@
-# Evolution Plan: `ph` into a Project RAG Memory System
+# Project Context and Memory Roadmap
 
-This document outlines the strategic roadmap to transform `ph` (Prompt History) from a passive observability tool into an active, project-aware RAG (Retrieval-Augmented Generation) system.
+This document records the evolution of `ph` from a prompt history tool into a project-aware memory system. The phases below describe implemented capabilities; open decisions are listed at the end.
 
-## 🎯 Vision
-`ph` will not only track what you asked, but will "understand" the project context, summarize key decisions, and expose this memory to AI agents via MCP (Model Context Protocol).
+## Phase 0: Code and database foundations — Complete
 
----
+- Split CLI commands into focused modules.
+- Added project metadata and versioned metadata handling.
+- Added persistent project memories and summary storage.
+- Added native vector search through sqlite-vec.
 
-## ✅ Phase 0: Code Restructuring
-**Goal:** Refactor monolithic `cli.ts` into command modules + add DB foundations for project memory.
+## Phase 1: Project analysis and context — Complete
 
-- [x] **Task 0.1: Extract commands** — moved all inline command handlers from `cli.ts` (~1500 lines) into `src/commands/*.ts`, dispatched via switch (~80 lines)
-- [x] **Task 0.2: Shared helpers** — `parseFlags()`, `parseDate()` → `src/commands/_utils.ts`
-- [x] **Task 0.3: `memories` table** — added schema + 8 CRUD methods to `PhDB`
-- [x] **Task 0.4: `$schema_version`** — added to `PromptMetadata` for forward-compatible schema evolution
+- Analysis extracts summaries, key insights, and technical decisions.
+- Background analysis can process new captures without blocking the wrapped tool.
+- `ph context` combines project summaries, memories, and related prompts.
+- `ph chat` can add project context before launching a tool.
+- Context retrieval and formatting are shared across CLI, chat, and MCP consumers.
 
----
+## Phase 2: Memory lifecycle — Complete
 
-## ✅ Phase 1: Database & Semantic Engine Upgrade
-**Goal:** Move from manual JS-based similarity to a native, high-performance vector search.
+- `project_summaries` keeps merged project knowledge with duplicate insight and decision removal.
+- `memories` preserves an append-only analysis timeline.
+- `ph memory-migrate` migrates earlier memory data into project summaries.
+- Retention cleanup archives old prompts and removes expired archive entries according to configuration.
 
-- [x] **Task 1.1: Integrate `sqlite-vec`** — dependency added, loaded in `PhDB` constructor
-- [x] **Task 1.2: New Schema for Memory** — `vec0` table + `memories` table with `summary`, `key_insights`, `technical_decisions`
-- [x] **Task 1.3: Migration Tool** — automatic migration from old `embeddings` BLOB table to `vec_embeddings` on DB open
+## Phase 3: MCP integration — Complete
 
----
+The stdio MCP server exposes prompt search and lookup, project context and summaries, knowledge checks, decision saving, and project timelines.
 
-## 🧠 Phase 2: Enhanced AI Analysis (The "Cervello")
-**Goal:** Extract high-value knowledge from raw prompt/response pairs.
+## Phase 4: CLI and terminal workflows — Complete
 
-- [x] **Task 2.1: Advanced Analysis Prompt** — `ANALYSIS_PROMPT` now requests `summary`, `key_insights`, `technical_decisions`
-- [x] **Task 2.2: Background Memory Worker** — `analyzeAll` + `cmdBackgroundAnalyze` call `upsertProjectMemory()` after each analysis
-- [x] **Task 2.3: `ph context` with memories** — outputs project knowledge from `memories` table + recent interactions in markdown format
-- [ ] **Task 2.4: Context Hash / Git State** — track project state changes to avoid duplicate memories
+- Search supports full-text and vector modes, filters, and archived prompts.
+- The TUI supports browsing, filtering, editing metadata, starring, rerunning, and context-aware tool launch.
+- Sessions and project timelines provide chronological views of captured work.
 
----
+## Open decisions
 
-## 🔌 Phase 3: MCP Server Integration
-**Goal:** Make `ph` memory available to Claude Desktop, Cursor, and Gemini natively.
+- Evaluate embedding quality using the maintainer-judged dataset in `docs/evals/context-retrieval-golden.json` and `npm run eval:retrieval`.
+- Decide whether a project-state fingerprint is useful for avoiding repetitive memory updates.
+- Revisit more extensive `PhDB` decomposition if another storage adapter or a distinct migration seam is needed.
 
-- [x] **Task 3.1: MCP Server Implementation** — `src/mcp/server.ts` using `@modelcontextprotocol/sdk` (156 lines)
-- [x] **Task 3.2: Tools Exposure** — expose `search_project_memory`, `get_project_context` (with memories), `get_project_summary` via MCP
-- [x] **Task 3.3: CLI Command `ph mcp`** — launches stdio MCP server
+## Evaluation goals
 
----
-
-## 💻 Phase 4: CLI & TUI UX Enhancements
-**Goal:** Make context easy to use from the terminal.
-
-- [x] **Task 4.1: Command `ph context`** — outputs markdown context with `--memories-only`, `--prompts-only`, `--verbose` flags
-- [x] **Task 4.2: TUI "Chat" Mode** — `C` (Shift+C) keybinding in `BrowseApp.tsx` launches tool with project context prepended
-- [x] **Task 4.3: Command `ph chat`** — `ph chat <tool> <prompt...>` wrapper that injects RAG context automatically
-
----
-
-## 🧪 Success Metrics
-- **Latency:** Semantic search should take < 50ms for 10k entries.
-- **Accuracy:** AI-generated summaries must accurately reflect technical decisions (verified by user review).
-- **Utility:** Ability to resolve a "How did I do X in project Y?" query using `ph context` without manual searching.
+- Measure retrieval recall and ranking quality using a reachable 768-dimensional embedding model.
+- Review generated summaries and decisions against source interactions.
+- Check that project-context queries can find relevant prior work without mixing other projects.

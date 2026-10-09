@@ -7,6 +7,7 @@ import type { LLMProvider } from '../ai/provider.js';
 import { analyzePrompt, mergeMetadata } from '../analyzer/index.js';
 import type { FilterPipeline } from '../filter/index.js';
 import type { ImportResult } from '../types.js';
+import { createCaptureRecord } from '../capture/index.js';
 
 const MAX_RESPONSE_LENGTH = 8000;
 const TRUNCATION_SUFFIX = '\n... (truncated)';
@@ -210,7 +211,7 @@ export async function importOpenCodeHistory(
         try { metadata.tokens = JSON.parse(entry.tokens); } catch { metadata.tokens = entry.tokens; }
       }
 
-      const id = db.insert({
+      const id = db.insert(createCaptureRecord({
         timestamp: entry.timestamp,
         tool: 'opencode',
         prompt: entry.prompt,
@@ -219,8 +220,8 @@ export async function importOpenCodeHistory(
         workdir: entry.workdir,
         hostname,
         exit_code: 0,
-        metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : '{}',
-      });
+        metadata,
+      }));
       filter?.registerHash(entry.prompt, id);
       result.promptsImported++;
     } catch (e: unknown) {

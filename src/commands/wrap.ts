@@ -2,8 +2,8 @@ import path from 'path';
 import os from 'os';
 import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
-import { detectProject, detectLanguage } from '../runner/project.js';
 import { captureGitContext } from '../runner/git-context.js';
+import { createCaptureRecord } from '../capture/index.js';
 import { runInline, resolveRealBinary } from '../runner/inline.js';
 import { runPTY, isTerminal } from '../pty/wrapper.js';
 import { spawnBackgroundAnalysis } from '../background/analyzer.js';
@@ -47,30 +47,18 @@ export async function cmdWrap(dbPath: string, tool: string, args: string[], cfg:
 
   if (interactive) {
     const workdir = process.cwd();
-    const { rootDir, projectName } = detectProject(workdir);
-    const language = detectLanguage(rootDir);
     const gitContext = captureGitContext(workdir);
 
     const onPrompt = (prompt: string, ts: Date): number => {
-      const metaObj: Record<string, unknown> = { $schema_version: 1 };
-      if (projectName) metaObj.project = projectName;
-      if (language) metaObj.language = language;
-      if (role) metaObj.role = role;
-      if (tags.length > 0) metaObj.tags = tags;
-      if (gitContext) metaObj.git_context = gitContext;
-      const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : '{}';
-
-      return db.insert({
+      return db.insert(createCaptureRecord({
         timestamp: ts.toISOString(),
         tool,
         prompt,
-        response: '',
         args: prompt,
         workdir,
-        hostname: os.hostname(),
-        exit_code: 0,
-        metadata,
-      });
+        gitContext,
+        metadata: { ...(role ? { role } : {}), ...(tags.length > 0 ? { tags } : {}) },
+      }));
     };
 
     const onResponse = (id: number, response: string) => {

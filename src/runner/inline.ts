@@ -1,9 +1,8 @@
 import { spawn, execFileSync } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import { PhDB } from '../db/index.js';
-import { detectProject, detectLanguage } from './project.js';
 import { captureGitContext } from './git-context.js';
+import { createCaptureRecord } from '../capture/index.js';
 
 export function extractPrompt(args: string[]): string {
   for (let i = args.length - 1; i >= 0; i--) {
@@ -44,28 +43,16 @@ export async function runInline(
   onInserted?: (id: number) => void
 ): Promise<void> {
   const workdir = process.cwd();
-  const { rootDir, projectName } = detectProject(workdir);
-  const language = detectLanguage(rootDir);
   const gitContext = captureGitContext(workdir);
 
-  const metaObj: Record<string, unknown> = {};
-  if (projectName) metaObj.project = projectName;
-  if (language) metaObj.language = language;
-  if (role) metaObj.role = role;
-  if (tags.length > 0) metaObj.tags = tags;
-  if (gitContext) metaObj.git_context = gitContext;
-  const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : '{}';
-
-  const id = db.insert({
-    timestamp: new Date().toISOString(),
+  const id = db.insert(createCaptureRecord({
     tool,
     prompt: extractPrompt(args),
     args: args.join(' '),
     workdir,
-    hostname: os.hostname(),
-    exit_code: 0,
-    metadata,
-  });
+    gitContext,
+    metadata: { ...(role ? { role } : {}), ...(tags.length > 0 ? { tags } : {}) },
+  }));
 
   if (onInserted) onInserted(id);
 
