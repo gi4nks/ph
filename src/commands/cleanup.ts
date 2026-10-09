@@ -7,6 +7,14 @@ import { parseFlags } from './_utils.js';
 export async function cmdCleanup(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   const { flags } = parseFlags(args);
   const dryRun = Boolean(flags['dry-run']);
+  const retention = Boolean(flags['retention']);
+
+  if (retention) {
+    await runRetention(db, cfg, dryRun);
+    return;
+  }
+
+  // Original rule-based cleanup
   const minLength = flags['min-length'] ? Number(flags['min-length']) : (cfg.filterMinLength ?? 15);
   const minScore = flags['min-score'] ? Number(flags['min-score']) : (cfg.filterMinRelevance ?? 3);
   const days = flags['days'] ? Number(flags['days']) : undefined;
@@ -74,4 +82,83 @@ export async function cmdCleanup(db: PhDB, cfg: PhConfig, args: string[]): Promi
   const ids = toDelete.map(e => e.id);
   const deleted = db.deleteByIds(ids);
   console.log(`\nDeleted ${deleted} prompts.`);
+}
+
+async function runRetention(db: PhDB, cfg: PhConfig, dryRun: boolean): Promise<void> {
+  const retentionDays = cfg.retentionDays ?? 90;
+  const minStarred = cfg.retentionMinStarred ?? true;
+  const minAnalyzed = cfg.retentionMinAnalyzed ?? true;
+  const minRelevance = cfg.retentionMinRelevance ?? 3;
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+  const cutoffStr = cutoff.toISOString();
+
+  const allEntries = db.search({ limit: 100000 });
+  const stats = db.getArchiveStats();
+
+  console.log(`Retention policy: ${retentionDays} days, minRelevance=${minRelevance}, keepStarred=${minStarred}, keepAnalyzed=${minAnalyzed}`);
+  console.log(`Archive: ${stats.total} entries (${stats.oldest ? `oldest ${stats.oldest}` : 'empty'})`);
+  console.log(`Scanning ${allEntries.length} prompts...\n`);
+
+  // Priority 1: relevance < threshold AND age > retentionDays → archive
+  // Priority 2: age > retentionDays AND not starred AND not analyzed → archive
+  const toArchive: Array<{ id: number; prompt: string; reason: string; meta: PromptMetadata }> = [];
+
+  for (const entry of allEntries) {
+    let meta: PromptMetadata = {};
+    try { meta = JSON.parse(entry.metadata) as PromptMetadata; } catch {}
+
+    const age = entry.timestamp;
+    const isOld = age < cutoffStr;
+    const isStarred = meta.starred === true;
+    const isAnalyzed = Boolean(meta.summary || meta.role);
+    const relevance = meta.relevance ?? 5;
+
+    if (!isOld) continue;
+
+    // Priority 1: low relevance + old
+    if (relevance < minRelevance) {
+      toArchive.push({ id: entry.id, prompt: entry.prompt, reason: `low_relevance(${relevance})`, meta });
+      continue;
+    }
+
+    // Priority 2: old + not protected
+    if (!(minStarred && isStarred) && !(minAnalyzed && isAnalyzed)) {
+      toArchive.push({ id: entry.id, prompt: entry.prompt, reason: `old(>${retentionDays}d)`, meta });
+    }
+  }
+
+  if (toArchive.length === 0) {
+    console.log('No prompts match retention criteria.');
+    return;
+  }
+
+  console.log(`Candidates for archiving: ${toArchive.length}`);
+  for (const item of toArchive.slice(0, 20)) {
+    const short = item.prompt.replace(/\n/g, ' ').slice(0, 60);
+    const starred = item.meta.starred ? ' *' : '';
+    const analyzed = item.meta.summary ? ' [A]' : '';
+    console.log(`  #${String(item.id).padEnd(5)} [${item.reason}]${starred}${analyzed} "${short}"`);
+  }
+  if (toArchive.length > 20) {
+    console.log(`  ... and ${toArchive.length - 20} more`);
+  }
+
+  if (dryRun) {
+    console.log(`\n(dry-run) Would archive ${toArchive.length} prompts. Run without --dry-run to apply.`);
+    return;
+  }
+
+  const ids = toArchive.map(e => e.id);
+  const archived = db.archivePrompts(ids);
+  console.log(`\nArchived ${archived} prompts.`);
+
+  // Auto-purge: archived entries older than 2x retentionDays
+  const purgeCutoff = new Date();
+  purgeCutoff.setDate(purgeCutoff.getDate() - retentionDays * 2);
+  const purged = db.purgeArchive(purgeCutoff.toISOString());
+  if (purged > 0) {
+    console.log(`Purged ${purged} archived entries older than ${retentionDays * 2} days.`);
+  }
 }

@@ -33,9 +33,10 @@ ph capture --role debug "test prompt" # Manual capture test
 ## Versioning Workflow
 
 - Always use **Conventional Commits** (e.g., `feat: add semantic search`, `fix: resolved database bug`).
-- Releases must be performed via `Makefile` targets (`make release-patch|minor|major`).
+- Use `make release-patch`, `make release-minor`, or `make release-major` to update the package version and lockfile locally.
 - Do not manually modify the version in `package.json`.
-- Pushing tags triggers the GitHub Actions workflow for publication on npm.
+- These Make targets do not create commits or tags and do not publish to npm.
+- The GitHub Actions workflow runs `semantic-release` on pushes to `main`; it selects the release version from Conventional Commits and handles npm publication. Treat local version increments as preparation only.
 
 ## Maintenance Tasks
 

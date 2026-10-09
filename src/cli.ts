@@ -30,6 +30,7 @@ import { cmdCluster } from './commands/cluster.js';
 import { cmdAnalyzeReusability } from './commands/analyze-reusability.js';
 import { cmdCleanupReusability } from './commands/cleanup-reusability.js';
 import { cmdTimeline } from './commands/timeline.js';
+import { cmdMemoryMigrate } from './commands/memory-migrate.js';
 import { cmdWrap } from './commands/wrap.js';
 import { cmdChat } from './commands/chat.js';
 import { parseFlags } from './commands/_utils.js';
@@ -49,14 +50,16 @@ USAGE:
   ph analyze-reusability [options]      Analyze prompt reusability
   ph star <id>                          Toggle star on a prompt
   ph export <id> [--format txt|json|md] Export a single prompt
-  ph import gemini [--dry-run] [--analyze] [--filter]  Import from Gemini CLI sessions
-  ph import claude [--dry-run] [--analyze] [--filter]  Import from Claude CLI sessions
+  ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>]
+                                                Import from Gemini, Claude, OpenCode, or Codex history
   ph analyze [--limit n] [--force] [--prune] [--dry-run]  Analyze prompts with LLM
   ph mcp                                Start MCP server (Stdio)
   ph server [--port 3001]               Start HTTP REST server for remote sync
   ph timeline [project]                 Show full project history with prompts and memories
+  ph memory-migrate                      Merge existing memories into project_summaries
   ph remote push|pull|status            Sync prompts with remote ph server
   ph cleanup [--dry-run] [--min-length N] [--min-score N]  Remove useless prompts
+  ph cleanup --retention [--dry-run]          Archive prompts per retention policy
   ph cleanup-reusability [--dry-run] [--threshold 0.7] [--force]  Cleanup based on reusability
   ph embed-all                          Generate embeddings for all prompts
   ph log --tool <name> --prompt <text> [--response <text>]  Log a prompt+response directly
@@ -70,7 +73,7 @@ WRAP FLAGS (placed before the tool name):
 
 SEARCH OPTIONS:
   -i, --interactive   Open results in interactive TUI browser
-  --tool <name>       Filter by tool name (claude, gemini, …)
+  --tool <name>       Filter by tool name (claude, gemini, opencode, codex, …)
   --project <name>    Filter by project name
   --language <lang>   Filter by language (go, typescript, python, …)
   --role <role>       Filter by role (debug, refactor, explain, …)
@@ -80,6 +83,7 @@ SEARCH OPTIONS:
   --min-relevance <n> Filter by min relevance (0-10)
   --top               Show only top quality prompts (quality >= 8)
   --semantic          Use semantic search (requires embeddings)
+  --archive           Search archived prompts
   --since YYYY-MM-DD
   --until YYYY-MM-DD
   --limit <n>         Max results (default 50)
@@ -97,6 +101,7 @@ SESSIONS OPTIONS:
   --limit <n>         Max sessions to show (default 20)
   --min-size <n>      Minimum prompts per session (default 1)
   --no-cohesion       Skip semantic cohesion computation
+  --export <n>        Export session N as markdown
 
 CLUSTER OPTIONS:
   -k <number>         Number of clusters (default 5)
@@ -140,6 +145,42 @@ EXAMPLES:
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
+type BrowseAppProps = React.ComponentProps<typeof BrowseApp>;
+
+/**
+ * Opens the TUI browser inside the alternate screen (SPEC-001).
+ * Shared by the default, `browse` and `search -i` paths (SPEC-ISSUES-010).
+ * Resolves with the rerun request (or null) after the TUI exits.
+ */
+async function openBrowser(
+  db: PhDB,
+  opts: Pick<BrowseAppProps, 'initialTextFilter' | 'initialFilters'> = {},
+): Promise<{ tool: string; prompt: string } | null> {
+  let pendingRerun: { tool: string; prompt: string } | null = null;
+  process.stdout.write('\x1b[?1049h');
+  try {
+    const { waitUntilExit } = render(
+      React.createElement(BrowseApp, {
+        db,
+        ...opts,
+        onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; },
+      })
+    );
+    await waitUntilExit();
+  } finally {
+    process.stdout.write('\x1b[?1049l');
+  }
+  return pendingRerun;
+}
+
+/** Executes a TUI rerun request after the browser closed. */
+function runRerun(rerun: { tool: string; prompt: string } | null): void {
+  if (!rerun) return;
+  const realBin = resolveRealBinary(rerun.tool);
+  const child = spawnSync(realBin, [rerun.prompt], { stdio: 'inherit' });
+  process.exit(child.status ?? 0);
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
 
@@ -154,26 +195,9 @@ async function main(): Promise<void> {
   if (argv.length === 0) {
     if (isTerminal()) {
       const db = new PhDB(dbPath);
-      process.stdout.write('\x1b[?1049h');
-      let pendingRerun: { tool: string; prompt: string } | null = null;
-      try {
-        const { waitUntilExit } = render(
-          React.createElement(BrowseApp, {
-            db,
-            onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; }
-          })
-        );
-        await waitUntilExit();
-      } finally {
-        process.stdout.write('\x1b[?1049l');
-        db.close();
-      }
-      if (pendingRerun) {
-        const { tool, prompt } = pendingRerun;
-        const realBin = resolveRealBinary(tool);
-        const child = spawnSync(realBin, [prompt], { stdio: 'inherit' });
-        process.exit(child.status ?? 0);
-      }
+      const rerun = await openBrowser(db);
+      db.close();
+      runRerun(rerun);
       process.exit(0);
     } else {
       process.stdout.write(USAGE);
@@ -208,37 +232,21 @@ async function main(): Promise<void> {
       
       if (flags['i'] || flags['interactive']) {
         const db = new PhDB(dbPath);
-        process.stdout.write('\x1b[?1049h');
-        let pendingRerun: { tool: string; prompt: string } | null = null;
-        try {
-          const { waitUntilExit } = render(
-            React.createElement(BrowseApp, {
-              db,
-              initialTextFilter: query,
-              initialFilters: {
-                tool: flags['tool'] as string,
-                project: flags['project'] as string,
-                language: flags['language'] as string,
-                role: flags['role'] as string,
-                tag: flags['tag'] as string,
-                starred: Boolean(flags['starred']),
-                minQuality: flags['top'] ? 8 : (flags['min-quality'] ? Number(flags['min-quality']) : undefined),
-                minRelevance: flags['min-relevance'] ? Number(flags['min-relevance']) : undefined,
-              },
-              onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; }
-            })
-          );
-          await waitUntilExit();
-        } finally {
-          process.stdout.write('\x1b[?1049l');
-          db.close();
-        }
-        if (pendingRerun) {
-          const { tool, prompt } = pendingRerun;
-          const realBin = resolveRealBinary(tool);
-          const child = spawnSync(realBin, [prompt], { stdio: 'inherit' });
-          process.exit(child.status ?? 0);
-        }
+        const rerun = await openBrowser(db, {
+          initialTextFilter: query,
+          initialFilters: {
+            tool: flags['tool'] as string,
+            project: flags['project'] as string,
+            language: flags['language'] as string,
+            role: flags['role'] as string,
+            tag: flags['tag'] as string,
+            starred: Boolean(flags['starred']),
+            minQuality: flags['top'] ? 8 : (flags['min-quality'] ? Number(flags['min-quality']) : undefined),
+            minRelevance: flags['min-relevance'] ? Number(flags['min-relevance']) : undefined,
+          },
+        });
+        db.close();
+        runRerun(rerun);
         break;
       }
 
@@ -313,6 +321,12 @@ async function main(): Promise<void> {
       db.close();
       break;
     }
+    case 'memory-migrate': {
+      const db = new PhDB(dbPath);
+      cmdMemoryMigrate(db);
+      db.close();
+      break;
+    }
     case 'mcp': {
       await runMCPServer();
       break;
@@ -361,26 +375,9 @@ async function main(): Promise<void> {
 
     case 'browse': {
       const db = new PhDB(dbPath);
-      process.stdout.write('\x1b[?1049h');
-      let pendingRerun: { tool: string; prompt: string } | null = null;
-      try {
-        const { waitUntilExit } = render(
-          React.createElement(BrowseApp, {
-            db,
-            onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; }
-          })
-        );
-        await waitUntilExit();
-      } finally {
-        process.stdout.write('\x1b[?1049l');
-        db.close();
-      }
-      if (pendingRerun) {
-        const { tool, prompt } = pendingRerun;
-        const realBin = resolveRealBinary(tool);
-        const child = spawnSync(realBin, [prompt], { stdio: 'inherit' });
-        process.exit(child.status ?? 0);
-      }
+      const rerun = await openBrowser(db);
+      db.close();
+      runRerun(rerun);
       break;
     }
 

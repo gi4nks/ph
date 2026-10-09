@@ -5,6 +5,7 @@ import type { PhConfig } from '../config/index.js';
 import { importGeminiHistory } from '../importer/gemini.js';
 import { importClaudeHistory } from '../importer/claude.js';
 import { importOpenCodeHistory } from '../importer/opencode.js';
+import { importCodexHistory } from '../importer/codex.js';
 import { getProvider } from '../ai/provider.js';
 import { FilterPipeline } from '../filter/index.js';
 import { parseFlags } from './_utils.js';
@@ -12,7 +13,7 @@ import { parseFlags } from './_utils.js';
 export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   if (args.length === 0) {
     process.stderr.write('Usage: ph import <source> [--dry-run] [--analyze]\n');
-    process.stderr.write('Supported sources: gemini, claude, opencode\n');
+    process.stderr.write('Supported sources: gemini, claude, opencode, codex\n');
     process.exit(1);
   }
 
@@ -21,6 +22,7 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
   const dryRun = Boolean(flags['dry-run']);
   const analyze = Boolean(flags['analyze']);
   const useFilter = Boolean(flags['filter']);
+  const transcriptFile = typeof flags.file === 'string' ? flags.file : undefined;
   const homeDir = os.homedir();
 
   if (dryRun) console.log('Dry run — nothing will be written to the database.');
@@ -70,8 +72,11 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
     case 'opencode':
       result = await importOpenCodeHistory(db, path.join(homeDir, '.local', 'share', 'opencode', 'storage'), dryRun, analyzer, onProgress, filter);
       break;
+    case 'codex':
+      result = await importCodexHistory(db, path.join(homeDir, '.codex'), dryRun, analyzer, onProgress, filter, transcriptFile);
+      break;
     default:
-      process.stderr.write(`ph: unknown import source "${source}". Supported: gemini, claude, opencode\n`);
+      process.stderr.write(`ph: unknown import source "${source}". Supported: gemini, claude, opencode, codex\n`);
       process.exit(1);
   }
 
