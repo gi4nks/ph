@@ -19,13 +19,13 @@ clean:
 	rm -rf dist
 
 release-patch:
-	npm run release:patch
+	npm version patch --no-git-tag-version
 
 release-minor:
-	npm run release:minor
+	npm version minor --no-git-tag-version
 
 release-major:
-	npm run release:major
+	npm version major --no-git-tag-version
 
 release: release-patch
 

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Architecture and product direction analysis for ph, a local-first AI work memory.">
+  <title>ph — Product and Architecture Analysis</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'neutral', flowchart: { curve: 'basis' } });</script>
+  <style>
+    :root { --ink:#17212b; --paper:#f6f7f5; --teal:#0f766e; --rose:#be123c; --amber:#b45309; }
+    body { background:var(--paper); color:var(--ink); font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    h1,h2,h3,.serif { font-family:Georgia,Cambria,serif; }
+    .module-box { border:1px solid #cbd5e1; border-radius:14px; background:white; padding:1rem; }
+    .diagram-arrow { color:#64748b; font-size:1.4rem; align-self:center; }
+    .seam-line { border-left:2px dashed #0f766e; padding-left:1rem; }
+    .deep { background:#134e4a; color:#ecfdf5; border-color:#0f766e; }
+    .leak { border:1px dashed #e11d48; background:#fff1f2; color:#881337; }
+    .source { font: .82rem ui-monospace,SFMono-Regular,monospace; color:#475569; }
+    @media (max-width:700px) { .diagram-arrow { transform:rotate(90deg); } }
+  </style>
+</head>
+<body>
+  <header class="bg-slate-950 text-slate-100">
+    <div class="mx-auto max-w-6xl px-6 py-14">
+      <p class="text-sm uppercase tracking-[.2em] text-teal-300">Product and architecture decision</p>
+      <h1 class="serif mt-3 text-5xl font-semibold">ph: from prompt archive to AI work memory</h1>
+      <p class="mt-5 max-w-3xl text-lg text-slate-300">A source-grounded review of what the application can do now, where its architecture concentrates change, and which next step has the best leverage.</p>
+      <div class="mt-8 grid gap-3 border-l-2 border-teal-400 pl-4 text-lg">
+        <p><strong>Strength:</strong> a local SQLite store feeds several useful surfaces: CLI, TUI, MCP, and optional HTTP sync.</p>
+        <p><strong>Largest remaining flaw:</strong> BrowseApp still owns several views and application state. Importers, MCP, filter transitions, browser keyboard navigation, and interactive wrapped prompt/response capture now have focused coverage.</p>
+      </div>
+      <div class="mt-8 flex flex-wrap gap-3 text-sm"><span class="rounded-full bg-slate-800 px-3 py-1">Module</span><span class="rounded-full bg-teal-800 px-3 py-1">Seam</span><span class="rounded-full bg-rose-900 px-3 py-1">Leakage</span><span class="rounded-full bg-emerald-900 px-3 py-1">Deep Module</span></div>
+      <p class="mt-7 text-sm text-slate-400">Review date: 2026-10-09 · Working tree: modified by this review's follow-up implementation</p>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-6xl space-y-16 px-6 py-12">
+    <section>
+      <h2 class="serif text-3xl font-semibold">Current posture</h2>
+      <p class="mt-3 max-w-4xl text-slate-700">The product already has a coherent local-first core: capture conversations, attach project metadata, search them, derive summaries, then expose the result to people and agents. Its feature surface is broad; the next architectural gain comes from making retrieval behavior consistent and easy to evaluate.</p>
+      <div class="mt-6 grid gap-4 sm:grid-cols-3">
+        <div class="module-box"><div class="text-3xl font-semibold text-teal-800">432</div><div class="mt-1 text-sm">lines in CLI entrypoint <code>src/cli.ts</code></div></div>
+        <div class="module-box"><div class="text-3xl font-semibold text-teal-800">8,347</div><div class="mt-1 text-sm">non-test TypeScript implementation lines</div></div>
+        <div class="module-box"><div class="text-3xl font-semibold text-teal-800">11</div><div class="mt-1 text-sm">test files in the current source tree</div></div>
+      </div>
+      <p class="mt-4 text-sm text-slate-600">Evidence: current file counts and line counts, not the older figures copied into project docs. `SPEC-INDEX.md` lists 15 reverse-engineered baseline specifications, all marked implemented; those specs describe current behavior, not a committed forward roadmap.</p>
+    </section>
+
+    <section>
+      <h2 class="serif text-3xl font-semibold">Runtime map</h2>
+      <p class="mt-2 text-slate-700">The main path runs from heterogeneous capture adapters through SQLite to multiple consumers. LLM analysis and embedding generation add local-model or API calls on selected paths.</p>
+      <div class="module-box mt-6 overflow-x-auto">
+        <pre class="mermaid">flowchart LR
+          subgraph Capture["Capture and import"]
+            Hooks["Claude, Codex, and Gemini hooks"]
+            Plugin["OpenCode plugin"]
+            Wrap["CLI and PTY wrapper"]
+            Import["History importers"]
+          end
+          Normalize["Filtering and metadata"]
+          Store["SQLite: prompts, FTS5, vectors, memory, archive"]
+          Analysis["LLM analysis and summary updates"]
+          Embed["Ollama embedding adapter"]
+          Retrieve["Project context retrieval and formatting"]
+          CLI["CLI: search, context, timeline"]
+          Chat["Context-injected chat"]
+          MCP["MCP tools"]
+          TUI["Ink browser"]
+          HTTP["HTTP API and remote sync"]
+          Hooks --> Normalize
+          Plugin --> Normalize
+          Wrap --> Normalize
+          Import --> Normalize
+          Normalize --> Store
+          Store --> Analysis
+          Analysis --> Store
+          Store --> Embed
+          Embed --> Store
+          Store --> Retrieve
+          Retrieve --> CLI
+          Retrieve --> Chat
+          Retrieve --> MCP
+          Store --> TUI
+          Store --> HTTP
+          classDef deep fill:#134e4a,stroke:#0f766e,color:#ecfdf5,stroke-width:2px
+          classDef leak fill:#fff1f2,stroke:#e11d48,color:#881337,stroke-dasharray:5 4
+          classDef seam fill:#ecfeff,stroke:#0f766e,color:#134e4a,stroke-dasharray:3 3
+          class Store,Normalize deep
+          class Retrieve seam
+          class CLI,Chat,MCP leak</pre>
+      </div>
+      <p class="mt-3 source">Evidence: src/cli.ts; src/commands/log.ts; src/commands/context.ts; src/commands/chat.ts; src/mcp/server.ts; src/db/index.ts; src/server/index.ts; hooks/</p>
+    </section>
+
+    <section>
+      <h2 class="serif text-3xl font-semibold">Tradeoffs and decision record</h2>
+      <div class="mt-5 overflow-x-auto rounded-xl border border-slate-300 bg-white">
+        <table class="w-full min-w-[760px] text-left text-sm"><thead class="bg-slate-100"><tr><th class="p-3">Option</th><th class="p-3">Pros</th><th class="p-3">Costs and risks</th><th class="p-3">Recommendation</th></tr></thead><tbody class="divide-y divide-slate-200">
+          <tr><td class="p-3 font-semibold">A. Consolidate context retrieval first</td><td class="p-3">Makes CLI, chat, and MCP return consistent evidence; creates one seam to test ranking, scope, and output.</td><td class="p-3">Needs careful migration of consumer-specific options and stable output expectations.</td><td class="p-3 text-teal-800">Chosen and implemented</td></tr>
+          <tr><td class="p-3 font-semibold">B. Rework SQLite and PhDB boundaries first</td><td class="p-3">Could make storage easier to replace and lower database coupling.</td><td class="p-3">Broad 814-line store surface; risks a large refactor before validating the product's central retrieval behavior.</td><td class="p-3">Defer</td></tr>
+          <tr><td class="p-3 font-semibold">C. Add more capture integrations first</td><td class="p-3">More tools and histories become available quickly.</td><td class="p-3">Increases ingestion breadth while current capture paths have limited integration coverage and context remains inconsistent.</td><td class="p-3">Defer until quality baseline</td></tr>
+          <tr><td class="p-3 font-semibold">D. Turn it into a hosted sync product</td><td class="p-3">Central access across devices and teams.</td><td class="p-3">Authentication, transport, privacy, conflict policy, operations, and support expand the product substantially.</td><td class="p-3">Keep optional and personal for now</td></tr>
+        </tbody></table>
+      </div>
+      <div class="seam-line mt-6 rounded-r-xl bg-teal-50 p-5"><h3 class="serif text-xl font-semibold text-teal-950">Decision record · 2026-10-09</h3><p class="mt-2"><strong>Chosen:</strong> treat `ph` as a local-first AI work memory and make shared project-context retrieval the first architectural move. Status: implemented for CLI, chat, and MCP; project-scoped semantic lookup now filters before the final result limit.</p><p class="mt-2"><strong>Why:</strong> a shared retrieval seam makes source selection consistent and creates a place to evaluate evidence ranking. The deterministic fixture currently reports Recall@2 = 1.0 and MRR = 1.0 on synthetic vectors; this does not measure real embedding relevance.</p><p class="mt-2"><strong>Not decided:</strong> hosted/team sync, a GUI beyond the existing TUI, and any replacement database. These need separate product decisions.</p></div>
+      <div class="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-5"><h3 class="font-semibold text-amber-950">Cost, rate limits, and latency</h3><p class="mt-2 text-sm text-amber-950">Plain text search and local SQLite reads need no model call. Semantic context and MCP semantic search call the configured Ollama embedding endpoint; unavailable or slow Ollama can delay or fail those paths. Background analysis calls the selected Ollama or Gemini provider, so Gemini usage may incur provider cost and rate limits; enabling it makes each captured interaction eligible for asynchronous analysis. Keep these calls optional, expose failure/latency clearly, and avoid repeating embedding calls when an equivalent vector is already available.</p><p class="source mt-2">Evidence: src/commands/context.ts:26-37; src/mcp/server.ts:305-328; src/embedding/index.ts:5-33; src/analyzer/index.ts:119-129; src/background/analyzer.ts.</p></div>
+    </section>
+
+    <section>
+      <h2 class="serif text-3xl font-semibold">Candidates for deepening</h2>
+      <div class="mt-6 space-y-7">
+        <article class="module-box"><div class="flex flex-wrap items-center gap-2"><h3 class="serif text-xl font-semibold">1. Shared project-context retrieval</h3><span class="rounded-full bg-teal-100 px-2 py-1 text-xs text-teal-900">Strong · P0</span></div><p class="source mt-2">src/commands/context.ts:22-89 · src/commands/chat.ts:21-65 · src/mcp/server.ts:305-402</p><p class="mt-3"><strong>Problem.</strong> Consumers independently select memories/prompts, filter projects, and assemble Markdown. The chat path uses recent prompts while the MCP context path combines summary, memories, and interactions; output meaning can drift.</p><p class="mt-2"><strong>Solution.</strong> Deepen a context retrieval module behind a Seam that accepts project, query, limits, and source preferences, then returns structured evidence. Keep CLI, chat, and MCP as thin renderers/adapters.</p><div class="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr]"><div class="module-box leak"><strong>Before</strong><p class="mt-2">CLI retrieval + formatter<br>Chat retrieval + formatter<br>MCP retrieval + formatter</p></div><div class="diagram-arrow">→</div><div class="module-box deep"><strong>After</strong><p class="mt-2">One retrieval Seam → structured evidence → CLI / chat / MCP renderers</p></div></div><div class="mt-4 grid gap-2 text-sm md:grid-cols-3"><div><strong>Leverage:</strong> consistent answers across three consumers.</div><div><strong>Locality:</strong> ranking and evidence assembly live together.</div><div><strong>Tests:</strong> test retrieval once, then thin adapter contracts.</div></div></article>
+
+        <article class="module-box"><div class="flex flex-wrap items-center gap-2"><h3 class="serif text-xl font-semibold">2. PhDB capability boundary</h3><span class="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">Worth exploring · P1</span></div><p class="source mt-2">src/db/index.ts:12-814 · src/server/index.ts:68-201 · src/commands/remote.ts</p><p class="mt-3"><strong>Problem.</strong> One 814-line class owns schema migration, SQL, search, memory summaries, archive, and sync-specific queries. The HTTP server and commands depend on this broad concrete class.</p><p class="mt-2"><strong>Solution.</strong> After the context seam exists, identify the smallest storage capabilities needed by retrieval and sync. Extract only where a real consumer boundary becomes clearer; preserve SQLite as the default implementation.</p><div class="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr]"><div class="module-box leak"><strong>Before</strong><p class="mt-2">Commands and servers reach a broad PhDB surface</p></div><div class="diagram-arrow">→</div><div class="module-box deep"><strong>After</strong><p class="mt-2">Narrow query capabilities behind explicit storage seams</p></div></div><div class="mt-4 grid gap-2 text-sm md:grid-cols-3"><div><strong>Leverage:</strong> isolate persistence changes.</div><div><strong>Locality:</strong> keep SQL details within storage.</div><div><strong>Tests:</strong> contract tests for query behavior.</div></div></article>
+
+        <article class="module-box"><div class="flex flex-wrap items-center gap-2"><h3 class="serif text-xl font-semibold">3. TUI view and state boundaries</h3><span class="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">Worth exploring · P1</span></div><p class="source mt-2">src/ui/BrowseApp.tsx (1,183 lines) · src/ui/{Header,Footer,ListEntry,PreviewPane,SearchBar}.tsx</p><p class="mt-3"><strong>Problem.</strong> BrowseApp still hosts list, detail, filters, settings, and interaction state in one large component. Changes in one view have weak Locality and are harder to isolate from terminal rendering.</p><p class="mt-2"><strong>Solution.</strong> Deepen the browser around a small state model and view-specific components, preserving Ink as the rendering adapter. Prioritize only seams that enable independent interaction tests.</p><div class="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr]"><div class="module-box leak"><strong>Before</strong><p class="mt-2">One component coordinates all browser views</p></div><div class="diagram-arrow">→</div><div class="module-box deep"><strong>After</strong><p class="mt-2">Browser state seam with local list, detail, filter, and settings views</p></div></div><div class="mt-4 grid gap-2 text-sm md:grid-cols-3"><div><strong>Leverage:</strong> safer browser feature work.</div><div><strong>Locality:</strong> view logic beside its UI.</div><div><strong>Tests:</strong> focused interaction coverage.</div></div></article>
+
+        <article class="module-box"><div class="flex flex-wrap items-center gap-2"><h3 class="serif text-xl font-semibold">4. Capture adapter contract and coverage</h3><span class="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-900">Worth exploring · P1</span></div><p class="source mt-2">src/commands/log.ts · src/runner/{inline,project,git-context}.ts · src/pty/wrapper.ts · src/importer/*.ts · hooks/</p><p class="mt-3"><strong>Problem.</strong> Capture spans wrappers, shell hooks, a plugin, stdin logging, and importers. Their external payloads and pairing rules vary, while the test inventory is small relative to the integration surface.</p><p class="mt-2"><strong>Solution.</strong> Define and validate one normalized capture record at the ingestion boundary, then keep each provider-specific adapter responsible for parsing its source format. Add contract fixtures for adapters as they are actively supported.</p><div class="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr]"><div class="module-box leak"><strong>Before</strong><p class="mt-2">Many source formats flow into similar but uneven paths</p></div><div class="diagram-arrow">→</div><div class="module-box deep"><strong>After</strong><p class="mt-2">Provider adapters → validated capture record → filter and storage</p></div></div><div class="mt-4 grid gap-2 text-sm md:grid-cols-3"><div><strong>Leverage:</strong> reliable capture across tools.</div><div><strong>Locality:</strong> source parsing stays at adapter edges.</div><div><strong>Tests:</strong> fixture contracts reveal upstream drift.</div></div></article>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="serif text-3xl font-semibold">Top recommendation</h2>
+      <div class="mt-4 rounded-xl bg-slate-900 p-6 text-slate-100"><p class="text-lg"><strong>Delivered: shared project-context retrieval and focused verification.</strong></p><p class="mt-3 text-slate-300">CLI context, chat, and MCP share structured retrieval and Markdown formatting. Project filtering now happens before the result limit. The deterministic regression fixture reports Recall@2 = 1.0 and MRR = 1.0; the maintainer-judged model evaluation is runnable with <code>npm run eval:retrieval</code> and requires a reachable 768-dimensional Ollama embedding model.</p><p class="mt-3 text-slate-300">Capture normalization, TUI filter policy, importer fixtures, MCP tool calls, and PTY response cleanup now have focused tests. Vector encoding, compatibility storage, and ranking now live in SemanticIndex while PhDB retains its public methods. Further splits wait for a second adapter or an independent migration seam.</p></div>
+    </section>
+
+    <section>
+      <h2 class="serif text-3xl font-semibold">What ph can do today</h2>
+      <div class="mt-5 grid gap-4 sm:grid-cols-2">
+        <div class="module-box"><h3 class="font-semibold">Capture and import</h3><p class="mt-2 text-sm">Wrap a CLI tool, accept direct `ph log` input, use Claude/Codex/Gemini hooks or the OpenCode plugin, and import histories from all four tools.</p><p class="source mt-3">src/commands/{wrap,log,import}.ts · hooks/ · src/importer/</p></div>
+        <div class="module-box"><h3 class="font-semibold">Search and browse</h3><p class="mt-2 text-sm">Use FTS and filters, semantic search when vectors exist, archive search, and the Ink TUI to inspect, star, edit, or rerun entries.</p><p class="source mt-3">src/commands/search.ts · src/db/index.ts · src/ui/BrowseApp.tsx</p></div>
+        <div class="module-box"><h3 class="font-semibold">Build project knowledge</h3><p class="mt-2 text-sm">Analyze captured interactions with Ollama or Gemini, accumulate summaries and decisions, view project timelines, and produce pipe-ready context.</p><p class="source mt-3">src/analyzer/ · src/commands/{analyze,context,timeline}.ts · src/db/index.ts</p></div>
+        <div class="module-box"><h3 class="font-semibold">Connect agents and machines</h3><p class="mt-2 text-sm">Expose MCP tools over stdio and run an optional HTTP API for prompt search and push/pull synchronization.</p><p class="source mt-3">src/mcp/server.ts · src/server/index.ts · src/commands/remote.ts</p></div>
+      </div>
+      <div class="mt-6 grid gap-4 md:grid-cols-2">
+        <div class="rounded-xl border border-teal-300 bg-teal-50 p-5"><h3 class="font-semibold text-teal-950">Ready for...</h3><p class="mt-2 text-sm text-teal-950">Personal local prompt history, manual retrieval, agent queries through MCP, and optional single-user machine sync, provided the configured local database and embedding/analysis services are available for the selected features.</p></div>
+        <div class="rounded-xl border border-amber-300 bg-amber-50 p-5"><h3 class="font-semibold text-amber-950">Still requires integration...</h3><p class="mt-2 text-sm text-amber-950">Reliable out-of-the-box cross-tool capture, consistent context quality across consumers, and shared/team hosted memory. Specifications establish a broad implemented baseline, but not product-level evidence for every external tool version or operational deployment.</p></div>
+      </div>
+    </section>
+  </main>
+  <footer class="border-t border-slate-300 bg-white"><div class="mx-auto max-w-6xl px-6 py-6 text-sm text-slate-600">Created: 2026-10-09 · Updated: 2026-10-09 · Evidence source: inspected ph working tree and docs/specs baseline</div></footer>
+</body>
+</html>

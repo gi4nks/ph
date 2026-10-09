@@ -3,7 +3,8 @@ import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
 import { detectProject } from '../runner/project.js';
 import { resolveRealBinary } from '../runner/inline.js';
-import type { PromptMetadata } from '../types.js';
+import { getEmbeddings } from '../embedding/index.js';
+import { formatProjectContext, getProjectContext } from '../context/index.js';
 
 export async function cmdChat(dbPath: string, cfg: PhConfig, args: string[]): Promise<void> {
   if (args.length === 0) {
@@ -25,39 +26,16 @@ export async function cmdChat(dbPath: string, cfg: PhConfig, args: string[]): Pr
   }
 
   const db = new PhDB(dbPath);
-  const memories = db.searchMemories(project, 3);
-  const recentPrompts = db.getProjectMemory(project, 5);
-
-  const contextParts: string[] = [];
-
-  if (memories.length > 0) {
-    contextParts.push(`## Project Knowledge: ${project}`);
-    for (const mem of memories) {
-      if (mem.summary) contextParts.push(`\n${mem.summary}`);
-      if (mem.key_insights.length > 0) {
-        contextParts.push('\nKey Insights:');
-        for (const i of mem.key_insights) contextParts.push(`  - ${i}`);
-      }
-      if (mem.technical_decisions.length > 0) {
-        contextParts.push('\nTechnical Decisions:');
-        for (const d of mem.technical_decisions) contextParts.push(`  - ${d}`);
-      }
-    }
-  }
-
-  if (recentPrompts.length > 0) {
-    contextParts.push(`\n---\n## Recent Context`);
-    for (const p of recentPrompts) {
-      let meta: PromptMetadata = {};
-      try { meta = JSON.parse(p.metadata); } catch {}
-      const summary = meta.summary || p.prompt.slice(0, 100).replace(/\n/g, ' ');
-      contextParts.push(`\n- #${p.id}: ${summary}`);
-    }
-  }
+  const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
+  const model = cfg.ollamaEmbedModel ?? 'nomic-embed-text-v2-moe';
+  const context = await getProjectContext(db, { project, limit: 5, memoryLimit: 3 }, async (query) => {
+    const [vector] = await getEmbeddings([query], ollamaUrl, model, 1);
+    return vector;
+  });
 
   db.close();
 
-  const contextStr = contextParts.join('\n');
+  const contextStr = formatProjectContext(context);
   const fullPrompt = `Context from project "${project}":\n\n${contextStr}\n\n---\n\n${userPrompt}`;
 
   const realBin = resolveRealBinary(tool);

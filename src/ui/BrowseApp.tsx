@@ -5,6 +5,8 @@ import type { PromptEntry, PromptMetadata } from '../types.js';
 import type { PhDB } from '../db/index.js';
 import { Header, type ActiveFilters } from './Header.js';
 import { Footer } from './Footer.js';
+import { FilterPanel } from './FilterPanel.js';
+import { applyFilters, parseMetadata as parseMeta, ROLE_COLOR } from './filtering.js';
 import { THEMES, type Theme } from './themes.js';
 import { SearchBar } from './SearchBar.js';
 import { ListEntry } from './ListEntry.js';
@@ -12,24 +14,10 @@ import { PreviewPane } from './PreviewPane.js';
 import { extractTopic } from '../utils/extractTopic.js';
 import { load as loadConfig, save as saveConfig } from '../config/index.js';
 import type { PhConfig } from '../config/index.js';
+import { wrapTextLines, buildRichLines } from '../utils/syntaxHighlight.js';
+import type { RichLine } from '../utils/syntaxHighlight.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-const FILTER_CATEGORIES = ['project', 'language', 'role', 'tool', 'tag', 'starred', 'quality', 'relevance'] as const;
-type FilterCategory = (typeof FILTER_CATEGORIES)[number];
-
-// Role → color mapping
-const ROLE_COLOR: Record<string, string> = {
-  debug: 'red',
-  refactor: 'yellow',
-  explain: 'blue',
-  review: 'magenta',
-  architect: 'green',
-  test: 'cyan',
-  docs: 'white',
-  generate: 'green',
-  research: 'blue',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -48,23 +36,6 @@ function copyToClipboard(text: string) {
   } catch {
     // ignore
   }
-}
-
-function wrapTextLines(text: string, width: number): string[] {
-  const result: string[] = [];
-  for (const line of text.split('\n')) {
-    let current = line;
-    if (current.length === 0) {
-      result.push('');
-      continue;
-    }
-    while (current.length > width) {
-      result.push(current.slice(0, width));
-      current = current.slice(width);
-    }
-    if (current.length > 0) result.push(current);
-  }
-  return result;
 }
 
 function useStdoutDimensions() {
@@ -97,10 +68,6 @@ function formatTimestamp(ts: string): string {
   }
 }
 
-function parseMeta(raw: string): PromptMetadata {
-  try { return JSON.parse(raw) as PromptMetadata; } catch { return {}; }
-}
-
 function hasProject(entry: PromptEntry | undefined): boolean {
   if (!entry) return false;
   const meta = parseMeta(entry.metadata);
@@ -126,59 +93,6 @@ function needsSessionSeparator(entries: PromptEntry[], idx: number): boolean {
   return (prev - curr) > SESSION_GAP_MS;
 }
 
-function getDistinctValues(entries: PromptEntry[], category: FilterCategory): string[] {
-  const set = new Set<string>();
-  for (const e of entries) {
-    if (category === 'tool') { set.add(e.tool); continue; }
-    const meta = parseMeta(e.metadata);
-    if (category === 'project' && meta.project) set.add(meta.project);
-    if (category === 'language' && meta.language) set.add(meta.language);
-    if (category === 'role' && meta.role) set.add(meta.role);
-    if (category === 'tag') meta.tags?.forEach(t => set.add(t));
-  }
-  return [...set].sort();
-}
-
-function applyFilters(
-  entries: PromptEntry[],
-  active: ActiveFilters,
-  textFilter: string
-): PromptEntry[] {
-  let result = entries;
-
-  const hasActiveFilter = Object.values(active).some(v => v !== undefined && v !== false);
-  if (hasActiveFilter) {
-    result = result.filter(e => {
-      const meta = parseMeta(e.metadata);
-      if (active.tool && e.tool !== active.tool) return false;
-      if (active.project && meta.project !== active.project) return false;
-      if (active.language && meta.language !== active.language) return false;
-      if (active.role && meta.role !== active.role) return false;
-      if (active.tag && !meta.tags?.includes(active.tag)) return false;
-      if (active.starred && !meta.starred) return false;
-      if (active.minQuality !== undefined && (meta.quality ?? 0) < active.minQuality) return false;
-      if (active.minRelevance !== undefined && (meta.relevance ?? 0) < active.minRelevance) return false;
-      return true;
-    });
-  }
-
-  if (textFilter) {
-    const lq = textFilter.toLowerCase();
-    result = result.filter(e => {
-      const meta = parseMeta(e.metadata);
-      return (
-        e.prompt.toLowerCase().includes(lq) ||
-        e.tool.toLowerCase().includes(lq) ||
-        (meta.project?.toLowerCase().includes(lq) ?? false) ||
-        (meta.role?.toLowerCase().includes(lq) ?? false) ||
-        (meta.tags?.some(t => t.toLowerCase().includes(lq)) ?? false)
-      );
-    });
-  }
-
-  return result;
-}
-
 // ─── DetailView ───────────────────────────────────────────────────────────────
 
 interface DetailProps {
@@ -196,34 +110,34 @@ const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, 
   const [scrollOffset, setScrollOffset] = useState(0);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
+  const switchTab = (tab: 'prompt' | 'response' | 'memory') => {
+    setActiveTab(tab);
     setScrollOffset(0);
-  }, [activeTab]);
+  };
 
   const contentWidth = Math.max(10, termWidth - 4);
   const text = activeTab === 'prompt' ? entry.prompt : (entry.response || '(no response captured)');
-  
-  const lines = useMemo(() => {
+
+  const lines = useMemo((): RichLine[] => {
     if (activeTab === 'prompt' || activeTab === 'response') {
-      return wrapTextLines(text, contentWidth);
+      return buildRichLines(text, contentWidth);
     }
-    
+
     // Memory tab logic
-    const memLines: string[] = [];
+    const memLines: RichLine[] = [];
+    const push = (t: string) => memLines.push({ segments: [{ text: t }] });
     if (meta.summary) {
-      memLines.push('SUMMARY:');
-      memLines.push(...wrapTextLines(meta.summary, contentWidth));
-      memLines.push('');
+      push('SUMMARY:');
+      for (const l of wrapTextLines(meta.summary, contentWidth)) push(l);
+      push('');
     }
     if (meta.key_insights && meta.key_insights.length > 0) {
-      memLines.push('KEY INSIGHTS:');
+      push('KEY INSIGHTS:');
       for (const insight of meta.key_insights) {
-        memLines.push(...wrapTextLines(`• ${insight}`, contentWidth));
+        for (const l of wrapTextLines(`• ${insight}`, contentWidth)) push(l);
       }
     }
-    if (memLines.length === 0) {
-      memLines.push('(no AI analysis found - run ph analyze)');
-    }
+    if (memLines.length === 0) push('(no AI analysis found - run ph analyze)');
     return memLines;
   }, [activeTab, text, contentWidth, meta]);
 
@@ -234,17 +148,15 @@ const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, 
     if (key.escape || key.return) onClose();
     else if (char === 'e') onEdit();
     else if (key.tab || char === '1' || char === '2' || char === '3') {
-      if (char === '1') setActiveTab('prompt');
-      else if (char === '2') setActiveTab('response');
-      else if (char === '3') setActiveTab('memory');
-      else setActiveTab(t => {
-        if (t === 'prompt') return 'response';
-        if (t === 'response') return 'memory';
-        return 'prompt';
-      });
+      if (char === '1') switchTab('prompt');
+      else if (char === '2') switchTab('response');
+      else if (char === '3') switchTab('memory');
+      else switchTab(activeTab === 'prompt' ? 'response' : activeTab === 'response' ? 'memory' : 'prompt');
     }
     else if (char === 'y') {
-      const copyText = activeTab === 'memory' ? lines.join('\n') : text;
+      const copyText = activeTab === 'memory'
+        ? lines.map(l => l.segments.map(s => s.text).join('')).join('\n')
+        : text;
       copyToClipboard(copyText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -310,7 +222,13 @@ const DetailView: React.FC<DetailProps> = ({ entry, onClose, onEdit, termWidth, 
       {/* content */}
       <Box flexDirection="column" flexGrow={1}>
         {visibleLines.map((line, i) => (
-          <Text key={i}>{line || ' '}</Text>
+          <Text key={i}>
+            {line.segments.length > 0
+              ? line.segments.map((seg, j) => (
+                  <Text key={j} color={seg.color} dimColor={seg.dim}>{seg.text}</Text>
+                ))
+              : ' '}
+          </Text>
         ))}
         {Array.from({ length: Math.max(0, contentHeight - visibleLines.length) }).map((_, i) => (
           <Text key={`pad-${i}`}> </Text>
@@ -486,150 +404,46 @@ const RerunView: React.FC<RerunProps> = ({ entry, onConfirm, onClose, theme }) =
   );
 };
 
-// ─── FilterPanel ──────────────────────────────────────────────────────────────
+// ─── ProviderPicker ────────────────────────────────────────────────────────────
 
-interface FilterOption {
-  category: FilterCategory;
-  label: string;
-  count: number;
-  active: boolean;
-}
+const KNOWN_PROVIDERS: { key: string; label: string; tool: string }[] = [
+  { key: '1', label: 'claude', tool: 'claude' },
+  { key: '2', label: 'gemini', tool: 'gemini' },
+  { key: '3', label: 'opencode', tool: 'opencode' },
+  { key: '4', label: 'codex', tool: 'codex' },
+  { key: '5', label: 'ollama', tool: 'ollama' },
+  { key: '6', label: 'chatgpt', tool: 'chatgpt' },
+];
 
-interface FilterPanelProps {
-  allEntries: PromptEntry[];
-  active: ActiveFilters;
-  onUpdate: (filters: ActiveFilters) => void;
+interface ProviderPickerProps {
+  entry: PromptEntry;
+  onPick: (tool: string, prompt: string) => void;
   onClose: () => void;
   theme: Theme;
 }
 
-const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate, onClose, theme }) => {
-  const options = useMemo<FilterOption[]>(() => {
-    const opts: FilterOption[] = [];
-    for (const cat of FILTER_CATEGORIES) {
-      if (cat === 'starred') {
-        const count = allEntries.filter(e => { try { return JSON.parse(e.metadata).starred; } catch { return false; } }).length;
-        opts.push({ category: 'starred', label: '★ Only starred', count, active: !!active.starred });
-      } else if (cat === 'quality') {
-        const qActive = active.minQuality !== undefined;
-        opts.push({ category: 'quality', label: `Q ≥ ${active.minQuality ?? '?'}`, count: 0, active: qActive });
-        for (const v of [1,2,3,4,5,6,7,8,9,10]) {
-          const c = allEntries.filter(e => { try { return (JSON.parse(e.metadata).quality ?? 0) >= v; } catch { return false; } }).length;
-          opts.push({ category: 'quality', label: `Q ≥ ${v}`, count: c, active: active.minQuality === v });
-        }
-      } else if (cat === 'relevance') {
-        const rActive = active.minRelevance !== undefined;
-        opts.push({ category: 'relevance', label: `R ≥ ${active.minRelevance ?? '?'}`, count: 0, active: rActive });
-        for (const v of [1,2,3,4,5,6,7,8,9,10]) {
-          const c = allEntries.filter(e => { try { return (JSON.parse(e.metadata).relevance ?? 0) >= v; } catch { return false; } }).length;
-          opts.push({ category: 'relevance', label: `R ≥ ${v}`, count: c, active: active.minRelevance === v });
-        }
-      } else {
-        const vals = getDistinctValues(allEntries, cat);
-        for (const v of vals) {
-          const c = allEntries.filter(e => {
-            try {
-              const m = JSON.parse(e.metadata) as PromptMetadata;
-              if (cat === 'project') return m.project === v;
-              if (cat === 'language') return m.language === v;
-              if (cat === 'role') return m.role === v;
-              if (cat === 'tool') return e.tool === v;
-              if (cat === 'tag') return m.tags?.includes(v);
-              return false;
-            } catch { return false; }
-          }).length;
-          const currentVal = active[cat as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>];
-          opts.push({ category: cat, label: v, count: c, active: currentVal === v });
-        }
-      }
-    }
-    return opts;
-  }, [allEntries, active]);
-
-  const [cursor, setCursor] = useState(0);
-  const visibleCount = Math.min(options.length, 16);
-  const scrollOffset = Math.max(0, Math.min(cursor - Math.floor(visibleCount / 2), options.length - visibleCount));
-  const visible = options.slice(Math.max(0, scrollOffset), scrollOffset + visibleCount);
-
-  useInput((char, key) => {
-    if (key.escape) { onClose(); return; }
-    if (char === 'c') { onUpdate({}); return; }
-    if (key.return || char === ' ') {
-      const opt = options[cursor];
-      if (!opt) return;
-      if (opt.category === 'starred') {
-        onUpdate({ ...active, starred: !opt.active || undefined });
-      } else if (opt.category === 'quality') {
-        const v = parseInt(opt.label.replace('Q ≥ ', ''), 10);
-        onUpdate({ ...active, minQuality: opt.active ? undefined : v });
-      } else if (opt.category === 'relevance') {
-        const v = parseInt(opt.label.replace('R ≥ ', ''), 10);
-        onUpdate({ ...active, minRelevance: opt.active ? undefined : v });
-      } else {
-        const key = opt.category as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>;
-        if (opt.active) {
-          const updated = { ...active };
-          delete updated[key];
-          onUpdate(updated);
-        } else {
-          onUpdate({ ...active, [key]: opt.label });
-        }
-      }
-      return;
-    }
-    if (key.upArrow) setCursor(c => Math.max(0, c - 1));
-    if (key.downArrow) setCursor(c => Math.min(options.length - 1, c + 1));
-    if (key.pageUp) setCursor(c => Math.max(0, c - visibleCount));
-    if (key.pageDown) setCursor(c => Math.min(options.length - 1, c + visibleCount));
-    // Jump to category by first letter
-    if (char && /^[a-z]$/.test(char)) {
-      const idx = options.findIndex((o, i) => i > cursor && o.category[0] === char);
-      if (idx !== -1) setCursor(idx);
+const ProviderPicker: React.FC<ProviderPickerProps> = ({ entry, onPick, onClose, theme }) => {
+  useInput((char) => {
+    if (char === 'q' || char === '\x1b') { onClose(); return; }
+    const provider = KNOWN_PROVIDERS.find(p => p.key === char);
+    if (provider) {
+      onPick(provider.tool, entry.prompt);
     }
   });
 
-  const activeCount = Object.values(active).filter(v => v !== undefined && v !== false).length;
-
   return (
-    <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color={theme.primary} bold>Filters  </Text>
-        {activeCount > 0
-          ? <Text color={theme.warning}>{activeCount} active  </Text>
-          : <Text dimColor>none active  </Text>
-        }
-        {activeCount > 0 && <Text dimColor>(c clear)</Text>}
+    <Box flexDirection="column" padding={2}>
+      <Text bold color={theme.primary}>Send prompt #{entry.id} to:</Text>
+      <Box marginTop={1} flexDirection="column">
+        {KNOWN_PROVIDERS.map(p => (
+          <Text key={p.key}>
+            <Text color={theme.warning}>{p.key}</Text>
+            <Text>: {p.label}</Text>
+          </Text>
+        ))}
       </Box>
-
-      <Box borderStyle="single" borderColor={theme.dim} flexDirection="column" padding={1} minHeight={18}>
-        <Box flexDirection="column">
-          {visible.map((opt, i) => {
-            const absIdx = Math.max(0, scrollOffset) + i;
-            const isCur = absIdx === cursor;
-            const catColor = opt.category === 'project' ? 'blue' : opt.category === 'language' ? 'green' : opt.category === 'role' ? ROLE_COLOR[opt.label] || 'cyan' : opt.category === 'tool' ? 'yellow' : opt.category === 'tag' ? 'cyan' : 'white';
-            return (
-              <Box key={`${opt.category}-${opt.label}`}>
-                <Text bold={isCur} color={isCur ? theme.primary : theme.dim}>
-                  {isCur ? '❯ ' : '  '}
-                </Text>
-                <Text color={opt.active ? theme.warning : catColor} bold={opt.active || isCur}>
-                  {opt.category}:{opt.label}
-                </Text>
-                <Text dimColor> [{opt.count}]</Text>
-                {opt.active && <Text color={theme.success}> ✓</Text>}
-              </Box>
-            );
-          })}
-        </Box>
-        {options.length > visibleCount && (
-          <Box marginTop={1}>
-            <Text dimColor>  {cursor + 1}/{options.length} · ↑↓ navigate · Enter toggle · c clear · ESC close</Text>
-          </Box>
-        )}
-      </Box>
-
       <Box marginTop={1}>
-        <Text dimColor>↑↓ navigate · Enter toggle · c clear all · ESC close · letter jumps to category</Text>
+        <Text dimColor>Pick a number · q to cancel</Text>
       </Box>
     </Box>
   );
@@ -757,6 +571,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
 
   const [allEntries, setAllEntries] = useState<PromptEntry[]>(() => db.search({ limit: 1000 }));
   const [refreshKey, setRefreshKey] = useState(0);
+  const [archiveCount] = useState(() => db.getArchiveStats().total);
 
   const [textFilter, setTextFilter]     = useState(initialTextFilter ?? '');
   const [isTextFiltering, setTextFiltering] = useState(false);
@@ -768,6 +583,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   const [detail, setDetail]   = useState<PromptEntry | null>(null);
   const [editing, setEditing] = useState<PromptEntry | null>(null);
   const [rerunning, setRerunning] = useState<PromptEntry | null>(null);
+  const [providerPicking, setProviderPicking] = useState<PromptEntry | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
   // New state for split-pane focus
@@ -845,7 +661,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
   }, []);
 
   useInput((char, key) => {
-    if (detail || editing || showFilterPanel || showSettings || rerunning) return;
+    if (detail || editing || showFilterPanel || showSettings || rerunning || providerPicking) return;
 
     // Search mode
     if (isTextFiltering) {
@@ -867,6 +683,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
     else if (char === 's')           { if (entries[cursor]) toggleStar(entries[cursor]); }
     else if (char === 'e')           { if (entries[cursor]) setEditing(entries[cursor]); }
     else if (char === 'r')           { if (entries[cursor]) setRerunning(entries[cursor]); }
+    else if (char === 'p')           { if (entries[cursor]) setProviderPicking(entries[cursor]); }
     else if (char === 'x')           { if (entries[cursor]) handleDelete(entries[cursor]); }
     else if (char === 'f')           { setFilterPanel(true); }
     else if (char === 'o')           { setShowSettings(true); }
@@ -956,6 +773,19 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
         active={activeFilters}
         onUpdate={handleFilterUpdate}
         onClose={() => setFilterPanel(false)}
+        theme={theme}
+      />
+    );
+  } else if (providerPicking) {
+    mainContent = (
+      <ProviderPicker
+        entry={providerPicking}
+        onPick={(tool, prompt) => {
+          onRerun?.(tool, prompt);
+          setProviderPicking(null);
+          exit();
+        }}
+        onClose={() => setProviderPicking(null)}
         theme={theme}
       />
     );
@@ -1050,6 +880,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
           flexDirection="column"
         >
           <PreviewPane
+            key={entries[cursor]?.id ?? 'empty'}
             entry={entries[cursor] ?? null}
             paneWidth={termWidth - leftPaneWidth - 1}
             paneHeight={termHeight - 3}
@@ -1106,6 +937,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
       <Header 
         entriesCount={entries.length} 
         allEntriesCount={allEntries.length}
+        archiveCount={archiveCount}
         activeFilters={activeFilters}
         textFilter={textFilter}
         isTextFiltering={false} // SearchBar handles it

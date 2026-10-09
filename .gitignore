@@ -6,6 +6,7 @@ dist/
 
 # Database files
 *.db
+*.db-journal
 *.db-wal
 *.db-shm
 
@@ -25,8 +26,22 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Agent / session files
+.agent-config.*
+.agent-protocol*
+oc.session.md
+
+# Codegraph cache
+.codegraph/
+
+# Backups
+*backup*
+*.bak
+*.backup
+
 # Misc
 .cache/
 .nyc_output/
 coverage/
 session.md
+.superpowers/

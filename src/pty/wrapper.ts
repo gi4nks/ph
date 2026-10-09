@@ -12,7 +12,7 @@ function cleanLine(bytes: number[]): string {
 /**
  * Strips ANSI escape codes and PTY noise from a string.
  */
-function stripAnsi(text: string): string {
+export function stripPtyControlSequences(text: string): string {
   // eslint-disable-next-line no-control-regex
   return text.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
 }
@@ -91,7 +91,7 @@ export async function runPTY(
             if (prompt) {
               // If we have a previous prompt, finalize its response now
               if (currentPromptId !== null) {
-                onResponse(currentPromptId, stripAnsi(responseBuffer));
+                onResponse(currentPromptId, stripPtyControlSequences(responseBuffer));
               }
               currentPromptId = onPrompt(prompt, new Date());
               responseBuffer = '';
@@ -150,7 +150,7 @@ export async function runPTY(
     ptyProcess.onExit(({ exitCode }) => {
       // Finalize last response
       if (currentPromptId !== null) {
-        onResponse(currentPromptId, stripAnsi(responseBuffer));
+        onResponse(currentPromptId, stripPtyControlSequences(responseBuffer));
       }
 
       // Cleanup

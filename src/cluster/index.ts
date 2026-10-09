@@ -22,7 +22,7 @@ export function kmeans(
   }
 
   // Initialize centroids randomly
-  let centroids = vecs.slice(0, k).map((v) => new Float32Array(v));
+  let centroids: Float32Array<ArrayBufferLike>[] = vecs.slice(0, k).map((v) => new Float32Array(v));
   let clusters: Cluster[] = [];
 
   for (let iter = 0; iter < maxIterations; iter++) {
@@ -45,7 +45,7 @@ export function kmeans(
     }
 
     // Recompute centroids
-    const nextCentroids = clusters.map((cluster) => {
+    const nextCentroids: Float32Array<ArrayBufferLike>[] = clusters.map((cluster) => {
       if (cluster.entryIds.length === 0) return cluster.centroid;
       const first = embeddings.get(cluster.entryIds[0])!;
       const sum = new Float32Array(first.length);
