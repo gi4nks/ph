@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/gi4nks/ph/compare/v1.5.0...v1.6.0) (2026-10-09)
+
+
+### Features
+
+* publish current ph snapshot against GitHub main ([943ced9](https://github.com/gi4nks/ph/commit/943ced97aa63e1c183ac029ae76833583559ce98))
+
 # [1.4.0](https://github.com/gi4nks/ph/compare/v1.3.2...v1.4.0) (2026-05-16)
 
 
