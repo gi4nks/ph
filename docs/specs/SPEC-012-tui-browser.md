@@ -12,15 +12,15 @@ filter panel, star/edit/rerun/delete, memory tab, settings. Ink + React.
 
 ## 2. Scope
 - **In scope**: BrowseApp state machine, ListEntry/PreviewPane/Header/Footer/
-  SearchBar components, keybindings, filter panel, themes.
+  SearchBar components, keybindings, filter panel, filter policy, themes.
 - **Out of scope**: non-TUI output (src/display/print.ts), command handlers.
 - **Entry points**: `ph` (no args), `ph browse`, `ph search -i`.
 
 ## 3. Data Model
-- `Props` (src/ui/BrowseApp.tsx:784-788): db, initialTextFilter, initialFilters,
+- `Props` (src/ui/BrowseApp.tsx:561-565): db, initialTextFilter, initialFilters,
   onRerun.
 - State: allEntries, refreshKey, archiveCount, textFilter, activeFilters,
-  showFilterPanel, showSettings, pane/tab state (BrowseApp.tsx:791-810).
+  showFilterPanel, showSettings, pane/tab state (BrowseApp.tsx:568 onward).
 - `ActiveFilters` — tool/project/language/role/tag/starred/minQuality/
   minRelevance (populated from `search -i` flags, cli.ts:223-232).
 
@@ -40,7 +40,9 @@ filter panel, star/edit/rerun/delete, memory tab, settings. Ink + React.
 
 ### 4.2 Filter panel
 Flat scrollable list of all filter options with `[N]` counts; Enter toggles a
-filter; letter jump to category (BrowseApp.tsx FilterPanel, AGENTS.md).
+filter; letter jump to category. Pure filtering and option/count generation
+live in `src/ui/filtering.ts`; `FilterPanel.tsx` owns keyboard interaction and
+rendering.
 
 ## 5. Invariants & Business rules
 - All mutations go through PhDB and refresh via `refreshKey`.
@@ -63,19 +65,27 @@ q/ESC. Themes in src/ui/themes.ts.
   metadata (BrowseApp.tsx star handler).
 - **G5**: Given an entry with a project, When `C` is pressed, Then chat mode
   launches with project context injected (BrowseApp chat handler, SPEC-014).
+- **G6**: Given entries and active filters, When `applyFilters` runs, Then only
+  matching metadata and text entries remain (`src/ui/filtering.ts`).
+- **G7**: Given entries with filter metadata, When filter options are built,
+  Then category counts and active state reflect the full entry set
+  (`src/ui/filtering.ts`).
 
 ## 8. Key implementation map
 | Concern | File(s) |
 |---|---|
-| Main app + filter panel + settings | src/ui/BrowseApp.tsx (1183 lines) |
+| Main app + settings | src/ui/BrowseApp.tsx |
+| Filter interaction | src/ui/FilterPanel.tsx |
+| Filter policy and option counts | src/ui/filtering.ts |
 | Entry list / detail | src/ui/ListEntry.tsx, PreviewPane.tsx |
 | Header / footer / search | src/ui/Header.tsx, Footer.tsx, SearchBar.tsx |
 | Themes | src/ui/themes.ts |
 | Alt-screen bootstrap (×3) | src/cli.ts:159-186, 214-248, 373-396 |
 
 ## 9. Open questions / discrepancies
-- BrowseApp is a monolith (SPEC-ISSUES-011); filter/search/chat behaviors are
-  interleaved and untested.
+- BrowseApp remains a large module; filter policy now has a tested seam, while
+  detail/edit/rerun/settings interactions remain coupled and need direct UI
+  coverage.
 - `refreshKey` increments trigger full re-search — no pagination past the 1000
   seed; huge histories truncate silently.
 - React lint issues in BrowseApp/PreviewPane were reported pre-upgrade
@@ -84,4 +94,5 @@ q/ESC. Themes in src/ui/themes.ts.
 
 ## 10. Related
 - SPEC-001 (bootstrap), SPEC-005 (search backend), SPEC-002 (mutations),
-  SPEC-014 (chat/context). No tests (SPEC-ISSUES-007).
+  SPEC-014 (chat/context). Filter policy/count tests are in
+  `src/ui/__tests__/filtering.test.ts`; full Ink interaction tests remain open.

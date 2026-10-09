@@ -89,10 +89,10 @@ CLI progress lines (`Pushing N prompts…`, `Imported: X, Skipped: Y`).
 | Dedup primitive | src/db/index.ts:403-407 |
 
 ## 9. Open questions / discrepancies
-- ~~sync_hash excludes args/workdir~~ ✅ Fixed 2026-08-08: shared `syncHash`
+- ~~sync_hash excludes args/workdir~~ Fixed 2026-08-08: shared `syncHash`
   helper (src/utils/syncHash.ts) — args included only when present, backward
   compatible with the legacy `tool|prompt|response` hash.
-- ~~The server NEVER verifies `remoteApiKey`~~ ✅ Fixed 2026-08-08: auth gate in
+- ~~The server NEVER verifies `remoteApiKey`~~ Fixed 2026-08-08: auth gate in
   `createRequestHandler` (Bearer + timingSafeEqual) on every endpoint except
   /health when `remoteApiKey` is configured.
 - `remoteLastPush` uses the CLIENT clock; clock skew between laptops breaks

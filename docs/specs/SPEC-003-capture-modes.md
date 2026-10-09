@@ -23,6 +23,9 @@ or `ph log`. Plus the OpenCode plugin for real-time capture.
   (src/pty/wrapper.ts:4-5).
 - Entry shape: `Omit<PromptEntry,'id'|'response'> & {response?: string}`
   (PhDB.insert, SPEC-002).
+- Live captures and imports use `createCaptureRecord` (src/capture/index.ts)
+  to normalize timestamps, host, project/language/title metadata, and source
+  fields before persistence.
 
 ## 4. Flows
 
@@ -47,6 +50,8 @@ spawns background analysis (SPEC-006) and a fire-and-forget remote push
 ### 4.4 Hooks + plugin
 - `hooks/claude/ph-hook.sh`, `hooks/gemini/ph-hook.sh` — shell scripts invoked
   post-session; they pipe JSON to `ph log`.
+- `hooks/codex/ph-hook.sh` — Codex `Stop` hook reads `transcript_path` from
+  stdin and imports the active rollout with `ph import codex --file`.
 - `hooks/opencode/ph-plugin.ts` — real-time capture via OpenCode hooks
   (`chat.message` + `experimental.text.complete`), pairs prompts with streamed
   responses, calls `ph log` in background; `hooks/opencode/install.sh`.
@@ -58,6 +63,8 @@ spawns background analysis (SPEC-006) and a fire-and-forget remote push
 - Capture never blocks the wrapped tool (background processes for analysis/push).
 - Binary resolution: `resolveRealBinary(tool)` maps known tool names
   (src/runner/inline.ts:15).
+- All supported capture adapters produce the same normalized PromptEntry shape;
+  source-specific metadata remains attached to that record.
 
 ## 6. UI / UX surface
 Transparent: the wrapped tool's own output is forwarded verbatim; ph itself
@@ -75,6 +82,9 @@ prints only capture feedback.
   metadata (src/commands/log.ts, SPEC-002 G2).
 - **G4**: Given `extractPrompt(["explain","goroutines"])`, When run, Then the
   joined prompt text is returned (src/runner/inline.ts:8-14).
+- **G5**: Given a capture with a project marker and adapter metadata, When
+  `createCaptureRecord` builds it, Then it includes detected project/language,
+  source metadata, and common fields (src/capture/index.ts).
 
 ## 8. Key implementation map
 | Concern | File(s) |
@@ -82,7 +92,8 @@ prints only capture feedback.
 | PTY + ESC state machine | src/pty/wrapper.ts:23-169 |
 | Inline runner + binary resolution | src/runner/inline.ts:8-60 |
 | Direct log | src/commands/log.ts:9-85 |
-| Hooks | hooks/claude/ph-hook.sh, hooks/gemini/ph-hook.sh |
+| Normalized capture record | src/capture/index.ts |
+| Hooks | hooks/claude/ph-hook.sh, hooks/gemini/ph-hook.sh, hooks/codex/ph-hook.sh |
 | OpenCode plugin | hooks/opencode/ph-plugin.ts, install.sh |
 
 ## 9. Open questions / discrepancies
@@ -94,4 +105,6 @@ prints only capture feedback.
 
 ## 10. Related
 - SPEC-001 (wrapper-mode dispatch), SPEC-002 (insert), SPEC-006 (background
-  analysis), SPEC-010 (background push). No tests exist (SPEC-ISSUES-007).
+  analysis), SPEC-010 (background push). The normalized capture record is
+  covered by `src/capture/__tests__/record.test.ts`; PTY/integration coverage
+  remains open (SPEC-ISSUES-007).

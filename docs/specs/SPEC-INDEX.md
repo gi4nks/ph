@@ -25,7 +25,7 @@ Cluster map: Core (CLI/architecture) · Capture (wrapper/hooks/log) · DB (PhDB)
 | SPEC-010 | Remote sync (server + push/pull) | Sync | **Implemented (baseline)** | — |
 | SPEC-011 | MCP server | MCP | **Implemented (baseline)** | — |
 | SPEC-012 | TUI browser | TUI | **Implemented (baseline)** | — |
-| SPEC-013 | Importers (claude/gemini/opencode) | Import | **Implemented (baseline)** | — |
+| SPEC-013 | Importers (claude/gemini/opencode/codex) | Import | **Implemented** | import fixtures |
 | SPEC-014 | Analytics commands (sessions/stats/cluster/timeline) | Analytics | **Implemented (baseline)** | — |
 | SPEC-015 | Config & env overrides | Config | **Implemented (baseline)** | — |
 

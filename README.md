@@ -1,226 +1,192 @@
-# ph — Prompt History & Analysis Tool
+# ph — Prompt History and Project Memory
 
-`ph` is a transparent observability layer for AI CLI tools. It captures every prompt+response into a local SQLite database with full-text and semantic search, automatic LLM analysis, interactive TUI browser, MCP server, and optional remote sync for cross-laptop memory sharing.
+`ph` captures prompt and response history from AI command-line tools and makes it searchable from the terminal or available to agents through MCP. It stores data in a local SQLite database and can optionally analyze, archive, or synchronize that data.
 
-## Key Features
+## What it does
 
-- 📥 **Automatic Capture**: Wrapper mode (`ph claude "..."`), hook mode (Claude/Gemini/OpenCode), or direct (`ph log`).
-- 🔍 **Advanced Search**: FTS5 full-text search and sqlite-vec semantic search with rich filters (tool, project, role, tag, date range).
-- 🧠 **Background Analysis**: Automatic prompt classification (role, tags, relevance) via Ollama or Gemini — builds project-level memories.
-- 🖥️ **Interactive TUI**: Full-screen browser with filter panel, preview pane, project memory viewer, and session grouping.
-- 🔌 **MCP Server**: Exposes prompt history and project knowledge as MCP tools (`search_prompts`, `get_prompt`, `search_project_memory`, etc.) — usable by any MCP client including OpenCode.
-- 🌐 **HTTP Server & Remote Sync**: `ph server` starts a REST API. `ph remote push|pull` syncs prompts across laptops. Background push after each `ph log`.
-- 🔗 **OpenCode Plugin**: Native plugin for real-time capture via OpenCode hooks.
+- Captures conversations through a transparent command wrapper, native hooks, direct logging, or history import.
+- Searches prompts and responses with SQLite FTS5, or searches by semantic similarity with Ollama embeddings and sqlite-vec.
+- Groups records by project, tool, language, role, tags, time, and quality metadata.
+- Builds project summaries and an append-only analysis history with optional Ollama or Gemini analysis.
+- Exposes prompt history and project knowledge through an MCP server over stdio.
+- Provides an interactive terminal browser for filtering, reviewing, editing metadata, starring, exporting, and rerunning prompts.
+- Supports optional HTTP sync between a local database and a remote `ph` server.
 
-## Installation
+## Install
 
-### From npm
+Install from npm:
 
 ```bash
 npm install -g @gi4nks/ph
 ```
 
-### From source
+Or build from source:
 
 ```bash
-git clone git@github.com:gi4nks/ph.git
+git clone https://github.com/gi4nks/ph.git
 cd ph
-npm install
-make build
-make install
+npm ci
+npm run build
+npm link
 ```
 
-## Quick Start
+Requires Node.js 20 or later. Ollama is optional; it is used for local analysis and semantic embeddings. Gemini can be used for analysis when configured.
+
+## Quick start
 
 ```bash
-# Wrap an AI tool
+# Capture a prompt by wrapping an installed AI CLI tool
 ph claude "explain goroutines"
 
-# Search history
+# Search prompt history
 ph search "goroutines"
 ph search --semantic "concurrency patterns"
-ph search --tool claude --role debug --since 2026-01-01
 
-# Browse with TUI
+# Open the interactive browser
 ph browse
 
-# Start HTTP server for remote sync
-ph server --port 3001
-
-# Sync with another machine
-export PH_REMOTE_URL=http://my-server:3001
-ph remote push   # push local prompts to server
-ph remote pull   # pull remote prompts into local DB
+# Add a record directly
+ph log --tool claude --prompt "Explain this function" --response "It parses..."
 ```
 
-## Configuration
+## Capture history
 
-Config file at `~/.ph_config.json`:
+### Wrapper
+
+Run an installed tool through `ph` to record its prompt and response:
 
 ```bash
-ph config set analyze-provider ollama    # or 'gemini' (default: ollama)
-ph config set background-analysis true    # auto-analyze after each log
-ph config set remote-url http://server:3001  # remote sync target
+ph claude "explain goroutines"
+ph --ph-role debug --ph-tag auth claude "fix JWT expiration"
 ```
 
-Environment variable `PH_REMOTE_URL` takes precedence over config.
+Interactive wrapper mode is available when the wrapped tool is run without command-line prompt arguments.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `analyze-provider` | `ollama` | LLM provider for analysis (`ollama` or `gemini`) |
-| `gemini-api-key` | — | API key for Gemini provider |
-| `ollama-url` | `http://localhost:11434` | Ollama server URL |
-| `ollama-model` | `llama3.1:latest` | Ollama model for analysis |
-| `ollama-embed-model` | `nomic-embed-text-v2-moe` | Ollama model for embeddings |
-| `background-analysis` | `false` | Auto-analyze after each `ph log` |
-| `remote-url` | — | HTTP URL of remote ph server |
-| `remote-api-key` | — | Optional API key for remote server |
-| `db-path` | `~/.prompt_history.db` | Custom database path |
-| `filter-min-length` | `15` | Ignore prompts shorter than N chars |
-| `filter-min-relevance` | `3` | Minimum relevance score (0–10) |
+### Native hooks
 
-## Remote Server Setup
+Hooks capture completed exchanges without changing the tool invocation:
 
-### Ubuntu (systemd)
+- Claude Code: [hooks/claude/ph-hook.sh](hooks/claude/ph-hook.sh)
+- Codex CLI: [hooks/codex/ph-hook.sh](hooks/codex/ph-hook.sh)
+- Gemini CLI: [hooks/gemini/ph-hook.sh](hooks/gemini/ph-hook.sh)
+- OpenCode: [hooks/opencode/ph-plugin.ts](hooks/opencode/ph-plugin.ts)
 
-Install ph on your remote server:
+See [docs/hooks.md](docs/hooks.md) for the integration overview and [docs/ph-manual.md](docs/ph-manual.md) for setup details.
+
+### Direct logging and history import
 
 ```bash
-sudo npm install -g @gi4nks/ph
+ph log --tool claude --prompt "Explain this function" --response "It parses..."
+echo '{"tool":"claude","prompt":"Explain this function","response":"It parses..."}' | ph log --stdin
+
+ph import claude --dry-run
+ph import gemini --filter
+ph import opencode
+ph import codex --dry-run
 ```
 
-Create `/etc/systemd/system/ph.service`:
+Codex is also available through wrapper and context-injected modes: `ph codex exec "prompt"` and `ph chat codex exec "prompt"`. See [Codex hook setup](hooks/codex/README.md).
 
-```ini
-[Unit]
-Description=ph remote sync server
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=<path-to-ph> server --port 3001 --host 0.0.0.0
-Restart=always
-RestartSec=5
-User=<your-user>
-Environment=NODE_ENV=production
-StandardOutput=append:/var/log/ph-server.log
-StandardError=append:/var/log/ph-server.log
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Find `<path-to-ph>` with `which ph` on the server. Start the service:
+## Search and project context
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now ph.service
-sudo ufw allow 3001/tcp   # if firewall is active
+ph search --tool claude --role debug --since 2026-01-01
+ph search --semantic "How did I configure SQLite migrations?"
+ph search --archive "database migration"
+
+# Retrieve project knowledge and related prompts for the current directory
+ph context "How are database migrations handled?"
+
+# Limit the output to project summaries and memories
+ph context --memories-only --project ph
 ```
 
-### macOS (launchd)
+`ph context`, `ph chat`, and MCP project-context tools use shared retrieval and formatting. Semantic results are scoped to the requested project before the result limit is applied.
 
-Create `~/Library/LaunchAgents/com.gi4nks.ph.plist`:
+## Project memory and analysis
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.gi4nks.ph</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/ph</string>
-        <string>server</string>
-        <string>--port</string>
-        <string>3001</string>
-        <string>--host</string>
-        <string>0.0.0.0</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/ph-server.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/ph-server.err</string>
-</dict>
-</plist>
-```
+Enable background analysis after each capture:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.gi4nks.ph.plist
+ph config set background-analysis true
+ph config set analyze-provider ollama
+ph config set ollama-model llama3.1:latest
+ph config set ollama-embed-model nomic-embed-text-v2-moe
 ```
 
-### Client configuration
+For Gemini analysis:
 
 ```bash
-# Set remote URL (config or env)
-ph config set remote-url http://your-server:3001
-# export PH_REMOTE_URL=http://your-server:3001
-
-# Sync
-ph remote push   # send local prompts to server
-ph remote pull   # fetch server prompts locally
-ph remote status # check sync state
+ph config set analyze-provider gemini
+ph config set gemini-api-key "$GEMINI_API_KEY"
 ```
 
-## How Releases Work
+Project summaries merge deduplicated insights and technical decisions. Individual analysis results remain in an append-only memory timeline. Analysis and embeddings require the corresponding provider to be available; basic capture and full-text search do not.
 
-Releases are automated via **semantic-release** on push to `main`:
+## MCP integration
 
-1. Push conventional commits (`feat:`, `fix:`, `chore:`, etc.) to `main`
-2. GitHub Actions runs `npx semantic-release`
-3. Semantic-release analyzes commits since last release
-4. Bumps version automatically (major/minor/patch)
-5. Generates `CHANGELOG.md`
-6. Creates a git tag
-7. Publishes to npm with **OIDC trusted publishing** (provenance attestation)
-8. Creates a GitHub Release
-
-The published package is signed with provenance — you can verify it with:
+Start the stdio server with:
 
 ```bash
-npm audit signatures
+ph mcp
 ```
 
-## Storage
+The server exposes tools for prompt search and lookup, project context and summaries, project timelines, knowledge checks, and saving decisions. Configure `ph mcp` as a stdio server in the MCP client you use.
 
-| Item | Default Path | Description |
-|------|--------------|-------------|
-| Database | `~/.prompt_history.db` | SQLite with FTS5 + sqlite-vec |
-| Config | `~/.ph_config.json` | JSON with 0o600 permissions |
+## Remote sync
 
-## Architecture
+Run an HTTP server on the machine that will store the shared database:
 
-```
-Capture modes: wrapper → hook → direct → OpenCode plugin
-     |
-     v
-Local SQLite (FTS5 + vec0 + memories)
-     |
-     ├── MCP server (stdio)  →  OpenCode / any MCP client
-     ├── HTTP server (REST)  →  remote ph instances
-     └── Background analysis →  memories table (append-only per project)
+```bash
+ph config set remote-api-key "$PH_REMOTE_API_KEY"
+ph server --host 127.0.0.1 --port 3001
 ```
 
-## Hooks
+Set a client remote URL and synchronize:
 
-Hooks in `hooks/` integrate with AI CLI tools natively:
+```bash
+ph config set remote-url http://127.0.0.1:3001
+ph remote push
+ph remote pull
+ph remote status
+```
 
-- **Claude Code**: `hooks/claude/ph-hook.sh` — Stop hook
-- **Gemini CLI**: `hooks/gemini/ph-hook.sh` — AfterAgent hook
-- **OpenCode**: `hooks/opencode/ph-plugin.ts` — native plugin (captures streaming responses)
+`PH_REMOTE_URL` overrides the configured remote URL. If `remote-api-key` is set on the server, clients must also provide that key. Use a private network or a TLS-terminating proxy when connecting across machines. Each `ph log` performs a non-blocking push when a remote is configured.
+
+## Configuration and storage
+
+Configuration is stored in `~/.ph_config.json`; the database defaults to `~/.prompt_history.db`.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `db-path` | `~/.prompt_history.db` | SQLite database location |
+| `analyze-provider` | `ollama` | Analysis provider: `ollama` or `gemini` |
+| `ollama-url` | `http://localhost:11434` | Ollama endpoint |
+| `ollama-model` | `llama3.1:latest` | Analysis model |
+| `ollama-embed-model` | `nomic-embed-text-v2-moe` | Embedding model; current schema expects 768 dimensions |
+| `background-analysis` | `false` | Analyze newly captured prompts asynchronously |
+| `filter-min-length` | `15` | Minimum prompt length accepted by filtering |
+| `filter-min-relevance` | `3` | Relevance threshold for filtered imports/analysis workflows |
+| `remote-url` | unset | Remote `ph` server; `PH_REMOTE_URL` takes precedence |
+| `remote-api-key` | unset | Optional server authentication key |
 
 ## Development
 
 ```bash
-make build    # tsup build
-make test     # vitest
-make lint     # eslint
+npm ci
+npm test
+npm run lint
+npx tsc --noEmit
+npm run build
 ```
+
+Run the optional model-backed retrieval evaluation when an Ollama embedding endpoint is available:
+
+```bash
+npm run eval:retrieval
+```
+
+See [docs/ph-manual.md](docs/ph-manual.md), [docs/specs/SPEC-INDEX.md](docs/specs/SPEC-INDEX.md), and [docs/ph-analysis.html](docs/ph-analysis.html) for the user guide, behavior specifications, and architecture report.
 
 ## License
 

@@ -461,6 +461,6 @@ git commit -m "feat: MCP tools read from project_summaries"
 ---
 ## Self-Review Checklist
 
-- **Spec coverage:** All Phase 1 items covered: table creation ✓, upsert/get methods ✓, migration ✓, analysis pipeline updates ✓, MCP tool updates ✓
+- **Spec coverage:** All Phase 1 items covered: table creation complete, upsert/get methods complete, migration complete, analysis pipeline updates complete, MCP tool updates complete
 - **Placeholder scan:** No TBD, TODO, or incomplete code blocks
 - **Type consistency:** `ProjectSummary` interface consistent across all tasks: `project`, `summary`, `key_insights[]`, `technical_decisions[]`, `prompt_count`, `first_analyzed`, `last_analyzed`, `git_context_snapshot?`

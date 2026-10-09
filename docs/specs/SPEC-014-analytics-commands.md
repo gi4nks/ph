@@ -44,15 +44,22 @@ K-means (maxIterations, convergence at cosine ≥ 0.9999) over embeddings;
 (`getAllPromptsByProject` :740, `getAllMemoriesByProject` :774).
 
 ### 4.5 Context & chat
-`ph context` outputs project memories + recent prompts as pipe-ready markdown
-(`--prompts-only`, `--memories-only`, `--verbose`); `ph chat <tool> <prompt>`
-injects that context into a tool run (Chat wrapper, SPEC-003 mode).
+`getProjectContext` in `src/context/index.ts` retrieves the accumulated project
+summary, recent memories, and recent prompts for CLI, chat, and MCP consumers.
+An optional semantic query uses a configured embedder and project-scoped KNN.
+`formatProjectContext` renders shared Markdown, with optional prompt text for
+`ph context --verbose`. CLI flags can exclude prompt or memory sources.
+`ph chat <tool> <prompt>` injects the same project context into a tool run.
 
 ## 5. Invariants & Business rules
 - Sessions split purely on time gaps (2h default) unless cohesion overrides.
 - Cluster requires embeddings — without them the command errors/warns.
 - Context output is markdown text (pipe-ready); memory section comes from
   `memories` + `project_summaries`.
+- CLI, chat, and MCP project context use the shared retrieval and Markdown
+  formatting boundary; evidence remains structured until rendering.
+- Semantic retrieval with a project scope applies the project filter before
+  returning the requested number of results (SPEC-005).
 - Timeline is ascending chronological (oldest → newest).
 
 ## 6. UI / UX surface
@@ -71,6 +78,12 @@ context injected.
 - **G5**: Given `ph timeline ph`, When run, Then prompts and memories are
   interleaved in ascending order (src/commands/timeline.ts,
   db/index.ts:740-780).
+- **G6**: Given a project with a summary, memories, and prompts, When
+  `getProjectContext` runs, Then it returns each evidence source for consumers
+  to render (src/context/index.ts).
+- **G7**: Given excluded sources or no stored evidence, When shared context is
+  retrieved and rendered, Then excluded sources are omitted and empty context
+  is reported (src/context/index.ts).
 
 ## 8. Key implementation map
 | Concern | File(s) |
@@ -79,16 +92,18 @@ context injected.
 | Stats | src/stats/index.ts:16-60 |
 | K-means cluster | src/cluster/index.ts:1-78 |
 | Timeline | src/commands/timeline.ts |
-| Context/chat | src/commands/context.ts, chat.ts |
+| Context retrieval and formatting | src/context/index.ts |
+| Context consumers | src/commands/context.ts, src/commands/chat.ts, src/mcp/server.ts |
 
 ## 9. Open questions / discrepancies
 - Cohesion scoring cost is O(n²) embeddings comparisons; large histories make
   `ph sessions` slow (no cache).
 - Cluster convergence threshold (0.9999) with 768-dim floats can oscillate —
   maxIterations is the real bound.
-- `ph context` output format is duplicated between context.ts and the MCP
-  get_project_context tool (SPEC-011) — drift risk.
+- Project-scoped semantic lookup evaluates all vectors before filtering. See
+  SPEC-005 for the current cost and possible indexed alternatives.
 
 ## 10. Related
 - SPEC-005/008 (inputs), SPEC-007 (memory inputs), SPEC-012 (TUI chat),
-  SPEC-011 (MCP). No tests (SPEC-ISSUES-007) — G1/G2/G3 are vitest targets.
+  SPEC-011 (MCP). Context retrieval GWT coverage is in
+  `src/context/__tests__/context.test.ts`.

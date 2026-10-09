@@ -50,8 +50,8 @@ USAGE:
   ph analyze-reusability [options]      Analyze prompt reusability
   ph star <id>                          Toggle star on a prompt
   ph export <id> [--format txt|json|md] Export a single prompt
-  ph import gemini [--dry-run] [--analyze] [--filter]  Import from Gemini CLI sessions
-  ph import claude [--dry-run] [--analyze] [--filter]  Import from Claude CLI sessions
+  ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>]
+                                                Import from Gemini, Claude, OpenCode, or Codex history
   ph analyze [--limit n] [--force] [--prune] [--dry-run]  Analyze prompts with LLM
   ph mcp                                Start MCP server (Stdio)
   ph server [--port 3001]               Start HTTP REST server for remote sync
@@ -73,7 +73,7 @@ WRAP FLAGS (placed before the tool name):
 
 SEARCH OPTIONS:
   -i, --interactive   Open results in interactive TUI browser
-  --tool <name>       Filter by tool name (claude, gemini, …)
+  --tool <name>       Filter by tool name (claude, gemini, opencode, codex, …)
   --project <name>    Filter by project name
   --language <lang>   Filter by language (go, typescript, python, …)
   --role <role>       Filter by role (debug, refactor, explain, …)

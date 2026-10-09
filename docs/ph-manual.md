@@ -1,4 +1,4 @@
-# ph — Prompt History & Analysis
+# ph — Prompt History and Project Memory
 
 **Zero-friction capture, semantic search, project memory, and MCP-based knowledge retrieval for AI CLI tools.**
 
@@ -6,13 +6,13 @@
 
 ## 1. Overview
 
-ph is a transparent observability and knowledge layer for AI CLI tools (Claude Code, Gemini CLI, OpenCode, etc.). It automatically records every prompt+response into a local SQLite database with full-text search, semantic vector search, LLM-based analysis, Git context snapshots, session grouping, and an interactive TUI browser.
+ph is a transparent observability and knowledge layer for AI CLI tools (Claude Code, Codex CLI, Gemini CLI, OpenCode, etc.). It automatically records every prompt+response into a local SQLite database with full-text search, semantic vector search, LLM-based analysis, Git context snapshots, session grouping, and an interactive TUI browser.
 
-**Core principle:** ph captures everything silently in the background — never interrupts your workflow. Over time, it evolves from a passive logger into a curated knowledge base for AI-assisted development: merging insights, pruning noise, and exposing distilled context via MCP for agent consumption.
+**Core principle:** ph captures conversations without changing the normal tool workflow. Optional analysis turns captured history into project summaries and memories that can be searched locally or requested by an MCP client. Capture and full-text search work without an LLM provider; analysis, embeddings, and semantic search require the configured provider.
 
 ### Key Features
 
-- **Automatic capture** via hooks (Claude Code, Gemini CLI, OpenCode plugin) or wrapper mode
+- **Automatic capture** via hooks (Claude Code, Codex CLI, Gemini CLI, OpenCode plugin) or wrapper mode
 - **Full-text search** (FTS5) and **semantic vector search** (Ollama embeddings, 768-dim via sqlite-vec)
 - **LLM analysis** — role/tag/relevance classification, summary extraction, key insights, technical decisions
 - **Project memory** — per-project accumulated knowledge with deduped insights and decisions
@@ -23,7 +23,7 @@ ph is a transparent observability and knowledge layer for AI CLI tools (Claude C
 - **Background analysis** — async LLM processing after each capture (optional)
 - **Retention & archiving** — configurable auto-archive of old/low-relevance prompts
 - **Remote sync** — push/pull prompt history across machines via HTTP server
-- **Privacy first** — all data stays local; no telemetry, no external calls (except optional LLM APIs)
+- **Local-first storage** — the database stays on the configured machine unless optional remote sync is enabled; no telemetry is sent
 
 ---
 
@@ -76,10 +76,15 @@ ln -sf $(pwd)/hooks/gemini/ph-hook.sh ~/.gemini/ph-hook.sh
 ./hooks/opencode/install.sh   # global install
 ```
 
+**Codex CLI** — see [the Codex hook setup](../hooks/codex/README.md). The Stop
+hook imports the active rollout transcript. To import existing sessions, run
+`ph import codex --dry-run` and then `ph import codex`.
+
 ### 3b. Wrapper mode
 
 ```bash
 ph claude "explain goroutines"
+ph codex exec "explain goroutines"
 ph gemini "refactor this code"
 ph --ph-role debug --ph-tag auth claude "fix JWT expiration"
 ```
@@ -116,7 +121,7 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 | `ph cleanup-reusability` | Cleanup by reusability score |
 | `ph star <id>` | Toggle bookmark |
 | `ph export <id>` | Export prompt (txt/json/md) |
-| `ph import gemini|claude|opencode` | Import from AI CLI history |
+| `ph import gemini|claude|opencode|codex` | Import from AI CLI history |
 | `ph log --tool <name> ...` | Direct log (hook target) |
 | `ph embed-all` | Generate embeddings for all prompts |
 | `ph config get|set <key> <value>` | View/edit config |
@@ -182,20 +187,20 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 
 | Key | Action |
 |-----|--------|
-| `↑↓` / `PgUp` `PgDn` | Navigate list |
+| `Up` / `Down`, `Page Up` / `Page Down` | Navigate list |
 | `Tab` | Switch pane (wide mode) |
-| `1` `2` `3` | Switch prompt/response/memory tab |
+| `1`, `2`, `3` | Switch prompt/response/memory tab |
 | `y` | Copy to clipboard |
 | `s` | Toggle star |
 | `e` | Edit metadata |
 | `r` | Rerun prompt (edit before launch) |
-| `C` (Shift) | Chat mode: launch tool with project context |
+| `Shift+C` | Chat mode: launch tool with project context |
 | `x` | Delete entry |
 | `/` | Search |
 | `o` | Settings panel (toggle auto-analysis, view config) |
 | `f` | Filter panel (flat list, Enter toggle, letter jump) |
 | `c` | Clear all filters |
-| `q` / `ESC` | Quit / back |
+| `q` / `Escape` | Quit / back |
 
 ### TUI components
 
@@ -203,7 +208,7 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 - **FilterPanel** — flat scrollable list of filter options with counts `[N]`, toggle with Enter, jump by letter
 - **SettingsView** — config viewer/editor (auto-analysis toggle, ollama URL/model, filters)
 - **PreviewPane** — three tabs (prompt/response/memory). Memory tab shows project-level knowledge
-- **ListEntry** — role-colored `│` bar, analysis indicator `●/○`, star, Q/R badges, optional summary line
+- **ListEntry** — role marker, analysis status, star, Q/R badges, optional summary line
 - **Footer** — context-sensitive hints (shows `C:chat` only when entry has project)
 
 ---
@@ -389,6 +394,7 @@ ph config set filter-min-relevance 3
 | `retentionMinRelevance` | `3` | Archive prompts below this relevance |
 | `remoteUrl` | — | Remote ph server URL (or `PH_REMOTE_URL` env) |
 | `remoteApiKey` | — | Remote server API key |
+| `remoteLastPush` | — | Timestamp of last successful push |
 | `remoteLastPull` | — | Timestamp of last successful pull |
 
 ---
@@ -416,15 +422,18 @@ Hook/Import → ph log → prompts table (FTS5 indexed)
 src/
   cli.ts              # Entry point (~80 lines), switch dispatch
   types.ts            # Core types (PromptEntry, MemoryEntry, ProjectSummary, etc.)
-  db/index.ts         # PhDB — all SQLite operations
+  db/index.ts         # PhDB public SQLite adapter
+  db/semantic-index.ts # Vector encoding, storage, and nearest-neighbor search
+  context/index.ts    # Shared project-context retrieval and rendering
+  capture/index.ts    # Shared capture-record normalization
   commands/           # One module per CLI command
   analyzer/           # LLM analysis (role/tag/relevance/summary/insights)
   embedding/          # Ollama embedding generation
   filter/             # Capture-time filter pipeline
-  mcp/server.ts       # MCP stdio server with 11 tools
+  mcp/server.ts       # MCP stdio server
   server/index.ts     # HTTP REST server (zero deps)
-  ui/                 # React/Ink TUI components
-  importer/           # Gemini/Claude/OpenCode history importers
+  ui/                 # React/Ink TUI, including extracted filter policy and panel
+  importer/           # Gemini/Claude/OpenCode/Codex history importers
 hooks/                # Shell scripts and plugins for AI tools
 ```
 
@@ -442,6 +451,10 @@ ph import gemini --filter
 # Import from OpenCode
 ph import opencode
 
+# Import from Codex CLI
+ph import codex --dry-run
+ph import codex
+
 # Options:
 #   --analyze    run LLM analysis on imported prompts
 #   --filter     apply capture-time filters
@@ -450,17 +463,17 @@ ph import opencode
 
 ---
 
-## 16. Release Process
+## 16. Versioning and Releases
 
-Uses semantic-release with conventional commits:
+Use Conventional Commits to describe changes: `feat:` requests a minor release,
+`fix:` requests a patch release, and `BREAKING CHANGE:` requests a major release.
+The GitHub Actions workflow runs `semantic-release` on pushes to `main`, updates
+release metadata, publishes to npm, and creates a GitHub release.
 
-```
-feat: ...  → minor release (1.x.0)
-fix: ...   → patch release (1.0.x)
-BREAKING CHANGE → major release (x.0.0)
-```
-
-Push to `main` triggers GitHub Actions → builds, publishes to npm with OIDC provenance attestation.
+The Make targets `make release-patch`, `make release-minor`, and
+`make release-major` increment `package.json` and `package-lock.json` locally.
+They do not commit, tag, or publish. The automated release workflow determines
+the actual published version from commits since its most recent release tag.
 
 ---
 

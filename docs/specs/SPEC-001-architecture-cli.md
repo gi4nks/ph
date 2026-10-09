@@ -71,13 +71,12 @@ USAGE text is a single ~200-line template literal (cli.ts:38-140); `ph --help`,
 | Entry + dispatch + USAGE | src/cli.ts:38-441 |
 | Config load/save | src/config/index.ts:26-40 |
 | Flag parsing | src/commands/_utils.ts:1-30 |
-| TUI bootstrap (×3 duplicated) | src/cli.ts:159-186, 214-248, 373-396 (SPEC-ISSUES-010) |
+| Shared TUI bootstrap | src/cli.ts (`openBrowser`, `runRerun`) |
 
 ## 9. Open questions / discrepancies
-- TUI bootstrap duplicated 3× (SPEC-ISSUES-010).
 - `--ph-debug` is listed in USAGE but only consumed by wrapper paths (inline/pty
   debug logs); no validation if used with non-wrapper commands.
 
 ## 10. Related
 - All other specs (commands dispatch into each), SPEC-012 (BrowseApp),
-  SPEC-003 (wrapper mode). No tests exist yet (SPEC-ISSUES-007).
+  SPEC-003 (wrapper mode). CLI dispatch tests remain part of SPEC-ISSUES-007.

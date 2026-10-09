@@ -20,6 +20,7 @@ function toolIndicator(tool: string): { char: string; color: string } {
   if (tool === 'claude') return { char: '●', color: '#f5a623' };
   if (tool === 'gemini') return { char: '●', color: '#4fc3f7' };
   if (tool === 'opencode') return { char: '●', color: '#e040fb' };
+  if (tool === 'codex') return { char: '●', color: '#74aa9c' };
   return { char: '○', color: 'gray' };
 }
 

@@ -5,6 +5,8 @@ import type { PromptEntry, PromptMetadata } from '../types.js';
 import type { PhDB } from '../db/index.js';
 import { Header, type ActiveFilters } from './Header.js';
 import { Footer } from './Footer.js';
+import { FilterPanel } from './FilterPanel.js';
+import { applyFilters, parseMetadata as parseMeta, ROLE_COLOR } from './filtering.js';
 import { THEMES, type Theme } from './themes.js';
 import { SearchBar } from './SearchBar.js';
 import { ListEntry } from './ListEntry.js';
@@ -16,22 +18,6 @@ import { wrapTextLines, buildRichLines } from '../utils/syntaxHighlight.js';
 import type { RichLine } from '../utils/syntaxHighlight.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-const FILTER_CATEGORIES = ['project', 'language', 'role', 'tool', 'tag', 'starred', 'quality', 'relevance'] as const;
-type FilterCategory = (typeof FILTER_CATEGORIES)[number];
-
-// Role → color mapping
-const ROLE_COLOR: Record<string, string> = {
-  debug: 'red',
-  refactor: 'yellow',
-  explain: 'blue',
-  review: 'magenta',
-  architect: 'green',
-  test: 'cyan',
-  docs: 'white',
-  generate: 'green',
-  research: 'blue',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,10 +68,6 @@ function formatTimestamp(ts: string): string {
   }
 }
 
-function parseMeta(raw: string): PromptMetadata {
-  try { return JSON.parse(raw) as PromptMetadata; } catch { return {}; }
-}
-
 function hasProject(entry: PromptEntry | undefined): boolean {
   if (!entry) return false;
   const meta = parseMeta(entry.metadata);
@@ -109,59 +91,6 @@ function needsSessionSeparator(entries: PromptEntry[], idx: number): boolean {
   const prev = new Date(entries[idx - 1].timestamp).getTime();
   const curr = new Date(entries[idx].timestamp).getTime();
   return (prev - curr) > SESSION_GAP_MS;
-}
-
-function getDistinctValues(entries: PromptEntry[], category: FilterCategory): string[] {
-  const set = new Set<string>();
-  for (const e of entries) {
-    if (category === 'tool') { set.add(e.tool); continue; }
-    const meta = parseMeta(e.metadata);
-    if (category === 'project' && meta.project) set.add(meta.project);
-    if (category === 'language' && meta.language) set.add(meta.language);
-    if (category === 'role' && meta.role) set.add(meta.role);
-    if (category === 'tag') meta.tags?.forEach(t => set.add(t));
-  }
-  return [...set].sort();
-}
-
-function applyFilters(
-  entries: PromptEntry[],
-  active: ActiveFilters,
-  textFilter: string
-): PromptEntry[] {
-  let result = entries;
-
-  const hasActiveFilter = Object.values(active).some(v => v !== undefined && v !== false);
-  if (hasActiveFilter) {
-    result = result.filter(e => {
-      const meta = parseMeta(e.metadata);
-      if (active.tool && e.tool !== active.tool) return false;
-      if (active.project && meta.project !== active.project) return false;
-      if (active.language && meta.language !== active.language) return false;
-      if (active.role && meta.role !== active.role) return false;
-      if (active.tag && !meta.tags?.includes(active.tag)) return false;
-      if (active.starred && !meta.starred) return false;
-      if (active.minQuality !== undefined && (meta.quality ?? 0) < active.minQuality) return false;
-      if (active.minRelevance !== undefined && (meta.relevance ?? 0) < active.minRelevance) return false;
-      return true;
-    });
-  }
-
-  if (textFilter) {
-    const lq = textFilter.toLowerCase();
-    result = result.filter(e => {
-      const meta = parseMeta(e.metadata);
-      return (
-        e.prompt.toLowerCase().includes(lq) ||
-        e.tool.toLowerCase().includes(lq) ||
-        (meta.project?.toLowerCase().includes(lq) ?? false) ||
-        (meta.role?.toLowerCase().includes(lq) ?? false) ||
-        (meta.tags?.some(t => t.toLowerCase().includes(lq)) ?? false)
-      );
-    });
-  }
-
-  return result;
 }
 
 // ─── DetailView ───────────────────────────────────────────────────────────────
@@ -481,8 +410,9 @@ const KNOWN_PROVIDERS: { key: string; label: string; tool: string }[] = [
   { key: '1', label: 'claude', tool: 'claude' },
   { key: '2', label: 'gemini', tool: 'gemini' },
   { key: '3', label: 'opencode', tool: 'opencode' },
-  { key: '4', label: 'ollama', tool: 'ollama' },
-  { key: '5', label: 'chatgpt', tool: 'chatgpt' },
+  { key: '4', label: 'codex', tool: 'codex' },
+  { key: '5', label: 'ollama', tool: 'ollama' },
+  { key: '6', label: 'chatgpt', tool: 'chatgpt' },
 ];
 
 interface ProviderPickerProps {
@@ -514,155 +444,6 @@ const ProviderPicker: React.FC<ProviderPickerProps> = ({ entry, onPick, onClose,
       </Box>
       <Box marginTop={1}>
         <Text dimColor>Pick a number · q to cancel</Text>
-      </Box>
-    </Box>
-  );
-};
-
-// ─── FilterPanel ──────────────────────────────────────────────────────────────
-
-interface FilterOption {
-  category: FilterCategory;
-  label: string;
-  count: number;
-  active: boolean;
-}
-
-interface FilterPanelProps {
-  allEntries: PromptEntry[];
-  active: ActiveFilters;
-  onUpdate: (filters: ActiveFilters) => void;
-  onClose: () => void;
-  theme: Theme;
-}
-
-const FilterPanel: React.FC<FilterPanelProps> = ({ allEntries, active, onUpdate, onClose, theme }) => {
-  const options = useMemo<FilterOption[]>(() => {
-    const opts: FilterOption[] = [];
-    for (const cat of FILTER_CATEGORIES) {
-      if (cat === 'starred') {
-        const count = allEntries.filter(e => { try { return JSON.parse(e.metadata).starred; } catch { return false; } }).length;
-        opts.push({ category: 'starred', label: '★ Only starred', count, active: !!active.starred });
-      } else if (cat === 'quality') {
-        const qActive = active.minQuality !== undefined;
-        opts.push({ category: 'quality', label: `Q ≥ ${active.minQuality ?? '?'}`, count: 0, active: qActive });
-        for (const v of [1,2,3,4,5,6,7,8,9,10]) {
-          const c = allEntries.filter(e => { try { return (JSON.parse(e.metadata).quality ?? 0) >= v; } catch { return false; } }).length;
-          opts.push({ category: 'quality', label: `Q ≥ ${v}`, count: c, active: active.minQuality === v });
-        }
-      } else if (cat === 'relevance') {
-        const rActive = active.minRelevance !== undefined;
-        opts.push({ category: 'relevance', label: `R ≥ ${active.minRelevance ?? '?'}`, count: 0, active: rActive });
-        for (const v of [1,2,3,4,5,6,7,8,9,10]) {
-          const c = allEntries.filter(e => { try { return (JSON.parse(e.metadata).relevance ?? 0) >= v; } catch { return false; } }).length;
-          opts.push({ category: 'relevance', label: `R ≥ ${v}`, count: c, active: active.minRelevance === v });
-        }
-      } else {
-        const vals = getDistinctValues(allEntries, cat);
-        for (const v of vals) {
-          const c = allEntries.filter(e => {
-            try {
-              const m = JSON.parse(e.metadata) as PromptMetadata;
-              if (cat === 'project') return m.project === v;
-              if (cat === 'language') return m.language === v;
-              if (cat === 'role') return m.role === v;
-              if (cat === 'tool') return e.tool === v;
-              if (cat === 'tag') return m.tags?.includes(v);
-              return false;
-            } catch { return false; }
-          }).length;
-          const currentVal = active[cat as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>];
-          opts.push({ category: cat, label: v, count: c, active: currentVal === v });
-        }
-      }
-    }
-    return opts;
-  }, [allEntries, active]);
-
-  const [cursor, setCursor] = useState(0);
-  const visibleCount = Math.min(options.length, 16);
-  const scrollOffset = Math.max(0, Math.min(cursor - Math.floor(visibleCount / 2), options.length - visibleCount));
-  const visible = options.slice(Math.max(0, scrollOffset), scrollOffset + visibleCount);
-
-  useInput((char, key) => {
-    if (key.escape) { onClose(); return; }
-    if (char === 'c') { onUpdate({}); return; }
-    if (key.return || char === ' ') {
-      const opt = options[cursor];
-      if (!opt) return;
-      if (opt.category === 'starred') {
-        onUpdate({ ...active, starred: !opt.active || undefined });
-      } else if (opt.category === 'quality') {
-        const v = parseInt(opt.label.replace('Q ≥ ', ''), 10);
-        onUpdate({ ...active, minQuality: opt.active ? undefined : v });
-      } else if (opt.category === 'relevance') {
-        const v = parseInt(opt.label.replace('R ≥ ', ''), 10);
-        onUpdate({ ...active, minRelevance: opt.active ? undefined : v });
-      } else {
-        const key = opt.category as keyof Omit<ActiveFilters, 'starred' | 'minQuality' | 'minRelevance'>;
-        if (opt.active) {
-          const updated = { ...active };
-          delete updated[key];
-          onUpdate(updated);
-        } else {
-          onUpdate({ ...active, [key]: opt.label });
-        }
-      }
-      return;
-    }
-    if (key.upArrow) setCursor(c => Math.max(0, c - 1));
-    if (key.downArrow) setCursor(c => Math.min(options.length - 1, c + 1));
-    if (key.pageUp) setCursor(c => Math.max(0, c - visibleCount));
-    if (key.pageDown) setCursor(c => Math.min(options.length - 1, c + visibleCount));
-    // Jump to category by first letter
-    if (char && /^[a-z]$/.test(char)) {
-      const idx = options.findIndex((o, i) => i > cursor && o.category[0] === char);
-      if (idx !== -1) setCursor(idx);
-    }
-  });
-
-  const activeCount = Object.values(active).filter(v => v !== undefined && v !== false).length;
-
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color={theme.primary} bold>Filters  </Text>
-        {activeCount > 0
-          ? <Text color={theme.warning}>{activeCount} active  </Text>
-          : <Text dimColor>none active  </Text>
-        }
-        {activeCount > 0 && <Text dimColor>(c clear)</Text>}
-      </Box>
-
-      <Box borderStyle="single" borderColor={theme.dim} flexDirection="column" padding={1} minHeight={18}>
-        <Box flexDirection="column">
-          {visible.map((opt, i) => {
-            const absIdx = Math.max(0, scrollOffset) + i;
-            const isCur = absIdx === cursor;
-            const catColor = opt.category === 'project' ? 'blue' : opt.category === 'language' ? 'green' : opt.category === 'role' ? ROLE_COLOR[opt.label] || 'cyan' : opt.category === 'tool' ? 'yellow' : opt.category === 'tag' ? 'cyan' : 'white';
-            return (
-              <Box key={`${opt.category}-${opt.label}`}>
-                <Text bold={isCur} color={isCur ? theme.primary : theme.dim}>
-                  {isCur ? '❯ ' : '  '}
-                </Text>
-                <Text color={opt.active ? theme.warning : catColor} bold={opt.active || isCur}>
-                  {opt.category}:{opt.label}
-                </Text>
-                <Text dimColor> [{opt.count}]</Text>
-                {opt.active && <Text color={theme.success}> ✓</Text>}
-              </Box>
-            );
-          })}
-        </Box>
-        {options.length > visibleCount && (
-          <Box marginTop={1}>
-            <Text dimColor>  {cursor + 1}/{options.length} · ↑↓ navigate · Enter toggle · c clear · ESC close</Text>
-          </Box>
-        )}
-      </Box>
-
-      <Box marginTop={1}>
-        <Text dimColor>↑↓ navigate · Enter toggle · c clear all · ESC close · letter jumps to category</Text>
       </Box>
     </Box>
   );

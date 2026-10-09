@@ -1,9 +1,7 @@
-import os from 'os';
 import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
 import type { PromptEntry } from '../types.js';
-import { detectProject, detectLanguage } from '../runner/project.js';
-import { extractTopic } from '../utils/extractTopic.js';
+import { createCaptureRecord } from '../capture/index.js';
 import { spawnBackgroundAnalysis } from '../background/analyzer.js';
 import { parseFlags } from './_utils.js';
 
@@ -35,28 +33,10 @@ export async function cmdLog(dbPath: string, cfg: PhConfig, args: string[]): Pro
     if (!prompt) { process.stderr.write('ph log: missing "prompt" field\n'); process.exit(1); }
   }
 
-  const { rootDir, projectName } = detectProject(workdir);
-  const language = detectLanguage(rootDir);
-
-  const metaObj: Record<string, unknown> = { $schema_version: 1 };
-  if (projectName) metaObj.project = projectName;
-  if (language)    metaObj.language = language;
-
-  const title = extractTopic(prompt);
-  if (title) metaObj.title = title;
+  const record = createCaptureRecord({ tool, prompt, response, args: '', workdir });
 
   const db = new PhDB(dbPath);
-  const id = db.insert({
-    timestamp: new Date().toISOString(),
-    tool,
-    prompt,
-    response,
-    args: '',
-    workdir,
-    hostname: os.hostname(),
-    exit_code: 0,
-    metadata: JSON.stringify(metaObj),
-  });
+  const id = db.insert(record);
   db.close();
 
   if (cfg.backgroundAnalysis) {
@@ -66,7 +46,7 @@ export async function cmdLog(dbPath: string, cfg: PhConfig, args: string[]): Pro
   // Background push to remote if configured
   const pushUrl = process.env.PH_REMOTE_URL || cfg.remoteUrl;
   if (pushUrl) {
-    pushToRemote(pushUrl, cfg.remoteApiKey, { timestamp: new Date().toISOString(), tool, prompt, response, args: '', workdir, hostname: os.hostname(), exit_code: 0, metadata: JSON.stringify(metaObj) }).catch(() => {});
+    pushToRemote(pushUrl, cfg.remoteApiKey, record).catch(() => {});
   }
 }
 

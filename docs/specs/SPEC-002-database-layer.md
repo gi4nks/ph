@@ -85,13 +85,21 @@ None — library layer consumed by commands, TUI, MCP and HTTP server.
 | CRUD + search + sync primitives | src/db/index.ts:198-531 |
 | Memories + summaries | src/db/index.ts:535-720 |
 | Archive | src/db/index.ts:464-518 |
+| Semantic vector index | src/db/semantic-index.ts |
 | Types | src/types.ts:1-52 |
 
 ## 9. Open questions / discrepancies
+- **Architecture decision (2026-10-09)**: keep `PhDB` as the single SQLite adapter
+  for now. Context consumers depend on the focused `ProjectContextStore` interface
+  (`src/context/index.ts`). Vector encoding, compatibility storage, and KNN
+  ranking now live in `src/db/semantic-index.ts`, with `PhDB` retaining its public
+  methods as the adapter. Scope behavior has an integration test. Keep unrelated
+  CRUD/memory/archive methods together until a second adapter or concrete
+  independent migration/testing seam justifies further division.
 - `response` column via ALTER (SPEC-ISSUES-001).
 - `memories.prompt_ids` possibly unused after summaries (SPEC-ISSUES-014).
 - `delete` (427) and `deleteById` (435) coexist — duplicate deletion paths.
 
 ## 10. Related
 - SPEC-005 (search), SPEC-007 (memory), SPEC-009 (retention), SPEC-010 (sync).
-  No tests exist (SPEC-ISSUES-007) — this spec's GWTs are the first test targets.
+  Public behavior is covered by Vitest integration tests (SPEC-ISSUES-007).

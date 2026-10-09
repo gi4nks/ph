@@ -4,7 +4,6 @@ import { PhDB, defaultPath } from '../db/index.js';
 import { load as loadConfig } from '../config/index.js';
 import type { PhConfig } from '../config/index.js';
 import { getEmbeddings } from '../embedding/index.js';
-import type { PromptMetadata } from '../types.js';
 import { syncHash } from '../utils/syncHash.js';
 import { timingSafeEqual } from 'crypto';
 
@@ -105,15 +104,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
     const [queryVec] = await getEmbeddings([query], ollamaUrl, model, 1);
     if (!queryVec) return json(res, 500, { error: 'Failed to generate embedding' });
 
-    const results = db.searchSemantic(queryVec, limit * 2);
-    const filtered = project
-      ? results.filter(e => {
-          try {
-            const meta = JSON.parse(e.metadata) as PromptMetadata;
-            return meta.project === project;
-          } catch { return false; }
-        }).slice(0, limit)
-      : results.slice(0, limit);
+    const filtered = db.searchSemantic(queryVec, limit, project);
 
     return json(res, 200, { prompts: filtered });
   }

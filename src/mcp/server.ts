@@ -8,13 +8,10 @@ import { PhDB, defaultPath } from "../db/index.js";
 import { load as loadConfig } from "../config/index.js";
 import { getEmbeddings } from "../embedding/index.js";
 import type { PromptEntry, PromptMetadata } from "../types.js";
+import { formatProjectContext, getProjectContext } from "../context/index.js";
 import { z } from "zod";
 
-export async function runMCPServer() {
-  const cfg = loadConfig();
-  const dbPath = process.env.PH_DB ?? cfg.dbPath ?? defaultPath();
-  const db = new PhDB(dbPath);
-
+export function createMCPServer(db: PhDB, cfg = loadConfig()) {
   const server = new Server(
     {
       name: "ph-memory",
@@ -317,15 +314,7 @@ export async function runMCPServer() {
           throw new Error("Failed to generate embedding for query");
         }
 
-        const results = db.searchSemantic(queryVec, limit * 2);
-        const filtered = results
-          .filter(e => {
-            try {
-              const meta = JSON.parse(e.metadata) as PromptMetadata;
-              return meta.project === project;
-            } catch { return false; }
-          })
-          .slice(0, limit);
+        const filtered = db.searchSemantic(queryVec, limit, project);
 
         if (filtered.length === 0) {
           const merged = db.getProjectSummary(project);
@@ -359,45 +348,14 @@ export async function runMCPServer() {
           limit: z.number().optional(),
         }).parse(args);
 
-        const parts: string[] = [];
-
-        // Start with merged project summary if available
-        const merged = db.getProjectSummary(project);
-        if (merged) {
-          parts.push('## Project Knowledge (merged)\n');
-          if (merged.summary) parts.push(`${merged.summary}\n`);
-          if (merged.key_insights.length > 0) {
-            parts.push('Key Insights:');
-            for (const i of merged.key_insights) parts.push(`  - ${i}`);
-            parts.push('');
-          }
-          if (merged.technical_decisions.length > 0) {
-            parts.push('Technical Decisions:');
-            for (const d of merged.technical_decisions) parts.push(`  - ${d}`);
-            parts.push('');
-          }
-        }
-
-        // Also pull recent memories (detailed entries)
-        const memories = db.searchMemories(project, 3);
-        if (memories.length > 0) {
-          if (parts.length > 0) parts.push('---\n');
-          parts.push('## Recent Memory Entries\n');
-          for (const mem of memories) {
-            if (mem.summary) parts.push(`- ${mem.summary}`);
-          }
-          parts.push('');
-        }
-
-        const prompts = db.getProjectMemory(project, limit);
-        if (prompts.length > 0) {
-          if (parts.length > 0) parts.push('---\n');
-          parts.push('## Recent Interactions\n');
-          parts.push(formatResultsAsMarkdown(prompts));
-        }
+        const context = await getProjectContext(db, { project, limit, memoryLimit: 3 });
 
         return {
-          content: [{ type: "text", text: parts.join('\n') || 'No context found for this project.' }],
+          content: [{ type: "text", text: formatProjectContext(context, {
+            promptExcerptLength: 300,
+            responseExcerptLength: 200,
+            emptyMessage: 'No context found for this project.',
+          }) }],
         };
       }
 
@@ -493,15 +451,7 @@ export async function runMCPServer() {
           throw new Error("Failed to generate embedding for query");
         }
 
-        const results = db.searchSemantic(queryVec, limit * 2);
-        const filtered = project
-          ? results.filter(e => {
-              try {
-                const meta = JSON.parse(e.metadata) as PromptMetadata;
-                return meta.project === project;
-              } catch { return false; }
-            }).slice(0, limit)
-          : results.slice(0, limit);
+        const filtered = db.searchSemantic(queryVec, limit, project);
 
         return {
           content: [{ type: "text", text: formatPromptList(filtered, query) }],
@@ -625,13 +575,7 @@ export async function runMCPServer() {
         try {
           const [queryVec] = await getEmbeddings([`${project}: ${task}`], ollamaUrl, embedModel, 1);
           if (queryVec) {
-            const results = db.searchSemantic(queryVec, limit * 3);
-            const projectPrompts = results.filter(e => {
-              try {
-                const meta = JSON.parse(e.metadata) as PromptMetadata;
-                return meta.project === project;
-              } catch { return false; }
-            }).slice(0, limit);
+            const projectPrompts = db.searchSemantic(queryVec, limit, project);
 
             if (projectPrompts.length > 0) {
               parts.push(`## Related Prompts\n`);
@@ -671,6 +615,14 @@ export async function runMCPServer() {
     }
   });
 
+  return server;
+}
+
+export async function runMCPServer() {
+  const cfg = loadConfig();
+  const dbPath = process.env.PH_DB ?? cfg.dbPath ?? defaultPath();
+  const db = new PhDB(dbPath);
+  const server = createMCPServer(db, cfg);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("ph MCP server running on stdio");
