@@ -79,6 +79,9 @@ MCP config.
 | Memory/summary backends | src/db/index.ts:535-699 |
 
 ## 9. Open questions / discrepancies
+- Protocol smoke coverage uses the official SDK client with paired in-memory
+  transports and a real temporary `PhDB`; semantic tools still need a separately
+  controlled embedding-provider integration test.
 - A new PhDB is opened per call — connection churn on high-frequency agent use
   (verify in the handler; a shared instance + close-on-exit would be cheaper).
 - No tool input validation with zod (raw JSON.parse of arguments) — malformed

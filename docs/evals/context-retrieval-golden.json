@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "judging": "Maintainer-curated relevance labels; a relevant document answers the query or records a directly reusable decision.",
+  "documents": [
+    { "id": "db-search-scope", "project": "ph", "text": "Semantic search must apply project metadata before the nearest-neighbor result limit; otherwise unrelated vectors can hide the best in-project result." },
+    { "id": "capture-normalization", "project": "ph", "text": "Capture normalization shares timestamp, host, exit code, project detection, and metadata handling across direct logging, wrappers, and history importers." },
+    { "id": "filter-policy", "project": "ph", "text": "TUI filter policy is pure: metadata parsing, active filtering, distinct options, and counts are independent from Ink rendering." },
+    { "id": "mcp-tools", "project": "ph", "text": "The MCP server exposes project memory, project context, prompt search, prompt lookup, and chronological timeline tools over stdio." },
+    { "id": "claude-import", "project": "ph", "text": "Claude history import scans project JSONL transcripts, pairs each user message with the next assistant text, and skips thinking and tool blocks." },
+    { "id": "gemini-import", "project": "ph", "text": "Gemini history import reads session JSON, pairs human messages with the following model response, and supports dry run and duplicate filtering." },
+    { "id": "remote-sync", "project": "ph", "text": "Remote sync pushes unsynced prompts and pulls newer records; sync hashes deduplicate matching prompt, response, tool, and arguments." },
+    { "id": "analysis-memory", "project": "ph", "text": "Background analysis appends project memories and merges key insights and technical decisions into a single project summary." },
+    { "id": "unrelated-react", "project": "lens", "text": "React rendering uses reconciliation to compare virtual trees and update the browser DOM." },
+    { "id": "unrelated-go", "project": "sonic", "text": "Go goroutines communicate using channels and are scheduled by the Go runtime." }
+  ],
+  "queries": [
+    { "query": "Why does semantic search need to filter by project before limiting nearest neighbors?", "relevant": ["db-search-scope"] },
+    { "query": "Which fields and capture paths should use shared normalization?", "relevant": ["capture-normalization"] },
+    { "query": "Where is filter counting behavior tested separately from the terminal UI?", "relevant": ["filter-policy"] },
+    { "query": "What can an MCP client retrieve from ph?", "relevant": ["mcp-tools"] },
+    { "query": "How are assistant replies and hidden reasoning handled in Claude imports?", "relevant": ["claude-import"] },
+    { "query": "How does Gemini history import pair prompt and model output?", "relevant": ["gemini-import"] },
+    { "query": "How does ph avoid duplicate records when synchronizing laptops?", "relevant": ["remote-sync"] },
+    { "query": "How do prompt analyses update the long term project knowledge?", "relevant": ["analysis-memory"] }
+  ]
+}

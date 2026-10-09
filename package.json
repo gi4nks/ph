@@ -1,6 +1,6 @@
 {
   "name": "@gi4nks/ph",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Transparent CLI wrapper that captures and indexes AI prompts",
   "type": "module",
   "license": "MIT",
@@ -51,7 +51,8 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "eval:retrieval": "tsx scripts/eval-context-retrieval.ts"
   },
   "dependencies": {
     "@gi4nks/ink": "^1.5.0",

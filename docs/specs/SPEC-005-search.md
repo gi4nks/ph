@@ -36,9 +36,12 @@ filter, the MCP `search_prompts*` tools and the HTTP `/api/prompts/search`.
    DESC LIMIT ?` (db/index.ts:322-330).
 4. Date range: `since`/`until` become timestamp comparisons.
 
-### 4.2 Semantic search (src/db/index.ts:345-360)
-`searchSemantic(queryVector, limit)` — vec0 KNN on `vec_embeddings` joined back
-to prompts. Requires embeddings (SPEC-008).
+### 4.2 Semantic search (src/db/index.ts)
+`searchSemantic(queryVector, limit, project?)` — vec0 KNN on `vec_embeddings`
+joined back to prompts. When `project` is supplied, matching is restricted to
+that project before the final result limit. Requires embeddings (SPEC-008).
+Because sqlite-vec applies `k` before ordinary metadata predicates, scoped
+queries currently examine all stored vectors before filtering and limiting.
 
 ### 4.3 CLI (src/commands/search.ts)
 `ph search` prints via `printResults` (src/display/print.ts:33); `-i` opens the
@@ -49,6 +52,8 @@ TUI (SPEC-001); `--archive` queries `prompts_archive` (SPEC-009).
 - `tag` filter is a JSON-array LIKE `%"tag"%` — substring match on the serialized
   array, not a JSON array membership check (db/index.ts:276-282).
 - `limit` defaults to 50 in the CLI; results ordered timestamp DESC.
+- Project-scoped semantic search returns the nearest matching prompts within
+  that project, even when closer prompts from other projects exist.
 
 ## 6. UI / UX surface
 `ph search` output: `#id tool date [tags] [exit:N]` + truncated prompt
@@ -69,12 +74,15 @@ TUI (SPEC-001); `--archive` queries `prompts_archive` (SPEC-009).
   (src/db/index.ts:276-282).
 - **G5**: Given `since: 2026-01-01`, When `search` runs, Then entries older than
   the date are excluded (src/db/index.ts:since handling).
+- **G6**: Given an unrelated project has the nearest vector, When
+  `searchSemantic(query, 1, "go-play")` runs, Then it returns the nearest
+  vector belonging to `go-play` (src/db/index.ts, project scope before limit).
 
 ## 8. Key implementation map
 | Concern | File(s) |
 |---|---|
 | Dual-path search | src/db/index.ts:243-330 |
-| Semantic KNN | src/db/index.ts:345-360 |
+| Semantic KNN | src/db/index.ts (`searchSemantic`) |
 | CLI output | src/commands/search.ts, src/display/print.ts:33-60 |
 | SearchOptions | src/types.ts:54-68 |
 
@@ -83,8 +91,12 @@ TUI (SPEC-001); `--archive` queries `prompts_archive` (SPEC-009).
   `auth` (substring). JSON array membership would be stricter.
 - FTS path columns need the `p.` prefix; a new filter added to only one path
   silently breaks the other (dual maintenance).
+- Project-scoped semantic search currently evaluates the full vector set
+  before metadata filtering because sqlite-vec's KNN limit precedes the join
+  predicate. A project-aware vector index or auxiliary metadata column may
+  reduce this cost if vector counts make it material.
 
 ## 10. Related
 - SPEC-002 (primitives), SPEC-008 (embeddings), SPEC-009 (archive),
-  SPEC-011 (MCP), SPEC-010 (HTTP). No tests (SPEC-ISSUES-007) — G1-G5 are prime
-  vitest targets.
+  SPEC-011 (MCP), SPEC-010 (HTTP). Vitest coverage: `src/db/__tests__/phdb.test.ts`
+  covers G1-G6, including project-scoped nearest-neighbor behavior.

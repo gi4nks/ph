@@ -16,37 +16,48 @@ Status: Open → assigned SPEC / fixed.
   `server/index.ts` used `db.db.prepare(...)` in 6 places and `remote.ts` in 1
   (health, sync push/pull, stats, status). Fixed by adding public PhDB methods
   (`getPromptCountSince`, `getStats`, `dbPath`) and reusing existing ones
-  (`getPromptBySyncHash`, `getPromptsSince`, `getAllPrompts`). ✅ Fixed.
+  (`getPromptBySyncHash`, `getPromptsSince`, `getAllPrompts`). Fixed.
 - **ISSUE-003 — `remoteLastPush` undeclared in PhConfig (FIXED 2026-08-08)** —
   `remote.ts` read/wrote `cfg.remoteLastPush` (push + status) while
   `PhConfig` (src/config/index.ts:5-22) declared only `remoteLastPull`; the
-  field silently worked at runtime but was invisible to the type system. ✅ Fixed.
+  field silently worked at runtime but was invisible to the type system. Fixed.
 
 ## Types / build
 
 - **ISSUE-004 — node-pty typings blocked by package exports (FIXED 2026-08-08)** —
   `@lydell/node-pty` ships `node-pty.d.ts` but its package.json `exports` field
   breaks resolution under `moduleResolution: Bundler` → TS7016. Fixed with a
-  minimal local declaration (src/pty/node-pty.d.ts) covering the used API. ✅ Fixed.
+  minimal local declaration (src/pty/node-pty.d.ts) covering the used API. Fixed.
 - **ISSUE-005 — TS6/@types-node-25 type breakage (FIXED 2026-08-08)** — the
   TS 5.9→6.0 upgrade broke 12 sites (Float32Array<ArrayBufferLike>, readSync
-  4-arg, insert() response, private db, node-pty). All fixed; tsc green. ✅ Fixed.
+  4-arg, insert() response, private db, node-pty). All fixed; tsc green. Fixed.
 - **ISSUE-006 — eslint 10 unusable with eslint-plugin-react 7.37.5** — peer range
   excludes eslint 10 (ERESOLVE). Resolved by pinning eslint back to ^9.39.4 and
   adding the missing `@eslint/js` devDep (eslint.config.js imported it but it was
-  never in package.json → lint was completely broken). ✅ Fixed (downgrade).
-- **ISSUE-007 — ZERO test files** — no `*.test.ts` anywhere; `vitest run` exits
-  with "No test files found". ⚠️ **Partially fixed 2026-08-08**: 51 GWT tests
-  added (SPEC-002/004/005/006/007/009/010/014/015) — capture/PTY, MCP, server,
-  TUI and importers still uncovered.
+  never in package.json → lint was completely broken). Fixed (downgrade).
+- **ISSUE-007 — ZERO test files (FIXED 2026-10-09)** — baseline had no test
+  files. Tests now cover database, search, memory, archive, sync, config,
+  analysis, sessions, context, capture, TUI filter transitions, importer formats,
+  PTY response cleanup, HTTP endpoints, and MCP tool calls over an in-memory
+  protocol transport. The Ink browser also has a PTY smoke test that opens its
+  filter panel and exits cleanly; a nested PTY test verifies wrapped prompt and
+  ANSI-clean response persistence. Broader screen flows remain covered by
+  component/module tests rather than end-to-end navigation.
 - **ISSUE-016 — NON_PRINTABLE pattern matched plain words (FIXED 2026-08-08)** —
   the filter's non-printable regex `^[\x00-\x1f\x7f\x1b\[\]()#;\d;A-Za-z]*$`
   matched ANY all-alphanumeric string (e.g. "yes") because of `[A-Za-z\d]` in
   the class, classifying normal prompts as PTY noise. Fixed with a control-char
-  lookahead (src/filter/index.ts:32-35). Found by the SPEC-004 GWT suite. ✅ Fixed.
-- **ISSUE-017 — trivial filler list missing 'grazie' (FIXED 2026-08-08)** —
-  the Italian filler set (che dici/dimmi/vai/procedi/aspetta) lacked 'grazie';
-  added (src/filter/index.ts:25). Found by the SPEC-004 GWT suite. ✅ Fixed.
+  lookahead (src/filter/index.ts:32-35). Found by the SPEC-004 GWT suite. Fixed.
+- **ISSUE-017 — trivial filler list missed an Italian thank-you phrase (FIXED 2026-08-08)** —
+  the Italian filler set lacked a common thank-you phrase;
+  added (src/filter/index.ts:25). Found by the SPEC-004 GWT suite. Fixed.
+- **ISSUE-018 — semantic project filter ran after global KNN limit (FIXED 2026-10-09)** —
+  Context consumers fetched global nearest neighbors and filtered metadata
+  afterward, which could omit relevant entries from the requested project.
+  `PhDB.searchSemantic(query, limit, project)` now scopes results before the
+  final limit; project-scoped searches inspect all stored vectors because
+  sqlite-vec applies its KNN candidate limit before ordinary SQL filters.
+  Fixed; performance trade-off documented in SPEC-005.
 
 ## Docs
 
@@ -59,25 +70,26 @@ Status: Open → assigned SPEC / fixed.
 
 ## Design smells
 
-- **ISSUE-010 — cli.ts TUI bootstrap duplicated 3×** — the alt-screen
-  `\x1b[?1049h` + render(BrowseApp) + rerun block is copy-pasted for the default
-  (cli.ts:159-186), `search -i` (cli.ts:214-248) and `browse` (cli.ts:373-396)
-  with only the initial props differing. → extract a `openBrowser(db, props)` helper.
-- **ISSUE-011 — BrowseApp is a 1183-line monolith** — all views (list, detail,
-  filter panel, settings) live in one component (src/ui/BrowseApp.tsx) with
-  components extracted only for Header/Footer/ListEntry/PreviewPane/SearchBar.
-  → component extraction follow-up.
+- **ISSUE-010 — cli.ts TUI bootstrap duplicated 3× (FIXED 2026-08-08)** —
+  extracted `openBrowser(db, props)` and `runRerun()` in `src/cli.ts`; default,
+  `search -i`, and `browse` now share the alt-screen cleanup path. Fixed.
+- **ISSUE-011 — BrowseApp remains a large module** — detail, edit, rerun,
+  provider selection, settings, and app state remain in `src/ui/BrowseApp.tsx`.
+  Filter policy/count generation now lives in `src/ui/filtering.ts` and keyboard
+  rendering in `src/ui/FilterPanel.tsx`; filter transitions are directly tested
+  and the keyboard path to open/close the rendered filter panel has a PTY smoke
+  test. Detail/edit/rerun and other screen interactions remain in BrowseApp.
 - **ISSUE-012 — sync_hash excludes args/workdir (FIXED 2026-08-08)** — dedup
   hash was `sha256(tool|prompt|response)` duplicated inline in server
   (src/server/index.ts:104) and remote (remote.ts:116) — drift risk. Now a
   shared `syncHash` helper (src/utils/syncHash.ts) that includes `args` ONLY
   when present — backward compatible: entries without args keep the legacy
-  hash (no mass re-push), entries with different args no longer collapse. ✅ Fixed.
+  hash (no mass re-push), entries with different args no longer collapse. Fixed.
 - **ISSUE-013 — server auth is declared but never enforced (FIXED 2026-08-08)** —
   `remoteApiKey` was sent by the client but the HTTP server never checked it.
   Now `createRequestHandler` (exported for tests) gates every endpoint except
   `/health` with `Authorization: Bearer <key>` (timingSafeEqual) when
-  `remoteApiKey` is configured (src/server/index.ts:30-60). ✅ Fixed.
+  `remoteApiKey` is configured (src/server/index.ts:30-60). Fixed.
 - **ISSUE-014 — memories prompt_ids unused after summaries** — `prompt_ids` in
   `memories` (src/db/index.ts:109) is written but the summary merge path
   (project_summaries) tracks prompt_count instead; the timeline joins via
@@ -91,19 +103,20 @@ Status: Open → assigned SPEC / fixed.
 | Issue | Spec (fix target) | Status |
 |---|---|---|
 | 001 | SPEC-002 | Open (cleanup) |
-| 002 | SPEC-002/010 | ✅ Fixed 2026-08-08 |
-| 003 | SPEC-015 | ✅ Fixed 2026-08-08 |
-| 004 | SPEC-003 | ✅ Fixed 2026-08-08 |
-| 005 | SPEC-002 | ✅ Fixed 2026-08-08 |
-| 006 | — (tooling) | ✅ Fixed 2026-08-08 (eslint 9 + @eslint/js) |
-| 007 | SPEC-002/005/009/010 | ⚠️ Partially fixed 2026-08-08 (51 tests; capture/MCP/server/TUI uncovered) |
+| 002 | SPEC-002/010 | Fixed 2026-08-08 |
+| 003 | SPEC-015 | Fixed 2026-08-08 |
+| 004 | SPEC-003 | Fixed 2026-08-08 |
+| 005 | SPEC-002 | Fixed 2026-08-08 |
+| 006 | — (tooling) | Fixed 2026-08-08 (eslint 9 + @eslint/js) |
+| 007 | SPEC-002/003/005/009/010/011/012/013/014 | Fixed 2026-10-09 (core terminal and TUI paths covered; other screen flows remain module-tested) |
 | 008 | — (docs) | Open |
 | 009 | — (chore) | Open |
-| 010 | SPEC-001 | Open |
+| 010 | SPEC-001 | Fixed 2026-08-08 |
 | 011 | SPEC-012 | Open |
-| 012 | SPEC-010 | ✅ Fixed 2026-08-08 (shared syncHash, args-aware, backward compatible) |
-| 013 | SPEC-010 | ✅ Fixed 2026-08-08 (auth gate on createRequestHandler) |
+| 012 | SPEC-010 | Fixed 2026-08-08 (shared syncHash, args-aware, backward compatible) |
+| 013 | SPEC-010 | Fixed 2026-08-08 (auth gate on createRequestHandler) |
 | 014 | SPEC-007 | Open |
 | 015 | SPEC-012 | Open |
-| 016 | SPEC-004 | ✅ Fixed 2026-08-08 |
-| 017 | SPEC-004 | ✅ Fixed 2026-08-08 |
+| 016 | SPEC-004 | Fixed 2026-08-08 |
+| 017 | SPEC-004 | Fixed 2026-08-08 |
+| 018 | SPEC-005/014 | Fixed 2026-10-09 |

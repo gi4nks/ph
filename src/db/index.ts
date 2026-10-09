@@ -4,6 +4,7 @@ import os from 'os';
 import { createHash } from 'crypto';
 import * as sqliteVec from 'sqlite-vec';
 import type { PromptEntry, SearchOptions, MemoryEntry, ProjectSummary } from '../types.js';
+import { SemanticIndex } from './semantic-index.js';
 
 export function defaultPath(): string {
   return path.join(os.homedir(), '.prompt_history.db');
@@ -43,6 +44,7 @@ export class PhDB {
   `;
 
   private db: Database.Database;
+  private semanticIndex: SemanticIndex;
 
   /** Absolute path of the SQLite file (used by the HTTP server health endpoint). */
   readonly dbPath: string;
@@ -52,6 +54,7 @@ export class PhDB {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     sqliteVec.load(this.db);
+    this.semanticIndex = new SemanticIndex(this.db);
     this.migrate();
   }
 
@@ -334,59 +337,19 @@ export class PhDB {
   }
 
   saveEmbedding(id: number, vector: Float32Array): void {
-    const buf = Buffer.alloc(vector.length * 4);
-    for (let i = 0; i < vector.length; i++) {
-      buf.writeFloatLE(vector[i], i * 4);
-    }
-    // Save to both for safety during transition
-    this.db
-      .prepare('INSERT OR REPLACE INTO embeddings (prompt_id, vector) VALUES (?, ?)')
-      .run(id, buf);
-    this.db
-      .prepare('INSERT OR REPLACE INTO vec_embeddings(rowid, embedding) VALUES (?, vec_f32(?))')
-      .run(BigInt(id), buf);
+    this.semanticIndex.save(id, vector);
   }
 
-  searchSemantic(queryVector: Float32Array, limit: number): PromptEntry[] {
-    const buf = Buffer.alloc(queryVector.length * 4);
-    for (let i = 0; i < queryVector.length; i++) {
-      buf.writeFloatLE(queryVector[i], i * 4);
-    }
-
-    const sql = `
-      SELECT p.*, v.distance
-      FROM vec_embeddings v
-      JOIN prompts p ON p.id = v.rowid
-      WHERE v.embedding MATCH vec_f32(?) AND k = ?
-      ORDER BY v.distance ASC
-    `;
-    return this.db.prepare(sql).all(buf, limit) as PromptEntry[];
+  searchSemantic(queryVector: Float32Array, limit: number, project?: string): PromptEntry[] {
+    return this.semanticIndex.search(queryVector, limit, project);
   }
 
   getAllEmbeddings(): Map<number, Float32Array> {
-    const rows = this.db
-      .prepare('SELECT prompt_id, vector FROM embeddings')
-      .all() as { prompt_id: number; vector: Buffer }[];
-
-    const map = new Map<number, Float32Array>();
-    for (const row of rows) {
-      const vec = new Float32Array(row.vector.length / 4);
-      for (let i = 0; i < vec.length; i++) {
-        vec[i] = row.vector.readFloatLE(i * 4);
-      }
-      map.set(row.prompt_id, vec);
-    }
-    return map;
+    return this.semanticIndex.loadAll();
   }
 
   getPromptsWithoutEmbeddings(): PromptEntry[] {
-    return this.db
-      .prepare(
-        `SELECT p.* FROM prompts p
-         LEFT JOIN vec_embeddings e ON e.rowid = p.id
-         WHERE e.rowid IS NULL`
-      )
-      .all() as PromptEntry[];
+    return this.semanticIndex.findMissingPrompts();
   }
 
   getAllPrompts(limit: number = 1000000): PromptEntry[] {

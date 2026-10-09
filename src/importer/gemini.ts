@@ -6,6 +6,7 @@ import type { LLMProvider } from '../ai/provider.js';
 import { analyzePrompt, mergeMetadata } from '../analyzer/index.js';
 import type { FilterPipeline } from '../filter/index.js';
 import type { ImportResult } from '../types.js';
+import { createCaptureRecord } from '../capture/index.js';
 
 interface GeminiMessage {
   id?: string;
@@ -159,7 +160,7 @@ export async function importGeminiHistory(
         }
 
         try {
-          const id = db.insert({
+          const id = db.insert(createCaptureRecord({
             timestamp: new Date(msg.timestamp).toISOString(),
             tool: 'gemini',
             prompt: content,
@@ -168,8 +169,8 @@ export async function importGeminiHistory(
             workdir: inferWorkDir(filePath, geminiDir),
             hostname,
             exit_code: 0,
-            metadata,
-          });
+            metadata: JSON.parse(metadata) as Record<string, unknown>,
+          }));
           filter?.registerHash(content, id);
           result.promptsImported++;
         } catch (e: unknown) {

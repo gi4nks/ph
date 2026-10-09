@@ -6,8 +6,8 @@
  */
 declare module '@lydell/node-pty' {
   export interface IPtyProcess {
-    onData(callback: (data: string) => void): void;
-    onExit(callback: (event: { exitCode: number; signal?: number }) => void): void;
+    onData(callback: (data: string) => void): { dispose(): void };
+    onExit(callback: (event: { exitCode: number; signal?: number }) => void): { dispose(): void };
     write(data: string): void;
     resize(cols: number, rows: number): void;
     kill(signal?: string): void;

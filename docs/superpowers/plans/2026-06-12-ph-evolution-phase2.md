@@ -297,8 +297,8 @@ async function runRetention(db: PhDB, cfg: PhConfig, dryRun: boolean): Promise<v
   console.log(`Candidates for archiving: ${toArchive.length}`);
   for (const item of toArchive.slice(0, 20)) {
     const short = item.prompt.replace(/\n/g, ' ').slice(0, 60);
-    const starred = item.meta.starred ? ' ★' : '';
-    const analyzed = item.meta.summary ? ' 📝' : '';
+    const starred = item.meta.starred ? ' [starred]' : '';
+    const analyzed = item.meta.summary ? ' [analyzed]' : '';
     console.log(`  #${String(item.id).padEnd(5)} [${item.reason}]${starred}${analyzed} "${short}"`);
   }
   if (toArchive.length > 20) {

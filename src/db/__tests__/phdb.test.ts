@@ -138,6 +138,23 @@ describe('PhDB search (SPEC-005)', () => {
     const results = db.search({ tool: 'claude', role: 'explain', limit: 10 });
     expect(results).toHaveLength(1);
   });
+
+  it('semantic project filter applies before the nearest-neighbor limit', () => {
+    const projectPrompt = db.search({ project: 'go-play', limit: 1 })[0];
+    const otherPrompt = db.search({ project: 'web', limit: 1 })[0];
+    const projectVector = new Float32Array(768);
+    projectVector[1] = 1;
+    const otherVector = new Float32Array(768);
+    otherVector[0] = 1;
+    const query = new Float32Array(768);
+    query[0] = 1;
+    db.saveEmbedding(projectPrompt.id, projectVector);
+    db.saveEmbedding(otherPrompt.id, otherVector);
+
+    const results = db.searchSemantic(query, 1, 'go-play');
+
+    expect(results.map(result => result.id)).toEqual([projectPrompt.id]);
+  });
 });
 
 describe('PhDB sync dedup (SPEC-010 G1/G2/G3)', () => {
