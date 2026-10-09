@@ -9,6 +9,32 @@ export async function cmdSearch(db: PhDB, cfg: PhConfig, args: string[]): Promis
   const { flags, positional } = parseFlags(args);
   const query = positional.join(' ');
 
+  if (flags['archive']) {
+    const archiveResults = db.searchArchive({
+      since: flags['since'] ? new Date(flags['since'] as string).toISOString() : undefined,
+      until: flags['until'] ? new Date(flags['until'] as string).toISOString() : undefined,
+      limit: Number(flags['limit'] ?? 50),
+    });
+    if (archiveResults.length === 0) {
+      console.log('No archived prompts found.');
+      return;
+    }
+    console.log(`Found ${archiveResults.length} archived prompts:\n`);
+    for (const r of archiveResults) {
+      const date = new Date(r.timestamp as string).toLocaleString();
+      const id = r.original_id ?? r.id;
+      const prompt = (r.prompt as string).replace(/\n/g, ' ').slice(0, 120);
+      console.log(`  #${id} [${r.tool}] (${date})`);
+      console.log(`    ${prompt}${(r.prompt as string).length > 120 ? '...' : ''}`);
+      if (r.response) {
+        const resp = (r.response as string).replace(/\n/g, ' ').slice(0, 80);
+        console.log(`    Response: ${resp}${(r.response as string).length > 80 ? '...' : ''}`);
+      }
+      console.log();
+    }
+    return;
+  }
+
   if (flags['semantic'] && query) {
     await cmdSearchSemantic(db, cfg, query, Number(flags['limit'] ?? 50), Boolean(flags['full']));
     return;

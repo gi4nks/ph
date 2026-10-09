@@ -1,6 +1,9 @@
+import { createHash } from 'crypto';
 import type { LLMProvider } from '../ai/provider.js';
 import type { PhDB } from '../db/index.js';
 import type { PromptEntry, PromptMetadata } from '../types.js';
+import { captureGitContext } from '../runner/git-context.js';
+import type { GitContext } from '../runner/git-context.js';
 
 export interface AnalysisResult {
   project?: string;
@@ -172,6 +175,13 @@ function hasMetadata(entry: PromptEntry): boolean {
   return Boolean(meta.role || meta.tags?.length || meta.project || meta.language);
 }
 
+function gitFingerprint(ctx: GitContext): string {
+  const hash = createHash('sha256');
+  hash.update(ctx.branch);
+  hash.update(ctx.diff);
+  return `git:${hash.digest('hex').slice(0, 14)}`;
+}
+
 export interface AnalyzeAllOpts {
   force?: boolean;
   pruneBelow?: number;   // delete entries with relevance < this value (0 = disable)
@@ -203,6 +213,10 @@ export async function analyzeAll(
   const toProcess = force ? entries : entries.filter(e => !hasMetadata(e));
   const stats: AnalyzeAllResult = { updated: 0, skipped: entries.length - toProcess.length, failed: 0, pruned: 0 };
 
+  // Capture git context once for the batch
+  const gitCtx = captureGitContext(process.cwd());
+  const gitFp = gitCtx ? gitFingerprint(gitCtx) : undefined;
+
   for (let i = 0; i < toProcess.length; i++) {
     const entry = toProcess[i];
     let result: AnalysisResult | null = null;
@@ -224,9 +238,24 @@ export async function analyzeAll(
         db.updateMetadata(entry.id, JSON.stringify(merged));
         // Populate project memory if we have a project + summary
         if (result.project && result.summary) {
+          // Skip duplicate memory when project git state hasn't changed
+          if (gitFp) {
+            const lastMem = db.getLastMemoryForProject(result.project);
+            if (lastMem?.git_context_snapshot === gitFp) {
+              stats.updated++;
+              continue;
+            }
+          }
           db.upsertProjectMemory({
             project: result.project,
             prompt_id: entry.id,
+            summary: result.summary,
+            key_insights: result.key_insights ?? [],
+            technical_decisions: result.technical_decisions ?? [],
+            git_context_snapshot: gitFp,
+          });
+          db.upsertProjectSummary({
+            project: result.project,
             summary: result.summary,
             key_insights: result.key_insights ?? [],
             technical_decisions: result.technical_decisions ?? [],
