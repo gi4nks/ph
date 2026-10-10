@@ -14,6 +14,7 @@ import { PreviewPane } from './PreviewPane.js';
 import { extractTopic } from '../utils/extractTopic.js';
 import { load as loadConfig, save as saveConfig } from '../config/index.js';
 import type { PhConfig } from '../config/index.js';
+import { formatProviderSummary, getProviderSummaries } from '../config/provider-summary.js';
 import { wrapTextLines, buildRichLines } from '../utils/syntaxHighlight.js';
 import type { RichLine } from '../utils/syntaxHighlight.js';
 
@@ -406,15 +407,6 @@ const RerunView: React.FC<RerunProps> = ({ entry, onConfirm, onClose, theme }) =
 
 // ─── ProviderPicker ────────────────────────────────────────────────────────────
 
-const KNOWN_PROVIDERS: { key: string; label: string; tool: string }[] = [
-  { key: '1', label: 'claude', tool: 'claude' },
-  { key: '2', label: 'gemini', tool: 'gemini' },
-  { key: '3', label: 'opencode', tool: 'opencode' },
-  { key: '4', label: 'codex', tool: 'codex' },
-  { key: '5', label: 'ollama', tool: 'ollama' },
-  { key: '6', label: 'chatgpt', tool: 'chatgpt' },
-];
-
 interface ProviderPickerProps {
   entry: PromptEntry;
   onPick: (tool: string, prompt: string) => void;
@@ -423,27 +415,29 @@ interface ProviderPickerProps {
 }
 
 const ProviderPicker: React.FC<ProviderPickerProps> = ({ entry, onPick, onClose, theme }) => {
+  const providers = getProviderSummaries(loadConfig());
   useInput((char) => {
     if (char === 'q' || char === '\x1b') { onClose(); return; }
-    const provider = KNOWN_PROVIDERS.find(p => p.key === char);
-    if (provider) {
-      onPick(provider.tool, entry.prompt);
+    const index = Number(char) - 1;
+    const provider = providers[index];
+    if (provider?.ready) {
+      onPick(`wise:${provider.id}`, entry.prompt);
     }
   });
 
   return (
     <Box flexDirection="column" padding={2}>
-      <Text bold color={theme.primary}>Send prompt #{entry.id} to:</Text>
+      <Text bold color={theme.primary}>Run prompt #{entry.id} with an analysis provider:</Text>
       <Box marginTop={1} flexDirection="column">
-        {KNOWN_PROVIDERS.map(p => (
-          <Text key={p.key}>
-            <Text color={theme.warning}>{p.key}</Text>
-            <Text>: {p.label}</Text>
+        {providers.map((provider, index) => (
+          <Text key={provider.id} color={provider.ready ? 'white' : theme.dim}>
+            <Text color={provider.ready ? theme.warning : theme.dim}>{provider.ready ? index + 1 : ' '}</Text>
+            <Text>: {formatProviderSummary(provider).trim()}</Text>
           </Text>
         ))}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>Pick a number · q to cancel</Text>
+        <Text dimColor>Pick a configured provider · q to cancel · r reruns with the original CLI tool</Text>
       </Box>
     </Box>
   );
@@ -456,7 +450,6 @@ const SETTING_FIELDS: { key: keyof PhConfig; label: string; type: 'boolean' | 's
   { key: 'ollamaUrl', label: 'Ollama URL', type: 'string' },
   { key: 'ollamaModel', label: 'Ollama model (analysis)', type: 'string' },
   { key: 'ollamaEmbedModel', label: 'Ollama model (embeddings)', type: 'string' },
-  { key: 'analyzeProvider', label: 'Analysis provider', type: 'string' },
   { key: 'filterMinLength', label: 'Min prompt length filter', type: 'number' },
   { key: 'filterMinRelevance', label: 'Min relevance filter', type: 'number' },
 ];
@@ -515,6 +508,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ onClose, theme }) => {
       </Box>
 
       <Box borderStyle="single" borderColor={theme.dim} flexDirection="column" padding={1}>
+        <Text bold color={theme.primary}>Analysis providers (* = active; edit with `ph config set`)</Text>
+        {getProviderSummaries(cfg).map(provider => (
+          <Text key={provider.id} color={provider.active ? theme.success : theme.dim}>
+            {formatProviderSummary(provider)}
+          </Text>
+        ))}
+        <Text> </Text>
         {SETTING_FIELDS.map((field, i) => {
           const isCur = i === cursor;
           const val = cfg[field.key];

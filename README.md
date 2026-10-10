@@ -7,9 +7,10 @@
 - Captures conversations through a transparent command wrapper, native hooks, direct logging, or history import.
 - Searches prompts and responses with SQLite FTS5, or searches by semantic similarity with Ollama embeddings and sqlite-vec.
 - Groups records by project, tool, language, role, tags, time, and quality metadata.
-- Builds project summaries and an append-only analysis history with optional Ollama or Gemini analysis.
+- Builds project summaries and an append-only analysis history with Ollama, Gemini, OpenRouter, or MLX-Serve through `@gi4nks/wise`.
 - Exposes prompt history and project knowledge through an MCP server over stdio.
 - Provides an interactive terminal browser for filtering, reviewing, editing metadata, starring, exporting, and rerunning prompts.
+- The TUI `p` action sends the selected prompt to a configured Wise analysis provider; `r` reruns it with its original CLI tool.
 - Supports optional HTTP sync between a local database and a remote `ph` server.
 
 ## Install
@@ -30,7 +31,7 @@ npm run build
 npm link
 ```
 
-Requires Node.js 20 or later. Ollama is optional; it is used for local analysis and semantic embeddings. Gemini can be used for analysis when configured.
+Requires Node.js 22 or later (the Wise/AI SDK provider stack requires Node 22). Ollama is optional; it is used for local analysis and semantic embeddings. Gemini can be used for analysis when configured.
 
 ## Quick start
 
@@ -121,6 +122,40 @@ ph config set analyze-provider gemini
 ph config set gemini-api-key "$GEMINI_API_KEY"
 ```
 
+For OpenRouter, use the environment or enter the key through ph's hidden prompt, then select an exact model ID:
+
+```bash
+export OPENROUTER_API_KEY="your_openrouter_api_key"
+ph models openrouter
+ph config set openrouter-api-key        # prompts securely; stored in ~/.ph_config.json
+ph config set analyze-provider openrouter
+ph config set openrouter-model "provider/model-id"
+ph config show                         # shows active settings, redacts keys
+ph analyze
+```
+
+For MLX-Serve on Parmenide, open an SSH tunnel to its API port (11234 by default),
+then select an ID returned by the server. Keep the tunnel running in a separate terminal:
+
+```bash
+# Terminal 1
+ssh -N -L 11234:127.0.0.1:11234 parmenide
+```
+
+```bash
+# Terminal 2
+ph models mlx-serve
+ph config set analyze-provider mlx-serve
+ph config set mlx-serve-model "exact-model-id-from-server"
+ph analyze
+```
+
+The MLX-Serve URL defaults to `http://127.0.0.1:11234/v1`; override it with
+`MLX_SERVE_BASE_URL` or `ph config set mlx-serve-url <url>`. If the server requires
+authentication, set `MLX_SERVE_API_KEY` or run `ph config set mlx-serve-api-key`
+for a hidden prompt. `ph config show` redacts credentials. The model catalog
+marks installed models as `[loaded]` or `[unloaded]`.
+
 Project summaries merge deduplicated insights and technical decisions. Individual analysis results remain in an append-only memory timeline. Analysis and embeddings require the corresponding provider to be available; basic capture and full-text search do not.
 
 ## MCP integration
@@ -160,15 +195,24 @@ Configuration is stored in `~/.ph_config.json`; the database defaults to `~/.pro
 | Setting | Default | Purpose |
 |---|---|---|
 | `db-path` | `~/.prompt_history.db` | SQLite database location |
-| `analyze-provider` | `ollama` | Analysis provider: `ollama` or `gemini` |
+| `analyze-provider` | `ollama` | Analysis provider: `ollama`, `gemini`, `openrouter`, or `mlx-serve` |
 | `ollama-url` | `http://localhost:11434` | Ollama endpoint |
 | `ollama-model` | `llama3.1:latest` | Analysis model |
+| `openrouter-model` | unset | Exact OpenRouter model ID, including its provider prefix |
+| `openrouter-url` | `https://openrouter.ai/api/v1` | OpenRouter-compatible API root |
+| `mlx-serve-model` | unset | Exact model ID returned by MLX-Serve |
+| `mlx-serve-url` | `http://127.0.0.1:11234/v1` | MLX-Serve API root, normally the Parmenide SSH tunnel |
 | `ollama-embed-model` | `nomic-embed-text-v2-moe` | Embedding model; current schema expects 768 dimensions |
 | `background-analysis` | `false` | Analyze newly captured prompts asynchronously |
 | `filter-min-length` | `15` | Minimum prompt length accepted by filtering |
 | `filter-min-relevance` | `3` | Relevance threshold for filtered imports/analysis workflows |
 | `remote-url` | unset | Remote `ph` server; `PH_REMOTE_URL` takes precedence |
 | `remote-api-key` | unset | Optional server authentication key |
+
+Provider credentials can be stored in `~/.ph_config.json` through the hidden
+`ph config set <provider>-api-key` prompts or supplied through environment
+variables. Environment values take precedence; MLX-Serve also accepts the
+existing `GLB_OMLX_API_KEY` variable.
 
 ## Development
 
