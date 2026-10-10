@@ -4,6 +4,9 @@
   "description": "Transparent CLI wrapper that captures and indexes AI prompts",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "ph": "dist/cli.js"
   },
@@ -56,8 +59,10 @@
   },
   "dependencies": {
     "@gi4nks/ink": "^1.5.0",
+    "@gi4nks/wise": "^2.1.0",
     "@lydell/node-pty": "^1.2.0-beta.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "ai": "^7.0.136",
     "better-sqlite3": "^12.8.0",
     "ink": "^7.0.5",
     "react": "^19.2.7",

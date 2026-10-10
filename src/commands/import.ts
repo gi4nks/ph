@@ -6,7 +6,7 @@ import { importGeminiHistory } from '../importer/gemini.js';
 import { importClaudeHistory } from '../importer/claude.js';
 import { importOpenCodeHistory } from '../importer/opencode.js';
 import { importCodexHistory } from '../importer/codex.js';
-import { getProvider } from '../ai/provider.js';
+import { getProvider, getProviderSetupError } from '../ai/provider.js';
 import { FilterPipeline } from '../filter/index.js';
 import { parseFlags } from './_utils.js';
 
@@ -31,7 +31,8 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
   if (analyze) {
     analyzer = getProvider(cfg);
     if (!analyzer) {
-      process.stderr.write('ph: no LLM provider configured. Run: ph config set analyze-provider ollama\n');
+      const detail = getProviderSetupError(cfg) ?? 'No LLM provider is configured. Run: ph config set analyze-provider ollama';
+      process.stderr.write(`ph: ${detail}\n`);
       process.exit(1);
     }
     console.log(`Analyzing with ${analyzer.name} during import...`);

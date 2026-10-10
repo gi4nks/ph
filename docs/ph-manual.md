@@ -10,6 +10,8 @@ ph is a transparent observability and knowledge layer for AI CLI tools (Claude C
 
 **Core principle:** ph captures conversations without changing the normal tool workflow. Optional analysis turns captured history into project summaries and memories that can be searched locally or requested by an MCP client. Capture and full-text search work without an LLM provider; analysis, embeddings, and semantic search require the configured provider.
 
+In the TUI, `p` runs the selected prompt through one of the configured Wise analysis providers (same provider/model/URL settings shown by `ph config show`) and saves the response to history. `r` reruns the prompt with its original CLI tool.
+
 ### Key Features
 
 - **Automatic capture** via hooks (Claude Code, Codex CLI, Gemini CLI, OpenCode plugin) or wrapper mode
@@ -45,7 +47,7 @@ npm link
 
 ```bash
 ph config set background-analysis true   # auto-analyze after each capture
-ph config set analyze-provider ollama     # ollama (default) or gemini
+ph config set analyze-provider ollama     # ollama (default), gemini, openrouter, or mlx-serve
 ph config set ollama-model llama3.1:latest
 ```
 
@@ -283,6 +285,37 @@ ph config set ollama-model llama3.1:latest
 ph config set ollama-embed-model nomic-embed-text-v2-moe
 ```
 
+OpenRouter and MLX-Serve generation use `@gi4nks/wise`:
+
+```bash
+# OpenRouter: credentials stay in the environment; model IDs keep provider/model.
+export OPENROUTER_API_KEY="your_openrouter_api_key"
+ph models openrouter
+ph config set openrouter-api-key  # hidden prompt; or keep using the environment
+ph config set analyze-provider openrouter
+ph config set openrouter-model "provider/model-id"
+ph config show                    # provider settings with credentials redacted
+ph analyze
+
+# MLX-Serve on Parmenide: open this tunnel in a separate terminal.
+ssh -N -L 11234:127.0.0.1:11234 parmenide
+```
+
+```bash
+# In the terminal where you run ph:
+ph models mlx-serve
+ph config set analyze-provider mlx-serve
+ph config set mlx-serve-model "exact-model-id-from-server"
+ph analyze
+```
+
+MLX-Serve defaults to `http://127.0.0.1:11234/v1`. Override it with
+`MLX_SERVE_BASE_URL` or `ph config set mlx-serve-url <url>`. Set
+`MLX_SERVE_API_KEY` if the server requires auth; `GLB_OMLX_API_KEY` is also
+accepted for existing setups. Alternatively run `ph config set mlx-serve-api-key`
+to enter it without echoing it in the terminal. `ph config show` redacts
+credentials. `ph models mlx-serve` marks entries `[loaded]` or `[unloaded]`.
+
 ---
 
 ## 9. MCP Server
@@ -380,11 +413,15 @@ ph config set filter-min-relevance 3
 | Key | Default | Description |
 |-----|---------|-------------|
 | `dbPath` | `~/.prompt_history.db` | SQLite database path |
-| `analyzeProvider` | `ollama` | LLM provider: `ollama` or `gemini` |
+| `analyzeProvider` | `ollama` | LLM provider: `ollama`, `gemini`, `openrouter`, or `mlx-serve` |
 | `ollamaUrl` | `http://localhost:11434` | Ollama server URL |
 | `ollamaModel` | `llama3.1:latest` | Analysis model |
 | `ollamaEmbedModel` | `nomic-embed-text-v2-moe` | Embedding model |
 | `geminiApiKey` | — | Gemini API key |
+| `openrouterModel` | — | Exact OpenRouter model ID |
+| `openrouterUrl` | `https://openrouter.ai/api/v1` | OpenRouter-compatible API root |
+| `mlxServeModel` | — | Exact MLX-Serve model ID |
+| `mlxServeUrl` | `http://127.0.0.1:11234/v1` | MLX-Serve API root (Parmenide SSH tunnel by default) |
 | `backgroundAnalysis` | `false` | Auto-analyze after each capture |
 | `filterMinLength` | `15` | Min prompt length to keep |
 | `filterMinRelevance` | `3` | Min relevance to keep (0=disable) |
@@ -396,6 +433,10 @@ ph config set filter-min-relevance 3
 | `remoteApiKey` | — | Remote server API key |
 | `remoteLastPush` | — | Timestamp of last successful push |
 | `remoteLastPull` | — | Timestamp of last successful pull |
+
+Provider API credentials are environment-only: `OPENROUTER_API_KEY` and
+`MLX_SERVE_API_KEY` (`GLB_OMLX_API_KEY` is a fallback). They are not written to
+`~/.ph_config.json`.
 
 ---
 

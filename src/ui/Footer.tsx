@@ -37,7 +37,7 @@ export const Footer: React.FC<FooterProps> = ({
     );
     if (hasProject) base.push({ key: 'C', description: 'chat' });
     base.push({ key: 'r', description: 'rerun' });
-    base.push({ key: 'p', description: 'provider' });
+    base.push({ key: 'p', description: 'model' });
     base.push('|');
     base.push(
       { key: 'x', description: 'del' },
