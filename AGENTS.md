@@ -77,6 +77,7 @@ src/
     export.ts         # ph export — prompt export
     import.ts         # ph import — Gemini/Claude/OpenCode/Codex import
     log.ts            # ph log — direct logging (hook target)
+    models.ts         # ph models — discover OpenRouter and MLX-Serve model IDs
     embed-all.ts      # ph embed-all — batch embedding
     config.ts         # ph config — get/set config
     vacuum.ts         # ph vacuum — DB compaction
@@ -85,6 +86,7 @@ src/
     wrap.ts           # ph <tool> — wrapper mode entry
   ai/
     provider.ts       # LLMProvider interface + factory
+    wise.ts           # Wise/AI SDK adapter for OpenRouter and MLX-Serve
     ollama.ts         # Ollama provider
     gemini.ts         # Gemini API provider
   analyzer/
@@ -187,6 +189,7 @@ dist/                 # Build output (gitignored)
 | `server` | Start HTTP REST server (`--port`, `--host`) |
 | `remote` | Sync with remote ph server: `push`, `pull`, `status` |
 | `ollama-models` | List Ollama models |
+| `models` | Discover OpenRouter or MLX-Serve model IDs |
 | `chat` | Context-injected tool wrapper |
 | `_bg-analyze` | Internal: background analysis worker |
 
@@ -276,9 +279,15 @@ interface MemoryEntry {
 interface PhConfig {
   geminiApiKey?: string;
   dbPath?: string;                    // default: ~/.prompt_history.db
-  analyzeProvider?: 'ollama' | 'gemini';  // default: ollama
+  analyzeProvider?: 'ollama' | 'gemini' | 'openrouter' | 'mlx-serve'; // default: ollama
   ollamaUrl?: string;                 // default: http://localhost:11434
   ollamaModel?: string;               // default: llama3.1:latest
+  openrouterModel?: string;           // exact provider/model ID
+  openrouterUrl?: string;             // default: https://openrouter.ai/api/v1
+  openrouterApiKey?: string;           // local config; overridden by OPENROUTER_API_KEY
+  mlxServeModel?: string;             // exact model ID from MLX-Serve
+  mlxServeUrl?: string;               // default: http://127.0.0.1:11234/v1 via SSH tunnel
+  mlxServeApiKey?: string;            // local config; overridden by MLX_SERVE_API_KEY / GLB_OMLX_API_KEY
   ollamaEmbedModel?: string;          // default: nomic-embed-text-v2-moe
   filterMinLength?: number;           // default: 15
   filterMinRelevance?: number;        // default: 3
@@ -408,3 +417,6 @@ Dopo ogni `ph log ...` o hook invocation, partirà automaticamente l'analisi in 
 | 2026-08-08 | Enforced server auth with a Bearer gate on every endpoint except `/health`; added a shared, args-aware, backward-compatible `syncHash`; added HTTP server end-to-end tests for health, search, stats, sync deduplication, and auth — 67 tests |
 | 2026-10-09 | Shared context retrieval/formatting for CLI/chat/MCP; project-scoped semantic ranking fix; deterministic Recall@2/MRR fixture; TUI filter policy extracted/tested; normalized capture record used by wrappers and importers | TypeScript, sqlite-vec, Ink, Vitest | `src/{context,capture,ui/FilterPanel.tsx,ui/filtering.ts}`, `src/{commands,runner,importer,mcp,server,db}`, `docs/{evals,specs}/` |
 | 2026-10-09 | Added Codex CLI wrapper/rerun support, native Stop hook capture, legacy and current rollout history import with workdir and final-answer pairing, TUI provider selection, and Codex documentation/spec fixtures | TypeScript, shell, Codex hooks | `src/importer/codex.ts`, `src/{commands/import.ts,cli.ts,ui/BrowseApp.tsx}`, `hooks/codex/`, `docs/` |
+| 2026-10-09 | Added Wise-backed OpenRouter and MLX-Serve analysis providers, model discovery, environment-only credentials, Parmenide tunnel configuration, and Node 22 runtime requirement | TypeScript, Wise, AI SDK | `src/ai/wise.ts`, `src/{ai/provider.ts,commands/models.ts,commands/config.ts,config/index.ts,cli.ts}`, `package.json`, `tsup.config.ts`, `README.md`, `docs/ph-manual.md` |
+| 2026-10-09 | Added `ph config show`, hidden interactive storage for Wise provider keys with mode-0600 config, and MLX-Serve discovery showing loaded state plus actionable SSH tunnel errors | TypeScript, Wise, MLX-Serve | `src/{commands/config.ts,commands/models.ts,ai/wise.ts,ai/provider.ts,config/index.ts,cli.ts}`, `README.md`, `docs/ph-manual.md` |
+| 2026-10-10 | Unified analysis-provider summaries across `ph config show`, TUI Settings, and `p`; `p` now invokes the selected Wise provider and logs its response, while `r` reruns the original CLI tool | TypeScript, Ink, Wise | `src/config/provider-summary.ts`, `src/{commands/config.ts,ui/BrowseApp.tsx,ui/Footer.tsx,ai/provider.ts,cli.ts}` |

@@ -1,6 +1,6 @@
 import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
-import { getProvider } from '../ai/provider.js';
+import { getProvider, getProviderSetupError } from '../ai/provider.js';
 import { analyzeAll } from '../analyzer/index.js';
 import { parseFlags } from './_utils.js';
 
@@ -14,7 +14,8 @@ export async function cmdAnalyze(db: PhDB, cfg: PhConfig, args: string[]): Promi
 
   const provider = getProvider(cfg);
   if (!provider) {
-    process.stderr.write('ph: no LLM provider configured. Set analyze-provider in config.\n');
+    const detail = getProviderSetupError(cfg) ?? 'No LLM provider is configured. Set analyze-provider in config.';
+    process.stderr.write(`ph: ${detail}\n`);
     process.exit(1);
   }
 
