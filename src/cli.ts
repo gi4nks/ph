@@ -33,6 +33,8 @@ import { cmdTimeline } from './commands/timeline.js';
 import { cmdMemoryMigrate } from './commands/memory-migrate.js';
 import { cmdWrap } from './commands/wrap.js';
 import { cmdChat } from './commands/chat.js';
+import { cmdModels } from './commands/models.js';
+import { getProvider, getProviderSetupError } from './ai/provider.js';
 import { parseFlags } from './commands/_utils.js';
 
 const USAGE = `ph — prompt history tracker
@@ -53,6 +55,7 @@ USAGE:
   ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>]
                                                 Import from Gemini, Claude, OpenCode, or Codex history
   ph analyze [--limit n] [--force] [--prune] [--dry-run]  Analyze prompts with LLM
+  ph models [openrouter|mlx-serve]     List models from an AI provider
   ph mcp                                Start MCP server (Stdio)
   ph server [--port 3001]               Start HTTP REST server for remote sync
   ph timeline [project]                 Show full project history with prompts and memories
@@ -63,7 +66,8 @@ USAGE:
   ph cleanup-reusability [--dry-run] [--threshold 0.7] [--force]  Cleanup based on reusability
   ph embed-all                          Generate embeddings for all prompts
   ph log --tool <name> --prompt <text> [--response <text>]  Log a prompt+response directly
-  ph config set <key> <value>           Save config value
+  ph config show                        Show active AI provider configuration
+  ph config set <key> [value]           Save config value (secret keys prompt hidden)
   ph browse                             Interactive TUI browser
 
 WRAP FLAGS (placed before the tool name):
@@ -137,6 +141,8 @@ EXAMPLES:
   ph config set background-analysis true
   ph config set ollama-model llama3.2:latest
   ph ollama-models                          List models available on the local Ollama instance
+  ph models openrouter                      Discover OpenRouter models
+  ph models mlx-serve                       Discover models on MLX-Serve (default Parmenide tunnel)
 `;
 
 
@@ -174,8 +180,19 @@ async function openBrowser(
 }
 
 /** Executes a TUI rerun request after the browser closed. */
-function runRerun(rerun: { tool: string; prompt: string } | null): void {
+async function runRerun(rerun: { tool: string; prompt: string } | null, dbPath: string, cfg: ReturnType<typeof loadConfig>): Promise<void> {
   if (!rerun) return;
+  if (rerun.tool.startsWith('wise:')) {
+    const providerId = rerun.tool.slice('wise:'.length) as NonNullable<ReturnType<typeof loadConfig>['analyzeProvider']>;
+    const setupError = getProviderSetupError(cfg, providerId);
+    if (setupError) throw new Error(setupError);
+    const provider = getProvider(cfg, providerId);
+    if (!provider) throw new Error(`Cannot create ${providerId} provider from the saved configuration.`);
+    const response = await provider.generate(rerun.prompt);
+    process.stdout.write(`${response}\n`);
+    await cmdLog(dbPath, cfg, ['--tool', `wise:${providerId}`, '--prompt', rerun.prompt, '--response', response]);
+    return;
+  }
   const realBin = resolveRealBinary(rerun.tool);
   const child = spawnSync(realBin, [rerun.prompt], { stdio: 'inherit' });
   process.exit(child.status ?? 0);
@@ -197,7 +214,7 @@ async function main(): Promise<void> {
       const db = new PhDB(dbPath);
       const rerun = await openBrowser(db);
       db.close();
-      runRerun(rerun);
+      await runRerun(rerun, dbPath, cfg);
       process.exit(0);
     } else {
       process.stdout.write(USAGE);
@@ -246,7 +263,7 @@ async function main(): Promise<void> {
           },
         });
         db.close();
-        runRerun(rerun);
+        await runRerun(rerun, dbPath, cfg);
         break;
       }
 
@@ -321,6 +338,10 @@ async function main(): Promise<void> {
       db.close();
       break;
     }
+    case 'models': {
+      await cmdModels(cfg, cmdArgs);
+      break;
+    }
     case 'memory-migrate': {
       const db = new PhDB(dbPath);
       cmdMemoryMigrate(db);
@@ -365,7 +386,7 @@ async function main(): Promise<void> {
       break;
     }
     case 'config':
-      cmdConfig(cmdArgs);
+      await cmdConfig(cmdArgs);
       break;
 
     case '_bg-analyze': {
@@ -377,7 +398,7 @@ async function main(): Promise<void> {
       const db = new PhDB(dbPath);
       const rerun = await openBrowser(db);
       db.close();
-      runRerun(rerun);
+      await runRerun(rerun, dbPath, cfg);
       break;
     }
 
