@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/gi4nks/ph/compare/v1.6.0...v1.7.0) (2026-10-18)
+
+
+### Features
+
+* integrate Wise providers in ph ([4f8094e](https://github.com/gi4nks/ph/commit/4f8094e506430f43a96eaca299c6fc85a65870a9))
+
 # [1.6.0](https://github.com/gi4nks/ph/compare/v1.5.0...v1.6.0) (2026-10-09)
 
 
