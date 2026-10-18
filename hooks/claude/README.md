@@ -25,7 +25,7 @@ Add (or update) the `hooks` section in your `~/.claude/settings.json` file:
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/gi4nks/.claude/ph-hook.sh",
+            "command": "$HOME/.claude/ph-hook.sh",
             "async": true
           }
         ]

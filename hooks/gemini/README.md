@@ -24,7 +24,7 @@ Add (or update) the `hooks` section in your `~/.gemini/settings.json` file:
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/gi4nks/.gemini/ph-hook.sh"
+            "command": "$HOME/.gemini/ph-hook.sh"
           }
         ]
       }

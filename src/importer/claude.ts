@@ -33,7 +33,7 @@ type TranscriptMessage = TranscriptUserMessage | TranscriptAssistantMessage | { 
 /**
  * Convert a Claude project directory slug back to an absolute filesystem path.
  * The slug format is a path with slashes replaced by dashes and a leading dash
- * representing the leading slash. E.g. `-Users-gi4nks-foo` → `/Users/gi4nks/foo`.
+ * representing the leading slash. E.g. `-Users-example-foo` → `/Users/example/foo`.
  */
 function slugToPath(slug: string): string {
   // The slug starts with a dash representing the root separator.

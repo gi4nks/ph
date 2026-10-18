@@ -6,13 +6,26 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   checks:
-    uses: gi4nks/gitea-ci/.gitea/workflows/node-app-ci.yml@v1.0.3
-    with:
-      node-version: '22'
-      run-tests: true
-      run-lint: true
-      run-typecheck: true
-      run-prisma-generate: false
-      run-build: true
+    runs-on: ubuntu-latest
+    container:
+      image: node:22-bookworm
+    env:
+      CI: 'true'
+    steps:
+      - name: Checkout consumer repository
+        uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Run tests
+        run: npm test
+      - name: Run lint
+        run: npm run lint
+      - name: Type check
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Build application
+        run: npm run build
