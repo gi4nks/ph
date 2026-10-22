@@ -10,8 +10,16 @@ describe('project context retrieval golden set', () => {
   let db: PhDB;
 
   afterEach(() => {
-    db.close();
-    fs.rmSync(dir, { recursive: true, force: true });
+    db?.close();
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps the maintainer-judged golden set broad and offline-checkable', () => {
+    const fixturePath = path.resolve('docs/evals/context-retrieval-golden.json');
+    const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as { documents: Array<{ project: string }>; queries: unknown[] };
+    expect(fixture.queries.length).toBeGreaterThanOrEqual(12);
+    expect(new Set(fixture.documents.map(document => document.project)).size).toBeGreaterThanOrEqual(4);
+    expect(fixture.queries.every(query => query && typeof query === 'object')).toBe(true);
   });
 
   it('ranks judged project evidence and reports Recall@2 and MRR', async () => {

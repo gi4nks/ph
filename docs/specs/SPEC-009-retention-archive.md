@@ -75,8 +75,8 @@ TUI header shows `N prompts (M archived)` (Header.tsx archiveCount prop);
 | Concern | File(s) |
 |---|---|
 | Retention policy + selection | src/commands/cleanup.ts:88-133 |
-| Archive move (transaction) | src/db/index.ts:464-493 |
-| Archive search + purge + stats | src/db/index.ts:496-518 |
+| Archive move (transaction) | src/db/archive-repository.ts |
+| Archive search + purge + stats | src/db/archive-repository.ts |
 | Config keys | src/config/index.ts:18-21 |
 | TUI archive count | src/ui/Header.tsx, BrowseApp.tsx:793 |
 

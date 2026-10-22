@@ -16,7 +16,7 @@ describe('ph MCP protocol', () => {
   beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-mcp-'));
     db = new PhDB(path.join(dir, 'test.db'));
-    db.insert({ timestamp: '2026-10-09T10:00:00.000Z', tool: 'claude', prompt: 'Explain SQLite WAL checkpoint behavior', response: 'A checkpoint copies frames back to the database.', args: '', workdir: '/project', hostname: 'test', exit_code: 0, metadata: JSON.stringify({ project: 'ph', role: 'explain' }) });
+    db.insert({ timestamp: '2026-10-09T10:00:00.000Z', tool: 'claude', prompt: 'Explain SQLite WAL checkpoint behavior', response: 'A checkpoint copies frames back to the database.', args: '', workdir: '/project', hostname: 'test', exit_code: 0, metadata: JSON.stringify({ project: 'ph', role: 'explain', summary: 'SQLite WAL checkpoint behavior' }) });
     server = createMCPServer(db, {});
     client = new Client({ name: 'ph-test', version: '1.0.0' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -36,5 +36,22 @@ describe('ph MCP protocol', () => {
     const result = await client.callTool({ name: 'search_prompts', arguments: { query: 'SQLite', project: 'ph' } });
     expect(result.isError).not.toBe(true);
     expect(JSON.stringify(result.content)).toContain('checkpoint');
+  });
+
+  it('shares contextual retrieval and preserves validated prompt provenance on decisions', async () => {
+    const context = await client.callTool({ name: 'check_project_knowledge', arguments: { project: 'ph', task: 'WAL checkpoint behavior' } });
+    expect(JSON.stringify(context.content)).toContain('#1');
+    const saved = await client.callTool({ name: 'save_decision', arguments: {
+      project: 'ph', summary: 'SQLite checkpoints copy WAL frames', promptIds: [1],
+    } });
+    expect(saved.isError).not.toBe(true);
+    expect(db.searchMemories('ph')[0].prompt_ids).toEqual([1]);
+  });
+
+  it('rejects decision source IDs from another project before writing', async () => {
+    db.insert({ timestamp: '2026-10-09T10:00:00.000Z', tool: 'claude', prompt: 'Other project prompt', response: '', args: '', workdir: '/other', hostname: 'test', exit_code: 0, metadata: JSON.stringify({ project: 'lens' }) });
+    const result = await client.callTool({ name: 'save_decision', arguments: { project: 'ph', summary: 'bad source', promptIds: [2] } });
+    expect(result.isError).toBe(true);
+    expect(db.searchMemories('ph')).toHaveLength(0);
   });
 });

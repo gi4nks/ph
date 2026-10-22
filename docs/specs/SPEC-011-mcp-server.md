@@ -2,7 +2,7 @@
 
 - **ID**: SPEC-011
 - **Cluster**: MCP
-- **Status**: Implemented (baseline)
+- **Status**: Implemented; adapter decomposition in SPEC-017
 - **Date**: 2026-08-08
 - **Source**: reverse-engineered from code (files listed in §8)
 
@@ -74,9 +74,12 @@ MCP config.
 ## 8. Key implementation map
 | Concern | File(s) |
 |---|---|
-| Server + transport | src/mcp/server.ts:1-30 |
-| Tool registry + handlers | src/mcp/server.ts:30-260 |
-| Memory/summary backends | src/db/index.ts:535-699 |
+| Server composition + transport | src/mcp/server.ts |
+| Tool definitions | src/mcp/tools/definitions.ts |
+| Prompt and project handlers | src/mcp/tools/prompts.ts, src/mcp/tools/projects.ts |
+| Timeline handler | src/mcp/tools/timeline.ts |
+| Response formatting | src/mcp/tools/format.ts |
+| Memory/summary backends | src/db/memory-repository.ts |
 
 ## 9. Open questions / discrepancies
 - Protocol smoke coverage uses the official SDK client with paired in-memory

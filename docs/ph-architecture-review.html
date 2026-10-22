@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PH Architecture Review</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root { color-scheme: light; --ink:#17212b; --muted:#52616d; --line:#d9e1e5; --paper:#f5f7f6; --teal:#087f74; --amber:#a85c05; --rose:#bd3e4b; }
+    body { background:var(--paper); color:var(--ink); font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    h1,h2,h3,h4,.serif { font-family:Georgia,Cambria,"Times New Roman",serif; }
+    .module-box { border:1px solid #a8b8bf; border-radius:1rem; padding:1rem; background:#fff; box-shadow:0 10px 30px #162a3010; }
+    .diagram-arrow { color:#73848c; font-size:1.35rem; line-height:1; }
+    .seam-line { border-top:2px dashed var(--teal); position:relative; }
+    .seam-line:after { content:"SEAM"; position:absolute; right:0; top:-.78rem; padding:0 .45rem; background:white; color:var(--teal); font-size:.65rem; font-weight:800; letter-spacing:.12em; }
+    .mermaid { overflow-x:auto; background:#fff; padding:1.25rem; border:1px solid var(--line); border-radius:1rem; }
+    .evidence { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.8rem; overflow-wrap:anywhere; }
+    .impact td,.impact th { padding:.55rem .65rem; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    @media print { body { background:white; } .module-box,.mermaid { box-shadow:none; break-inside:avoid; } }
+  </style>
+</head>
+<body>
+  <main class="max-w-6xl mx-auto px-5 sm:px-8 py-10 sm:py-16">
+    <header class="border-b border-slate-300 pb-10">
+      <div class="flex flex-wrap gap-3 items-center text-sm text-slate-600">
+        <span class="rounded-full bg-slate-200 px-3 py-1 font-semibold">PH · PROMPT HISTORY</span>
+        <span>Architecture review</span><span>22 October 2026</span>
+        <span class="rounded-full bg-amber-100 text-amber-900 px-3 py-1 font-semibold">Working tree dirty</span>
+      </div>
+      <h1 class="serif text-5xl sm:text-6xl mt-8 leading-tight">A useful core under too many surfaces</h1>
+      <p class="mt-7 text-xl sm:text-2xl font-bold max-w-4xl">Strength: local capture, SQLite storage, and project-scoped retrieval form a coherent foundation with useful seams.</p>
+      <p class="mt-3 text-xl sm:text-2xl font-bold text-rose-800 max-w-4xl">Flaw: PH keeps adding command, transport, and knowledge workflows faster than it proves which ones users need.</p>
+      <div class="flex flex-wrap gap-3 mt-8 text-sm">
+        <span class="rounded-lg bg-slate-800 text-white px-3 py-2">Module</span>
+        <span class="rounded-lg border-2 border-dashed border-teal-700 text-teal-900 px-3 py-2">Seam</span>
+        <span class="rounded-lg border-2 border-dashed border-rose-600 text-rose-800 px-3 py-2">Leakage / unwired</span>
+        <span class="rounded-lg bg-teal-800 text-white px-3 py-2">Deep Module</span>
+      </div>
+      <p class="mt-6 max-w-4xl text-slate-600">This review describes the current working tree, including uncommitted operational-memory changes. It does not treat documentation or a passing test suite as proof of adoption.</p>
+    </header>
+
+    <section class="py-12 border-b border-slate-300">
+      <h2 class="serif text-3xl">Current Posture</h2>
+      <p class="mt-4 max-w-4xl text-slate-700">PH has a strong local-first data path and a meaningful retrieval boundary. Prompt capture remains useful without an LLM; semantic retrieval is optional; user approval gates curated memory writes. In this pass the MCP composition root was reduced to protocol setup, while memory and archive SQL moved behind repositories. The remaining concern is scope: a broad command set still exceeds what the operational workflow has validated.</p>
+      <div class="grid md:grid-cols-3 gap-4 mt-7">
+        <div class="module-box"><div class="text-3xl font-bold">97</div><div class="text-sm text-slate-600 mt-1">TypeScript / TSX source files</div></div>
+        <div class="module-box"><div class="text-3xl font-bold">17</div><div class="text-sm text-slate-600 mt-1">Test files; 94 tests passed in this checkout</div></div>
+        <div class="module-box"><div class="text-3xl font-bold">482 · 50 · 521 · 964</div><div class="text-sm text-slate-600 mt-1">Lines in CLI, MCP composition root, PhDB facade, and BrowseApp respectively</div></div>
+      </div>
+      <div class="mt-6 grid md:grid-cols-2 gap-5 text-sm">
+        <div class="rounded-xl border border-slate-300 bg-white p-5"><h3 class="font-bold text-teal-900">Rules the system respects</h3><ul class="list-disc pl-5 mt-3 space-y-1 text-slate-700"><li>SQLite is the source of truth; Ollama and generative providers are optional.</li><li>Project filters are applied inside semantic retrieval before limiting results.</li><li>Operational `prepare` is read-only; `close` asks for approval before promotion.</li><li>CLI and MCP share task-context retrieval and atomic memory promotion use cases.</li><li>Memory and archive repositories share the existing SQLite connection through the stable PhDB facade.</li></ul></div>
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-5"><h3 class="font-bold text-rose-900">Rules that are not yet proven</h3><ul class="list-disc pl-5 mt-3 space-y-1 text-slate-700"><li>The plan's three real tasks across different projects are not evidenced; it records one temporary-database usage check.</li><li>MCP-only tools still own some search and rendering decisions inside their grouped handler modules.</li><li>Feature breadth spans history capture, analysis, memory, TUI, MCP, import, archive, and remote sync.</li><li>Embedding-backed retrieval quality has not been evaluated in this pass.</li></ul></div>
+      </div>
+      <p class="mt-5 text-sm text-slate-600">Verification observed: <span class="font-semibold">npm test</span> passed (17 files, 94 tests), <span class="font-semibold">npm run lint</span>, <span class="font-semibold">npm run build</span>, and `npx tsc --noEmit` all passed. A separate embedding-backed retrieval evaluation was not run.</p>
+    </section>
+
+    <section class="py-12 border-b border-slate-300">
+      <h2 class="serif text-3xl">Runtime Map</h2>
+      <p class="mt-3 max-w-4xl text-slate-700">Solid teal marks high-leverage modules; dashed red marks broad adapters or duplicated routes where responsibilities leak across boundaries.</p>
+      <div class="mermaid mt-6">
+flowchart LR
+  User[User / agent] --> CLI[CLI dispatch and commands]
+  Hooks[CLI hooks and importers] --> Capture[Capture normalization]
+  CLI --> Capture
+  Capture --> DB[(SQLite / PhDB)]
+  CLI --> Retrieval[Project context retrieval]
+  MCP[MCP protocol composition] --> MCPTools[Grouped prompt, project, timeline handlers]
+  MCPTools --> Retrieval
+  Retrieval --> DB
+  Retrieval --> Embed[Embedding endpoint]
+  Retrieval --> Render[Shared context formatter]
+  Render --> CLI
+  Render --> MCPTools
+  CLI --> Close[Close proposal and approval]
+  Close --> Provider[Analysis provider]
+  Close --> DB
+  MCPTools --> DB
+  DB --> Vec[Semantic index]
+  CLI --> TUI[Ink browser]
+  TUI --> DB
+  CLI --> Remote[HTTP sync client]
+  Remote --> Server[HTTP sync server]
+  Server --> DB
+  classDef deep fill:#075e57,stroke:#064e48,color:#fff,stroke-width:2px;
+  classDef module fill:#e6f4f1,stroke:#0c8276,color:#153b38,stroke-width:1.5px;
+  classDef leak fill:#fff0f1,stroke:#c2414c,color:#762631,stroke-width:2px,stroke-dasharray:6 4;
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b;
+  class Capture,Retrieval,Render,Vec deep;
+  class CLI,Close,TUI,DB,MCP,MCPTools module;
+  class Remote,Server leak;
+  class User,Hooks,Embed,Provider external;
+      </div>
+      <div class="grid md:grid-cols-3 gap-4 mt-5 text-sm">
+        <div class="module-box"><b>Capture Seam</b><p class="mt-2 text-slate-600">`src/capture/index.ts` normalizes direct logging, wrappers, and importers before persistence.</p></div>
+        <div class="module-box"><b>Retrieval Seam</b><p class="mt-2 text-slate-600">`src/knowledge/task-context.ts` shares bounded task retrieval across prepare and MCP; `src/context/index.ts` serves context and chat formatting.</p></div>
+        <div class="module-box border-rose-300"><b>Persistence Leakage</b><p class="mt-2 text-slate-600">The stable `PhDB` facade still exposes a broad prompt API; repository interfaces remain internal and SQLite-specific.</p></div>
+      </div>
+    </section>
+
+    <section class="py-12 border-b border-slate-300">
+      <h2 class="serif text-3xl">Candidates / Opportunities for Deepening</h2>
+      <p class="mt-3 text-slate-700 max-w-4xl">These are targeted reductions in real Leakage. They are not a proposal to replace the stack or split every file.</p>
+
+      <article class="mt-8 rounded-2xl border border-rose-200 bg-white p-6 sm:p-8">
+        <div class="flex flex-wrap justify-between gap-3"><h3 class="serif text-2xl">1. Contain product scope until real-use evidence exists</h3><div class="flex gap-2"><span class="rounded-full bg-teal-100 text-teal-900 px-3 py-1 text-sm font-bold">Implemented as a scope gate</span><span class="rounded-full bg-slate-800 text-white px-3 py-1 text-sm font-bold">P0</span></div></div>
+        <p class="evidence mt-4 text-slate-600">Evidence: `src/cli.ts:46-155` advertises a wide command set; `src/commands/` has 26 handlers; `README.md` describes capture, imports, analysis, memories, TUI, MCP, archive, and remote sync; `ROADMAP.md` now gates new user-facing work on three real tasks across projects.</p>
+        <h4 class="mt-5 font-bold">Problem</h4><p class="text-slate-700">PH now has several overlapping ways to retrieve project knowledge (`context`, `prepare`, chat injection, MCP knowledge checks) plus a separate curation flow. The tool's command count is growing while the core promise—capture useful history and find it again—has no adoption or success measure in the repo. This is product-scope Leakage: every surface needs help, docs, compatibility, and tests.</p>
+        <h4 class="mt-5 font-bold">Solution</h4><p class="text-slate-700">Keep the current commands available, state their distinct jobs, and defer new commands, transports, or knowledge workflows until the `prepare → work → close → promote` loop is used on three real tasks in different projects. The gate is now recorded in `ROADMAP.md`; no existing capability was removed.</p>
+        <div class="grid sm:grid-cols-2 gap-3 mt-5"><div class="module-box border-rose-300"><b>Before · surface area</b><div class="mt-3 flex flex-wrap gap-2 text-xs"><span class="bg-rose-50 p-2 rounded">context</span><span class="bg-rose-50 p-2 rounded">prepare</span><span class="bg-rose-50 p-2 rounded">chat context</span><span class="bg-rose-50 p-2 rounded">MCP check</span><span class="bg-rose-50 p-2 rounded">close</span><span class="bg-rose-50 p-2 rounded">save decision</span></div></div><div class="module-box border-teal-700"><b>After · gated growth</b><div class="mt-3 flex items-center gap-2 text-xs"><span class="bg-teal-50 p-2 rounded">capture</span><span class="diagram-arrow">→</span><span class="bg-teal-50 p-2 rounded">retrieve evidence</span><span class="diagram-arrow">→</span><span class="bg-teal-50 p-2 rounded">curate if useful</span></div><p class="mt-2 text-xs text-teal-900">No new surface until real-use gate.</p></div></div>
+        <div class="seam-line mt-8"></div><p class="mt-4 text-sm text-slate-700"><b>Seam:</b> a user-visible workflow contract that works through CLI and MCP without duplicating domain decisions. <b>Deep Module:</b> the smallest evidence-backed workflow PH can make dependable.</p>
+        <table class="impact w-full mt-4 text-sm"><tr><th>Leverage</th><th>Locality</th><th>Tests</th></tr><tr><td>Less maintenance per feature and clearer product promise.</td><td>Related user actions converge on fewer entry points.</td><td>Add outcome checks for retrieval usefulness and accepted promotions, not just command behavior.</td></tr></table>
+      </article>
+
+      <article class="mt-6 rounded-2xl border border-amber-200 bg-white p-6 sm:p-8">
+        <div class="flex flex-wrap justify-between gap-3"><h3 class="serif text-2xl">2. Give knowledge promotion one atomic persistence operation</h3><div class="flex gap-2"><span class="rounded-full bg-teal-100 text-teal-900 px-3 py-1 text-sm font-bold">Implemented</span><span class="rounded-full bg-slate-800 text-white px-3 py-1 text-sm font-bold">P1</span></div></div>
+        <p class="evidence mt-4 text-slate-600">Evidence: the previous implementation issued two writes per proposal. `PhDB.promoteMemories()` now delegates to the memory repository (`src/db/index.ts:473`); the shared provenance and promotion use case is `src/knowledge/promotion.ts`, used by CLI (`src/commands/close.ts:101`) and MCP (`src/mcp/tools/projects.ts:8,21`). A rollback test covers the transaction in `src/db/__tests__/phdb.test.ts`.</p>
+        <h4 class="mt-5 font-bold">Problem</h4><p class="text-slate-700">Before this review, staged approval did not guarantee atomic persistence. A failed summary update or later proposal could leave a partial result. The fix now places the approved batch in one SQLite transaction; this candidate is addressed in the current working tree.</p>
+        <h4 class="mt-5 font-bold">Solution</h4><p class="text-slate-700">The shared promotion operation accepts the approved proposal batch and writes memories plus aggregate summaries atomically. CLI and MCP use the same operation. Provider generation and interactive review stay outside the transaction; the Seam is the approved proposal batch.</p>
+        <div class="grid sm:grid-cols-2 gap-3 mt-5"><div class="module-box border-rose-300"><b>Before</b><div class="mt-3 flex items-center gap-2 text-xs"><span>insert memory</span><span class="diagram-arrow">→</span><span>update summary</span><span class="diagram-arrow">→</span><span>repeat</span></div><p class="mt-2 text-xs text-rose-800">Failure can leave partial state.</p></div><div class="module-box border-teal-700"><b>After</b><div class="mt-3 rounded-lg bg-teal-50 p-3 text-xs">Approved batch <span class="diagram-arrow">→</span> single DB transaction <span class="diagram-arrow">→</span> consistent memories + summaries</div></div></div>
+        <div class="seam-line mt-8"></div><p class="mt-4 text-sm text-slate-700"><b>Seam:</b> transport-independent promotion input. <b>Deep Module:</b> persistence owns consistency and exposes one operation with a simple result.</p>
+        <table class="impact w-full mt-4 text-sm"><tr><th>Leverage</th><th>Locality</th><th>Tests</th></tr><tr><td>Both CLI and MCP get the same all-or-nothing guarantee.</td><td>Memory and summary consistency live beside database writes.</td><td>Inject a failure midway and assert neither side changed.</td></tr></table>
+      </article>
+
+      <article class="mt-6 rounded-2xl border border-amber-200 bg-white p-6 sm:p-8">
+        <div class="flex flex-wrap justify-between gap-3"><h3 class="serif text-2xl">3. Thin the MCP composition root and share cross-transport work</h3><div class="flex gap-2"><span class="rounded-full bg-teal-100 text-teal-900 px-3 py-1 text-sm font-bold">Implemented; handlers remain adapters</span><span class="rounded-full bg-slate-800 text-white px-3 py-1 text-sm font-bold">P1</span></div></div>
+        <p class="evidence mt-4 text-slate-600">Evidence: `src/mcp/server.ts` is now 50 lines. Tool definitions live in `src/mcp/tools/definitions.ts`; prompt, project, and timeline handlers are grouped in `src/mcp/tools/`; formatting is isolated in `format.ts`. `src/knowledge/{task-context,promotion}.ts` centralize shared retrieval and persistence.</p>
+        <h4 class="mt-5 font-bold">Problem</h4><p class="text-slate-700">The original server mixed protocol registration, all handlers, retrieval policy, writes, and formatting. The composition root is now small and tool code is local by domain. Some MCP-only search, timeline, and output behavior remains in adapter modules, so the transport boundary is improved but not fully domain-neutral.</p>
+        <h4 class="mt-5 font-bold">Solution</h4><p class="text-slate-700">The composition root now owns MCP SDK registration, handler dispatch, and error envelopes. Shared task-context retrieval and memory promotion live under `src/knowledge/` and are called by CLI and MCP. Tool-specific protocols and renderers remain grouped under `src/mcp/tools/`; further extraction should wait for another consumer.</p>
+        <div class="grid sm:grid-cols-2 gap-3 mt-5"><div class="module-box border-rose-300"><b>Before</b><div class="mt-3 text-xs space-y-2"><div class="rounded bg-rose-50 p-2">MCP root owns tool declarations, queries, fallback, and formatting</div><div class="rounded bg-rose-50 p-2">MCP root validates sources and performs persistence</div></div></div><div class="module-box border-teal-700"><b>After</b><div class="mt-3 text-xs space-y-2"><div class="rounded bg-teal-50 p-2">MCP root → grouped tool handlers → shared task-context use case</div><div class="rounded bg-teal-50 p-2">CLI / MCP → shared promotion use case → PhDB facade</div></div></div></div>
+        <div class="seam-line mt-8"></div><p class="mt-4 text-sm text-slate-700"><b>Seam:</b> transport-neutral application operations. <b>Deep Module:</b> reusable project knowledge behavior with a compact input/output contract.</p>
+        <table class="impact w-full mt-4 text-sm"><tr><th>Leverage</th><th>Locality</th><th>Tests</th></tr><tr><td>New transports reuse product behavior instead of cloning it.</td><td>Protocol concerns stop interleaving with retrieval and writes.</td><td>Use-case tests avoid MCP protocol setup; adapter tests focus on schemas and errors.</td></tr></table>
+      </article>
+
+      <article class="mt-6 rounded-2xl border border-amber-200 bg-white p-6 sm:p-8">
+        <div class="flex flex-wrap justify-between gap-3"><h3 class="serif text-2xl">4. Split cohesive persistence behind the PhDB facade</h3><div class="flex gap-2"><span class="rounded-full bg-teal-100 text-teal-900 px-3 py-1 text-sm font-bold">Implemented for memory and archive</span><span class="rounded-full bg-slate-800 text-white px-3 py-1 text-sm font-bold">P2</span></div></div>
+        <p class="evidence mt-4 text-slate-600">Evidence: `src/db/index.ts` is now a 521-line public facade with prompt CRUD, FTS, migrations, and query forwarding. Memory and summary persistence moved to `src/db/memory-repository.ts`; archive persistence moved to `src/db/archive-repository.ts`; vectors remain in `src/db/semantic-index.ts`.</p>
+        <h4 class="mt-5 font-bold">Problem</h4><p class="text-slate-700">PhDB previously owned SQL for prompt CRUD, FTS, archives, memories, and summaries in one implementation. Memory and archive SQL now live in cohesive repositories over the same connection. The facade deliberately retains source compatibility; prompt CRUD and FTS remain one group.</p>
+        <h4 class="mt-5 font-bold">Solution</h4><p class="text-slate-700">The extraction keeps prompt CRUD/FTS in the facade and moves memory/summary and archive SQL behind internal repositories. All repositories share one SQLite connection; `PhDB` method names and return values stay stable. Avoid widening the repository abstraction until a second adapter needs it.</p>
+        <div class="grid sm:grid-cols-2 gap-3 mt-5"><div class="module-box border-rose-300"><b>Before</b><div class="mt-3 flex flex-wrap gap-2 text-xs"><span class="bg-rose-50 rounded p-2">PhDB: prompt</span><span class="bg-rose-50 rounded p-2">memory</span><span class="bg-rose-50 rounded p-2">summary</span><span class="bg-rose-50 rounded p-2">archive</span><span class="bg-rose-50 rounded p-2">migrations</span></div></div><div class="module-box border-teal-700"><b>After</b><div class="mt-3 flex items-center gap-2 text-xs"><span class="bg-teal-50 rounded p-2">PhDB prompt facade</span><span class="diagram-arrow">→</span><span class="border-2 border-dashed border-teal-700 rounded p-2">MemoryRepository<br>ArchiveRepository</span><span class="diagram-arrow">→</span><span class="bg-teal-50 rounded p-2">shared SQLite</span></div></div></div>
+        <div class="seam-line mt-8"></div><p class="mt-4 text-sm text-slate-700"><b>Seam:</b> existing PhDB-to-SQLite boundary, narrowed around use cases. <b>Deep Module:</b> a repository operation that hides SQL and guarantees its domain invariant.</p>
+        <table class="impact w-full mt-4 text-sm"><tr><th>Leverage</th><th>Locality</th><th>Tests</th></tr><tr><td>Changes to archive or memory behavior affect fewer consumers.</td><td>Each persistence concern owns its schema/query details.</td><td>Test repository invariants against temporary SQLite; use-case tests use a small contract.</td></tr></table>
+      </article>
+    </section>
+
+    <section class="py-12 border-b border-slate-300">
+      <h2 class="serif text-3xl">Top Recommendation</h2>
+      <div class="mt-5 rounded-2xl bg-slate-900 text-white p-6 sm:p-8">
+        <p class="text-teal-200 text-sm uppercase tracking-widest font-bold">First move · validate the operational workflow</p>
+        <h3 class="serif text-3xl mt-3">Do not add another memory feature yet</h3>
+        <p class="mt-4 max-w-4xl text-slate-200">Three structural actions are now in place: a product-scope gate, transport-neutral task-context and promotion operations with grouped MCP modules, and internal memory/archive repositories behind the unchanged PhDB API. Keep `prepare` as a read-only experiment. The remaining product test is three real tasks on different projects; record whether the brief prevented repeated work before adding more features.</p>
+        <p class="mt-4 max-w-4xl text-slate-200">Why this comes first: the biggest risk is not that PH lacks another abstraction. It is that summaries, memories, and tool-specific retrieval behavior drift while product value remains unmeasured. A transaction seam protects data now; a usage gate protects the project from building maintenance around an unproven loop.</p>
+      </div>
+    </section>
+
+    <section class="py-12 border-b border-slate-300">
+      <h2 class="serif text-3xl">Usage Modes</h2>
+      <div class="grid md:grid-cols-2 gap-4 mt-6">
+        <div class="module-box"><h3 class="font-bold">Capture and import history</h3><p class="mt-2 text-sm text-slate-600">Direct logging, wrappers, hooks, and importers normalize into prompt records.</p><p class="evidence mt-3">`src/capture/index.ts`, `src/importer/`, `src/commands/log.ts`, `hooks/`</p></div>
+        <div class="module-box"><h3 class="font-bold">Search local prompt history</h3><p class="mt-2 text-sm text-slate-600">SQLite FTS supports text search; sqlite-vec adds optional semantic search.</p><p class="evidence mt-3">`src/commands/search.ts`, `src/db/index.ts:246-345`, `src/db/semantic-index.ts`</p></div>
+        <div class="module-box"><h3 class="font-bold">Browse and curate records</h3><p class="mt-2 text-sm text-slate-600">The Ink interface filters, previews, edits metadata, exports, and reruns prompts.</p><p class="evidence mt-3">`src/ui/BrowseApp.tsx`, `src/ui/FilterPanel.tsx`, `src/ui/PreviewPane.tsx`</p></div>
+        <div class="module-box"><h3 class="font-bold">Expose history and project context to agents</h3><p class="mt-2 text-sm text-slate-600">MCP serves prompt queries and project knowledge; project tools call shared task-context retrieval and promotion use cases.</p><p class="evidence mt-3">`src/mcp/server.ts`, `src/mcp/tools/`, `src/knowledge/`</p></div>
+        <div class="module-box"><h3 class="font-bold">Prepare and promote operational knowledge</h3><p class="mt-2 text-sm text-slate-600">`prepare` retrieves a bounded brief; `close` proposes curated memory after provider analysis and user approval. Implemented in the current dirty tree; three-project real-use validation remains outstanding.</p><p class="evidence mt-3">`src/commands/prepare.ts`, `src/commands/close.ts`, `docs/specs/SPEC-016-operational-memory.md`</p></div>
+        <div class="module-box"><h3 class="font-bold">Synchronize with a remote PH server</h3><p class="mt-2 text-sm text-slate-600">An optional HTTP service supports prompt push/pull and memory lookups. It adds a second deployment and security surface.</p><p class="evidence mt-3">`src/server/index.ts`, `src/commands/remote.ts`</p></div>
+      </div>
+      <div class="mt-8 grid md:grid-cols-2 gap-4">
+        <div class="rounded-xl bg-teal-50 border border-teal-300 p-5"><h3 class="font-bold text-teal-950">Ready for...</h3><p class="mt-2 text-sm text-slate-700">Local prompt capture, search, browsing, and opt-in agent access to a user's own project history. The operational-memory commands are implemented and pass their current automated suite.</p></div>
+        <div class="rounded-xl bg-rose-50 border border-rose-300 p-5"><h3 class="font-bold text-rose-950">Still requires integration...</h3><p class="mt-2 text-sm text-slate-700">Evidence that the prepare/close loop improves real tasks; retrieval evaluation against the configured embedding model; and a coherent support boundary for the many transports and commands.</p></div>
+      </div>
+    </section>
+
+    <footer class="pt-8 text-sm text-slate-600 flex flex-wrap justify-between gap-3">
+      <span>PH Architecture Review · Based on the working tree at review time</span>
+      <span>Created: 2026-10-22 · Updated: 2026-10-22</span>
+    </footer>
+  </main>
+  <script>mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'strict'});</script>
+</body>
+</html>

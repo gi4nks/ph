@@ -2,7 +2,7 @@
 
 - **ID**: SPEC-002
 - **Cluster**: DB
-- **Status**: Implemented (baseline)
+- **Status**: Implemented; internal repository extraction in SPEC-017
 - **Date**: 2026-08-08
 - **Source**: reverse-engineered from code (files listed in §8)
 
@@ -83,8 +83,9 @@ None — library layer consumed by commands, TUI, MCP and HTTP server.
 |---|---|
 | Schema + migrations | src/db/index.ts:47-196 |
 | CRUD + search + sync primitives | src/db/index.ts:198-531 |
-| Memories + summaries | src/db/index.ts:535-720 |
-| Archive | src/db/index.ts:464-518 |
+| Memory and summary persistence | src/db/memory-repository.ts |
+| Archive persistence | src/db/archive-repository.ts |
+| Public facade and migrations | src/db/index.ts |
 | Semantic vector index | src/db/semantic-index.ts |
 | Types | src/types.ts:1-52 |
 
@@ -96,6 +97,12 @@ None — library layer consumed by commands, TUI, MCP and HTTP server.
   methods as the adapter. Scope behavior has an integration test. Keep unrelated
   CRUD/memory/archive methods together until a second adapter or concrete
   independent migration/testing seam justifies further division.
+- **Architecture decision (2026-10-22, SPEC-017)**: the atomic memory-promotion
+  operation now justifies internal responsibility seams. Keep prompt CRUD, FTS,
+  schema, and migrations together in `PhDB`; move memory/summary and archive
+  operations into internal repositories sharing its connection. Keep `PhDB`
+  source-compatible, preserve the single transaction boundary, and do not
+  change the schema.
 - `response` column via ALTER (SPEC-ISSUES-001).
 - `memories.prompt_ids` possibly unused after summaries (SPEC-ISSUES-014).
 - `delete` (427) and `deleteById` (435) coexist — duplicate deletion paths.

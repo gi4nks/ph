@@ -100,9 +100,23 @@ ph context "How are database migrations handled?"
 
 # Limit the output to project summaries and memories
 ph context --memories-only --project ph
+
+# Prepare a task brief with relevant history (read-only)
+ph prepare "add Wise provider" --limit 5 --budget 3500
+
+# Review recent work and explicitly promote useful knowledge
+ph close --since 3h
+ph close --from 1670 --to 1682 --dry-run
 ```
 
-`ph context`, `ph chat`, and MCP project-context tools use shared retrieval and formatting. Semantic results are scoped to the requested project before the result limit is applied.
+`ph context`, `ph prepare`, `ph chat`, and MCP project-context tools use shared retrieval and formatting. `prepare` is read-only, prints prompt and memory provenance, and falls back to recent project context if Ollama embeddings are unavailable. `close` reviews selected prompt/response pairs, asks the configured analysis provider for durable knowledge proposals, and requires an interactive terminal before the provider call. Accepted proposals retain their source prompt IDs and are written with summary updates in one atomic database transaction. Semantic results are scoped to the requested project before the result limit is applied.
+
+These entry points have different jobs: `context` explores saved project
+knowledge on demand, `prepare` retrieves evidence for one task, `chat` injects
+recent project context into a wrapped tool invocation, and MCP makes history
+available to configured agents. New user-facing workflows are deferred until
+the operational loop has been used on three real tasks across different
+projects.
 
 ## Project memory and analysis
 
