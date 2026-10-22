@@ -61,6 +61,7 @@ export interface FormatProjectContextOptions {
   promptExcerptLength?: number;
   responseExcerptLength?: number;
   emptyMessage?: string;
+  maxChars?: number;
 }
 
 /** Render retrieved evidence as stable Markdown for terminal and agent consumers. */
@@ -88,6 +89,7 @@ export function formatProjectContext(
       for (const memory of memories) {
         parts.push(`### Memory #${memory.id}`);
         if (memory.summary) parts.push(`${memory.summary}\n`);
+        parts.push(memory.prompt_ids.length ? `Sources: ${memory.prompt_ids.map(id => `#${id}`).join(', ')}` : 'Sources: none recorded');
         if (memory.key_insights.length) {
           parts.push('Key Insights:');
           for (const insight of memory.key_insights) parts.push(`  - ${insight}`);
@@ -103,7 +105,7 @@ export function formatProjectContext(
     if (summary && memories.length > 0) {
       parts.push('Recent Memory Entries:');
       for (const memory of memories) {
-        if (memory.summary) parts.push(`  - [memory #${memory.id}] ${memory.summary}`);
+        if (memory.summary) parts.push(`  - [memory #${memory.id}; prompts ${memory.prompt_ids.length ? memory.prompt_ids.map(id => `#${id}`).join(', ') : 'none recorded'}] ${memory.summary}`);
       }
       parts.push('');
     }
@@ -141,5 +143,17 @@ export function formatProjectContext(
   }
 
   if (parts.length === 0) return options.emptyMessage ?? `No relevant context found for project "${project}".`;
-  return parts.join('\n').trimEnd();
+  const rendered = parts.join('\n').trimEnd();
+  if (!options.maxChars || rendered.length <= options.maxChars) return rendered;
+
+  const sources = new Set<string>();
+  for (const memory of memories) {
+    if (memory.prompt_ids.length) sources.add(`memory #${memory.id} ← prompts ${memory.prompt_ids.map(id => `#${id}`).join(', ')}`);
+    else sources.add(`memory #${memory.id} (no prompt source recorded)`);
+  }
+  for (const prompt of prompts) sources.add(`prompt #${prompt.id} (${prompt.tool}, ${prompt.timestamp})`);
+  const sourceBlock = `\n\nSources:\n${[...sources].map(source => `- ${source}`).join('\n')}`;
+  const budget = Math.max(0, options.maxChars - sourceBlock.length - 40);
+  const prefix = rendered.slice(0, budget).trimEnd();
+  return `${prefix}${prefix ? '\n\n' : ''}[Context truncated; source references are preserved]${sourceBlock}`;
 }
