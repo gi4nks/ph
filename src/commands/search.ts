@@ -6,7 +6,9 @@ import { printResults } from '../display/print.js';
 import { parseFlags, parseDate } from './_utils.js';
 
 export async function cmdSearch(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
-  const { flags, positional } = parseFlags(args);
+  const interactive = args.includes('-i') || args.includes('--interactive');
+  const { flags, positional } = parseFlags(args.filter(arg => arg !== '-i' && arg !== '--interactive'));
+  if (interactive) process.stderr.write('ph search -i now prints plain-text results; the interactive browser has been removed.\n');
   const query = positional.join(' ');
 
   if (flags['archive']) {

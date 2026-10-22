@@ -3,15 +3,15 @@
 ## Session Progress
 
 ### Goal
-Operational memory workflow: task preflight, explicit end-of-task knowledge promotion, and shared retrieval for CLI/MCP.
+Keep PH simple to use: capture AI CLI work, find it with plain-text search, retrieve project context through one command, and review durable knowledge only when useful. The default invocation must never start an interactive UI.
 
 ### Completed
 - **Phase 0**: `cli.ts` ~1500→~80 lines; 19 command handlers → `src/commands/*.ts`
 - **Phase 1 (original)**: `sqlite-vec` integrated, `vec_embeddings` + `memories` tables, auto-migration from old BLOB embeddings
 - **Phase 2.1–2.3**: `ANALYSIS_PROMPT` requests `summary`/`key_insights`/`technical_decisions`; `analyzeAll`/`_bg-analyze` populate `memories` (append-only); shared `ph context` retrieval returns project summaries + memories + prompts as Markdown
 - **Phase 3.2**: MCP tools `search_project_memory`, `get_project_context`, `get_project_summary`
-- **Phase 4.2–4.3**: `C` (Shift+C) in TUI launches tool with project context; `ph chat <tool> <prompt>` injects RAG context
-- **TUI**: FilterPanel redesigned (flat list, counts `[N]`, Enter toggle, letter-jump); `ListEntry` role-colored bar `│`, summary line, analysis indicator `●/○`, Q/R badges; `SearchBar` always visible; `Footer` context-sensitive hints; session separators `╌╌ date ╌╌`
+- **Context integration**: `ph chat <tool> <prompt>` injects project context; the legacy TUI shortcut was retired in 2026-10-22
+- **Legacy UI (retired 2026-10-22)**: the Ink/React history browser and its keybindings were removed; use the plain-text CLI.
 - **Memory**: `upsertProjectMemory` is append-only → full timeline per project
 - **Memory merging**: `upsertProjectSummary()` merges new analysis into existing project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
 - **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
@@ -20,7 +20,7 @@ Operational memory workflow: task preflight, explicit end-of-task knowledge prom
 - **OpenCode plugin**: `hooks/opencode/ph-plugin.ts` — real-time capture via OpenCode plugin hooks (`chat.message` + `experimental.text.complete`). Pairs user prompts with streamed assistant responses, calls `ph log` in background. Install script at `hooks/opencode/install.sh`.
 - **MCP prompt history tools**: `search_prompts`, `get_prompt`, `search_prompts_semantic` added to `src/mcp/server.ts` — full-text search, by-ID lookup, and vector search over raw prompt history
 - **Shared project context**: `src/context/index.ts` centralizes summary, memory, and prompt retrieval plus Markdown rendering for `ph context`, `ph chat`, and MCP `get_project_context`; semantic queries are scoped in the database before the result limit. Focused context and nearest-neighbor scope tests added.
-- **Capture and TUI seams**: `src/capture/index.ts` normalizes records from direct log, wrappers, and history importers; `src/ui/filtering.ts` owns pure filter policy/counts and `src/ui/FilterPanel.tsx` owns its Ink interaction.
+- **Capture seam**: `src/capture/index.ts` normalizes records from direct log, wrappers, and history importers.
 - **HTTP server (`ph server`)**: `src/server/index.ts` — lightweight REST API using Node `http` module (no deps). Endpoints: `/health`, `/api/prompts/search`, `/api/prompts/by-id`, `/api/prompts/semantic`, `/api/sync/push`, `/api/sync/pull`, `/api/memories/search`, `/api/memories/summary`, `/api/stats`. CORS enabled. Configurable port/host via `--port`/`--host`.
 - **Remote sync (`ph remote`)**: `src/commands/remote.ts` — `push` (sends unsynced local prompts to remote by timestamp), `pull` (fetches remote prompts since last pull, dedup by `sync_hash`), `status` (shows sync state). Dedup via sha256 of `tool|prompt|response` stored in metadata as `sync_hash`.
 - **Background push on log**: `src/commands/log.ts` — after each `ph log`, fire-and-forget push to remote if configured (no blocking).
@@ -33,7 +33,8 @@ Operational memory workflow: task preflight, explicit end-of-task knowledge prom
 - **Timeline CLI**: `ph timeline <project>` — full chronological project history with prompts, analysis, memories interleaved in markdown. Added `getAllPromptsByProject()` and `getAllMemoriesByProject()` to PhDB with ascending order queries.
 - **MCP `get_project_timeline`**: Returns full project timeline (prompts + memories in chronological order) via stdio. Auto-discovered by any MCP client.
 - **MCP `check_project_knowledge`**: AI agents call this before implementing a feature. Searches memories (keyword match) + semantic prompt search for previous implementations, discussions, and technical decisions. Returns "found" or "new work" recommendation.
-- **Operational memory workflow (2026-10-10)**: `ph prepare` builds a read-only task brief through shared retrieval with provenance and bounded excerpts; `ph close` reviews selected prompts, proposes durable knowledge, and requires interactive approval before saving memories and updating summaries. MCP uses the same context boundary and validates prompt provenance on `save_decision`.
+- **Operational memory workflow (2026-10-10; simplified 2026-10-22)**: task-aware `ph context` builds a read-only brief through shared retrieval with provenance and bounded excerpts (`ph prepare` is a compatibility alias); `ph close` reviews selected prompts, proposes durable knowledge, and requires interactive approval before saving memories and updating summaries. MCP uses the same context boundary and validates prompt provenance on `save_decision`.
+- **Product simplification (2026-10-22)**: `ph` prints a short command guide; task-aware retrieval is unified under `ph context`; `ph close` defaults to the last three hours. The Ink/React browser was removed. Advanced maintenance and integration commands remain available through `ph help --all`.
 
 ### Evolution Plan (`docs/superpowers/specs/2026-06-12-ph-evolution-design.md`)
 - **Phase 1 (complete)**: `project_summaries`, summary merge and deduplication, `ph memory-migrate`, analysis writes to memories and summaries, MCP summary access, and `save_decision` persistence.
@@ -43,13 +44,13 @@ Operational memory workflow: task preflight, explicit end-of-task knowledge prom
 - Task 2.4 (Git state tracking) remains deferred.
 
 ### Known Issues
-- ~~5 pre-existing lint issues (3 React lint in `BrowseApp`/`PreviewPane`, 2 `any` in `mcp/server.ts`)~~ — lint fixed on 2026-08-08 (ESLint 9 + @eslint/js, no errors or warnings)
+- Removed the unused interactive browser and React/Ink dependencies on 2026-10-22; the command-line path is now plain text.
 - Verification after retrieval, TUI, capture, importer, MCP, PTY, and SemanticIndex changes: 85 Vitest tests across 15 files; ESLint, TypeScript check, and build pass (2026-10-09).
-- Additional verification: maintainer-judged retrieval dataset and model-backed runner; MCP protocol smoke test; Claude/Gemini/OpenCode/Codex importer fixtures; filter transition and Ink browser PTY smoke test; PTY response cleanup tests. Run `npm run eval:retrieval` when configured Ollama returns 768-dimensional embeddings.
+  - Additional verification: maintainer-judged retrieval dataset and model-backed runner; MCP protocol smoke test; Claude/Gemini/OpenCode/Codex importer fixtures; PTY response cleanup tests. Run `npm run eval:retrieval` when configured Ollama returns 768-dimensional embeddings.
 
 ## Project Overview
 
-**`ph`** (Prompt History & Analysis) is a transparent observability layer for AI CLI tools (Claude Code, Codex CLI, Gemini CLI, OpenCode, etc.). It automatically records every prompt+response into a local SQLite database with full-text search, semantic vector search, LLM-based analysis (role/tag/relevance classification), Git context snapshots, session grouping, and an interactive TUI browser.
+**`ph`** (Prompt History & Analysis) is a local history and project-context tool for AI CLI work (Claude Code, Codex CLI, Gemini CLI, OpenCode, etc.). It captures interactions through native hooks or wrapper mode, stores them in SQLite, and provides plain-text search and project-context retrieval.
 
 Three modes of capture:
 - **Wrapper mode**: `ph claude "explain goroutines"` — wraps a CLI tool transparently
@@ -60,7 +61,7 @@ Three modes of capture:
 
 ```
 src/
-  cli.ts              # Entry point (~80 lines) — switch dispatch to command modules
+  cli.ts              # Entry point — concise help and manual command dispatch
   types.ts            # Core interfaces (PromptEntry, PromptMetadata, SearchOptions, MemoryEntry)
   commands/
     _utils.ts         # Shared helpers: parseFlags(), parseDate()
@@ -126,14 +127,6 @@ src/
     index.ts          # Session grouping + cohesion scoring
   stats/
     index.ts          # Statistics computation
-  ui/
-    BrowseApp.tsx     # Main TUI application (React/Ink)
-    Footer.tsx        # TUI footer
-    Header.tsx        # TUI header
-    ListEntry.tsx     # Entry list component
-    PreviewPane.tsx   # Detail/preview pane
-    SearchBar.tsx     # Search bar
-    themes.ts         # Color themes
   utils/
     extractTopic.ts   # Title extraction from prompt text
 hooks/
@@ -154,45 +147,26 @@ dist/                 # Build output (gitignored)
 | Build | `tsup` 8.5 — `src/cli.ts` → `dist/cli.js` |
 | DB | SQLite via `better-sqlite3` 12.8 (WAL mode, FTS5) |
 | Vector | `sqlite-vec` 0.1 (native `vec0`, 768-dim) |
-| TUI | `ink` 7.0 + `react` 19.2 |
 | PTY | `@lydell/node-pty` 1.2 (local typings shim, `src/pty/node-pty.d.ts`) |
 | MCP | `@modelcontextprotocol/sdk` 1.29 |
 | Validation | `zod` 4.3 |
-| Linting | ESLint 9 + TypeScript + React (`@eslint/js` in devDeps) |
+| Linting | ESLint 9 + TypeScript (`@eslint/js` in devDeps) |
 | Testing | `vitest` 4.1 — 85 tests / 15 files |
 | Release | `semantic-release` 25 (conventional commits) |
 | Dev Runner | `tsx` 4.21 |
 
-## Commands
+## Everyday Commands
 
 | Command | Function |
 |---------|----------|
-| (no args) | Open interactive TUI browser |
-| `<tool>` | Wrapper mode — run tool + capture |
-| `search` | Full-text or semantic search |
-| `context` | RAG context for current project |
-| `last` | Show last N prompts |
-| `sessions` | Group prompts into work sessions |
-| `stats` | History statistics |
-| `cluster` | K-means clustering on embeddings |
-| `analyze` | LLM analysis of untagged prompts |
-| `analyze-reusability` | Reusability scoring |
-| `cleanup-reusability` | Cleanup by reusability score |
-| `star` | Toggle bookmark |
-| `export` | Export prompt (txt/json/md) |
-| `import` | Import from Gemini/Claude/OpenCode/Codex history (`--analyze` runs inline LLM analysis) |
-| `log` | Log prompt+response (used by hooks) |
-| `embed-all` | Generate embeddings for all prompts |
-| `cleanup` | Rule-based cleanup (length/age) |
-| `vacuum` | Compact SQLite database |
-| `config` | Get/set config values |
-| `mcp` | Start MCP stdio server |
-| `server` | Start HTTP REST server (`--port`, `--host`) |
-| `remote` | Sync with remote ph server: `push`, `pull`, `status` |
-| `ollama-models` | List Ollama models |
-| `models` | Discover OpenRouter or MLX-Serve model IDs |
-| `chat` | Context-injected tool wrapper |
-| `_bg-analyze` | Internal: background analysis worker |
+| `<tool>` | Run an AI CLI tool and capture the interaction |
+| `search` | Find earlier work with plain-text or semantic search |
+| `context [task]` | Retrieve project knowledge and relevant interactions |
+| `close [--since 3h]` | Review recent work and approve durable knowledge |
+
+`prepare` remains a compatibility alias for task-aware `context`. Maintenance,
+import, MCP, and sync commands are available with `ph help --all` and are not
+part of the everyday workflow.
 
 ## Database Schema (SQLite at `~/.prompt_history.db`)
 
@@ -311,38 +285,6 @@ ph config set background-analysis true
 
 After each `ph log ...` command or hook invocation, background analysis runs and appends project memory entries.
 
-## TUI Keybindings
-
-| Key | Action |
-|-----|--------|
-| `↑↓` / `PgUp` `PgDn` | Navigate list |
-| `Tab` | Switch pane (wide mode) |
-| `1` `2` `3` | Switch prompt/response/memory tab |
-| `y` | Copy to clipboard |
-| `s` | Toggle star |
-| `e` | Edit metadata |
-| `r` | Rerun prompt (edit before launch) |
-| `C` (Shift) | Chat mode: launch tool with project context injected |
-| `x` | Delete entry |
-| `/` | Search |
-| `o` | Settings panel (toggle auto-analysis, view config) |
-| `f` | Filter panel (flat list with counts, Enter toggle, letter jump) |
-| `c` | Clear all filters |
-| `q` / `ESC` | Quit / back |
-
-## TUI Components
-
-| Component | File | Features |
-|-----------|------|----------|
-| `BrowseApp` | `src/ui/BrowseApp.tsx` | Main app, list+detail views, filter panel, session separators (`╌╌ date ╌╌`) |
-| `ListEntry` | `src/ui/ListEntry.tsx` | Role-colored bar `│`, analysis indicator `●/○`, star, Q/R badges, optional summary line |
-| `PreviewPane` | `src/ui/PreviewPane.tsx` | Three tabs (prompt/response/memory). Memory tab shows project-level knowledge from `memories` table |
-| `SearchBar` | `src/ui/SearchBar.tsx` | Always visible spotlight bar, activates on `/` |
-| `Footer` | `src/ui/Footer.tsx` | Context-sensitive hints (shows `C:chat` only when entry has project, `Tab:pane` only in wide mode) |
-| `FilterPanel` | `src/ui/BrowseApp.tsx` | Flat scrollable list of all filter options with counts `[N]`, toggle with Enter, jump to category by letter |
-| `SettingsView` | `src/ui/BrowseApp.tsx` | Config viewer/editor (toggle auto-analysis, view/edit ollama URL, model, filters) |
-| `DetailView` | `src/ui/BrowseApp.tsx` | Full-screen detail (narrow mode), same three tabs as PreviewPane |
-
 ## Key Architecture Patterns
 
 - **ESM only**: all imports use `.js` extension
@@ -359,7 +301,6 @@ After each `ph log ...` command or hook invocation, background analysis runs and
 - **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
 - **MCP summary fallback**: `search_project_memory` returns `project_summaries` content when semantic search yields no results
 - **Search archive**: `ph search --archive` queries the `prompts_archive` table
-- **TUI archive count**: Header shows `N prompts (M archived)` when archive has entries
 - **MCP server**: exposes `search_project_memory`, `get_project_context` (with memories), `get_project_summary` tools
 - **Hooks**: shell scripts in `hooks/<tool>/ph-hook.sh`, invoked by AI CLI tools, pipe JSON to `ph log`
 - **OpenCode importer**: reads from the SQLite DB at `~/.local/share/opencode/opencode.db` — queries `session`, `message`, and `part` tables; assistant messages link to user via `parentID` in `message.data` JSON
@@ -372,7 +313,7 @@ After each `ph log ...` command or hook invocation, background analysis runs and
 
 ## Important Files for Quick Reference
 
-- `src/cli.ts` — main entry (~80 lines), switch dispatch
+- `src/cli.ts` — main entry, short help and manual command dispatch
 - `src/commands/` — all command modules
 - `src/commands/chat.ts` — context-injected tool wrapper
 - `src/db/index.ts` — PhDB class, all SQL + memory operations
@@ -402,9 +343,9 @@ After each `ph log ...` command or hook invocation, background analysis runs and
   the HTTP server, and sync are existing features rather than proposed targets.
 - When behavior changes, update the relevant specification (status and GWT)
   and SPEC-ISSUES. Mark an issue fixed with the date when its fix is complete.
-- GWT criteria → Vitest: 85 tests in `src/**/__tests__/` (DB/search/memory/
-  archive/sync dedup, filter, analyzer parse/merge, sessions, config, context,
-  normalized capture, TUI filter policy/transitions, import formats, MCP tool
+- GWT criteria → Vitest: tests in `src/**/__tests__/` (DB/search/memory/
+  archive/sync dedup, analyzer parse/merge, sessions, config, context,
+  normalized capture, import formats, MCP tool
   call, PTY response cleanup, deterministic retrieval regression).
 
 ## Change Log
@@ -424,3 +365,5 @@ After each `ph log ...` command or hook invocation, background analysis runs and
 | 2026-10-10 | Added operational memory loop: read-only task `prepare`, human-approved/editable `close` proposals with prompt provenance, shared MCP retrieval and validated `save_decision` sources; expanded offline golden retrieval contract across five projects | TypeScript, SQLite, MCP, Vitest | `src/{commands/{prepare,close}.ts,context/index.ts,mcp/server.ts,cli.ts}`, `docs/{evals,plans}/`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-22 | Hardened memory promotion: approved batches and summary updates now commit atomically; `ph close` checks TTY before provider calls | TypeScript, SQLite, Vitest | `src/db/index.ts`, `src/commands/close.ts`, `src/mcp/server.ts`, `src/db/__tests__/phdb.test.ts`, `docs/specs/SPEC-016-operational-memory.md` |
 | 2026-10-22 | Consolidated PH architecture: scoped feature growth pending three real workflow uses; MCP composition reduced to protocol wiring with domain-grouped handlers and shared task-context/promotion use cases; memory and archive SQL extracted behind the source-compatible PhDB facade | TypeScript, SQLite, MCP, Vitest | `src/knowledge/`, `src/mcp/`, `src/db/{memory,archive}-repository.ts`, `docs/specs/SPEC-017-architecture-consolidation.md`, `ROADMAP.md` |
+| 2026-10-22 | Initial workspace experiment; superseded later the same day by a plain-text CLI and removal of the TUI | TypeScript, Ink, SQLite, Vitest | `src/ui/WorkHome.tsx` (removed), `src/cli.ts`, `README.md`, `CLAUDE.md`, `docs/ph-architecture-review.html` |
+| 2026-10-22 | Simplified PH to a plain-text daily workflow; removed the Ink/React browser and dependencies, unified task retrieval under `context`, and made `close` default to three hours | TypeScript, SQLite | `src/cli.ts`, `src/commands/{context,close,search}.ts`, `src/ui/`, `package.json`, `README.md`, `docs/` |

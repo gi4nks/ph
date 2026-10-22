@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PhDB } from '../../db/index.js';
 import { cmdClose } from '../close.js';
-import { cmdPrepare } from '../prepare.js';
+import { cmdContext } from '../context.js';
 
 describe('operational memory commands', () => {
   let dir: string;
@@ -22,14 +22,15 @@ describe('operational memory commands', () => {
     db.insert({ timestamp: new Date().toISOString(), tool: 'codex', prompt: 'Fix project cache timeout', response: 'Set a finite SQLite busy timeout.', args: '', workdir: dir, hostname: 'test', exit_code: 0, metadata: JSON.stringify({ project: 'ph', summary: 'Cache fix' }) });
   }
 
-  it('prepare falls back to recent project evidence and does not write', async () => {
+  it('context uses the task retrieval path and labels its recent-history fallback', async () => {
     setup();
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const before = db.getPromptCount();
-    await cmdPrepare(db, {}, ['--project', 'ph', 'cache', 'timeout']);
-    expect(output.mock.calls.map(call => String(call[0])).join('')).toContain('Semantic retrieval unavailable');
-    expect(output.mock.calls.map(call => String(call[0])).join('')).toContain('Interaction #1');
+    await cmdContext(db, {}, ['--project', 'ph', 'cache', 'timeout']);
+    const text = output.mock.calls.map(call => String(call[0])).join('');
+    expect(text).toContain('Retrieval fallback');
+    expect(text).toContain('Interaction #1');
     expect(db.getPromptCount()).toBe(before);
     expect(db.searchMemories('ph')).toHaveLength(0);
   });
@@ -41,5 +42,14 @@ describe('operational memory commands', () => {
     expect(output.mock.calls.map(call => String(call[0])).join('')).toContain('Dry run');
     expect(db.searchMemories('ph')).toHaveLength(0);
     expect(db.getProjectSummary('ph')).toBeNull();
+  });
+
+  it('close defaults to a three-hour review window', async () => {
+    setup();
+    const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await cmdClose(db, {}, ['--project', 'ph', '--dry-run']);
+    const text = output.mock.calls.map(call => String(call[0])).join('');
+    expect(text).toContain('Close review for ph: 1 prompt(s)');
+    expect(text).toContain('Dry run');
   });
 });

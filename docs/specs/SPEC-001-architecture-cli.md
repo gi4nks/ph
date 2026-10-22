@@ -2,81 +2,95 @@
 
 - **ID**: SPEC-001
 - **Cluster**: Core
-- **Status**: Implemented (baseline)
-- **Date**: 2026-08-08
-- **Source**: reverse-engineered from code (files listed in §8)
+- **Status**: Implemented (plain-text daily workflow)
+- **Date**: 2026-10-22
+- **Source**: current repository behavior
 
 ## 1. Purpose
-`ph` is a transparent observability layer for AI CLI tools: every prompt+response
-is captured to a local SQLite DB (SPEC-002), analyzed (SPEC-006), and made
-browsable via TUI (SPEC-012), CLI commands, MCP (SPEC-011) and HTTP (SPEC-010).
-This spec covers the entry point and the command dispatch architecture.
+
+PH captures AI CLI interactions, finds earlier work, retrieves project context,
+and supports explicit review of durable project knowledge. The everyday
+interface is a small plain-text CLI; maintenance and integration commands are
+available separately through `ph help --all`.
 
 ## 2. Scope
-- **In scope**: cli.ts main(), command resolution, wrapper-mode fallback, config
-  loading order, TUI bootstrap.
-- **Out of scope**: individual commands (their own specs), the TUI internals.
-- **Entry points**: `ph` (no args → TUI), `ph <command>`, `ph <tool> "prompt"` (wrapper).
 
-## 3. Data Model
-- `argv` split into `command` (first non-flag arg) + `cmdArgs` + `preArgs`
-  (ph-specific flags before the command, e.g. `--ph-tag`).
-- `PhConfig` (src/config/index.ts:5) loaded before dispatch; `geminiApiKey`
-  is copied to `process.env.GEMINI_API_KEY` (cli.ts:153-155).
-- DB path resolution: `PH_DB` env > `cfg.dbPath` > `defaultPath()`
-  (cli.ts:157).
+- **In scope**: CLI startup, concise and advanced help, command dispatch,
+  compatibility aliases, wrapper fallback, and task-aware context retrieval.
+- **Out of scope**: command internals outside context, MCP/HTTP protocols, and
+  import formats.
+- **Entry points**: `ph` prints a concise usage guide; `ph <tool> [args...]`
+  wraps and captures an AI CLI; `search`, `context`, and `close` serve the daily
+  history and memory workflows.
 
-## 4. Flows
+## 3. Dispatch Rules
 
-### 4.1 Dispatch (src/cli.ts:148-441)
-1. Load config; set env; resolve dbPath.
-2. No args + TTY → render BrowseApp in alt-screen, wait for exit, optional
-   rerun (cli.ts:159-186).
-3. Find first non-flag arg; flags `--ph-tag`/`--ph-role` consume their value
-   (cli.ts:190-203).
-4. Switch on the command name: ~25 cases (search, context, last, sessions,
-   stats, cluster, analyze*, cleanup*, star, export, import, analyze, mcp,
-   server, remote, log, embed-all, vacuum, config, _bg-analyze, browse, chat,
-   timeline, ollama-models, help).
-5. Unknown command → wrapper mode: `cmdWrap(dbPath, command, [...preArgs,
-   ...cmdArgs], cfg)` (cli.ts:436-439).
+1. Load config and resolve the database path.
+2. With no arguments, print the short guide and exit without opening a database
+   or starting an interactive UI.
+3. `ph --help` and `ph help` print the short guide. `ph --help --all` and
+   `ph help --all` print the full maintenance and integration catalog.
+4. `context` and the legacy `prepare` command share task-aware retrieval and
+   its recent-history fallback.
+5. `close` defaults to reviewing the last three hours; explicit time ranges
+   and prompt ID ranges remain supported.
+6. `browse` remains a text-only compatibility alias for recent interactions.
+   `search -i` remains accepted and prints normal text results.
+7. Unknown commands fall through to transparent wrapper mode.
 
-### 4.2 Wrapper mode (SPEC-003)
-Unknown first arg = a real binary (`claude`, `gemini`, …): run it and capture.
+## 4. User-Facing Jobs
 
-## 5. Invariants & Business rules
-- ESM only, `.js` import extensions (package.json `"type": "module"`).
-- Manual arg parsing (`parseFlags`, src/commands/_utils.ts:1) — no commander.
-- Every command handler owns its `PhDB` instance and closes it
-  (`new PhDB(...)` … `db.close()` per case).
-- `main()` catches everything: `ph: <message>` on stderr, exit 1 (cli.ts:443-446).
+| Job | Primary command | Contract |
+|---|---|---|
+| Capture | `ph <tool> [args...]` | Run the requested tool and capture its interaction |
+| Find | `ph search <query>` | Print matching history in plain text |
+| Resume | `ph context "task"` | Return project knowledge and relevant, source-linked interactions; use recent context if embeddings are unavailable |
+| Review | `ph close` | Select the last three hours, propose durable knowledge, and require explicit approval |
 
-## 6. UI / UX surface
-USAGE text is a single ~200-line template literal (cli.ts:38-140); `ph --help`,
-`-h`, `help` and non-TTY no-arg all print it.
+`prepare` is a compatibility alias for `context`. There is no TUI in the
+runtime package. History can be read with `search`, `last`, or the `browse`
+compatibility alias.
 
-## 7. Acceptance criteria (Given/When/Then)
-- **G1**: Given `ph search foo`, When main() runs, Then the `search` case opens a
-  PhDB, calls `cmdSearch` and closes the DB (cli.ts:250-253).
-- **G2**: Given `ph claude "hello"` (unknown command), When main() runs, Then
-  `cmdWrap` receives tool=`claude` and args `["hello"]` (cli.ts:436-439).
-- **G3**: Given `ph` with no args on a non-TTY stdin, When main() runs, Then the
-  USAGE text is printed and the process exits 0 (cli.ts:183-186).
-- **G4**: Given `--ph-tag auth claude "x"`, When parsing, Then `auth` is consumed
-  as the tag value and `claude` is the command (cli.ts:192-194).
+## 5. Invariants
 
-## 8. Key implementation map
+- ESM only; relative imports use `.js` extensions.
+- Existing advanced command names remain available unless separately removed.
+- Capture and full-text search do not require an AI provider.
+- Retrieval labels its recent-history fallback; it does not silently claim
+  semantic matching when embeddings are unavailable.
+- `close` does not call a provider or mutate storage without a TTY and explicit
+  approval of proposed knowledge.
+
+## 6. Acceptance Criteria
+
+- **G1**: Given `ph` in either a TTY or a pipe, when it starts, then it prints
+  the same short guide, exits successfully, and emits no alternate-screen or
+  interactive terminal controls.
+- **G2**: Given `ph help --all`, when help is requested, then the full advanced
+  command catalog is shown.
+- **G3**: Given `ph context "cache timeout"` in a detected project, when semantic
+  embeddings are unavailable, then recent project evidence is shown with an
+  explicit fallback label and no database writes occur.
+- **G4**: Given `ph prepare "cache timeout"`, when dispatched, then the same
+  task-aware context path and output are used.
+- **G5**: Given `ph close --dry-run` with no explicit range, when the project
+  contains interactions from the last three hours, then they are selected and
+  shown without provider calls or database writes.
+- **G6**: Given `ph browse` or `ph search -i "cache"`, when invoked, then
+  matching/recent plain-text results are printed without an interactive UI.
+
+## 7. Implementation Map
+
 | Concern | File(s) |
 |---|---|
-| Entry + dispatch + USAGE | src/cli.ts:38-441 |
-| Config load/save | src/config/index.ts:26-40 |
-| Flag parsing | src/commands/_utils.ts:1-30 |
-| Shared TUI bootstrap | src/cli.ts (`openBrowser`, `runRerun`) |
+| Startup, help, dispatch | `src/cli.ts` |
+| Search and `-i` compatibility | `src/commands/search.ts` |
+| Task-aware context | `src/commands/context.ts`, `src/knowledge/task-context.ts` |
+| Three-hour review default | `src/commands/close.ts` |
+| CLI / operational memory tests | `src/commands/__tests__/operational-memory.test.ts` |
 
-## 9. Open questions / discrepancies
-- `--ph-debug` is listed in USAGE but only consumed by wrapper paths (inline/pty
-  debug logs); no validation if used with non-wrapper commands.
+## 8. Related
 
-## 10. Related
-- All other specs (commands dispatch into each), SPEC-012 (BrowseApp),
-  SPEC-003 (wrapper mode). CLI dispatch tests remain part of SPEC-ISSUES-007.
+`SPEC-003` (capture wrapper), `SPEC-005` (search), `SPEC-016` (operational
+memory), and `SPEC-012` (retired history browser; retained as historical
+documentation).
