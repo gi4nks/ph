@@ -112,6 +112,8 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 | `ph search -i <query>` | Open results in interactive TUI |
 | `ph last [n]` | Show last N prompts |
 | `ph context [query]` | Get RAG context for current project |
+| `ph prepare "<task>"` | Read-only task brief with relevant history and source IDs |
+| `ph close --since 3h` | Review recent work and propose knowledge for explicit approval |
 | `ph sessions` | Group prompts into work sessions |
 | `ph timeline <project>` | Full chronological project history |
 | `ph stats` | History statistics |
@@ -234,6 +236,26 @@ ph context --project myproject
 ### 6b. `memories` (append-only timeline)
 
 Full chronological history of every analysis run. Preserved for detailed audit.
+
+### Operational workflow: prepare, work, close
+
+```bash
+# Read-only task brief; project auto-detected from the current directory
+ph prepare "add Wise provider" --limit 5 --budget 3500
+
+# Inspect the selection without calling an LLM
+ph close --dry-run --since 3h
+
+# Generate knowledge proposals; approve, edit, skip, or quit each one
+ph close --since 3h
+ph close --from 1670 --to 1682 --project ph
+```
+
+`prepare` uses the task as a semantic retrieval query and prints prompt/memory IDs. If Ollama embeddings are unavailable, it clearly labels the fallback to recent project context. It never writes to SQLite. The character budget limits retrieved content; when the source list itself is larger than the budget, source IDs take precedence and the output can exceed the requested budget.
+
+`close` selects prompt/response pairs within one project, displays them before generation, and asks the configured analysis provider for durable proposals. It checks for a terminal before making that provider call. Each accepted proposal creates an append-only memory tied to its source prompt IDs; the approved batch and summary updates are committed in one SQLite transaction. A persistence failure rolls back the whole batch. Provider errors, malformed output, dry-run, skipping, and quitting do not promote unapproved knowledge.
+
+MCP `check_project_knowledge` uses the same retrieval and rendering boundary. MCP `save_decision` accepts optional `promptIds` and rejects missing or cross-project sources.
 
 ### Memory migration
 

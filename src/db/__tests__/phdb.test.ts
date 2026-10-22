@@ -73,6 +73,18 @@ describe('PhDB basics (SPEC-002)', () => {
     const vecInfo = db['getAllEmbeddings']();
     expect(vecInfo).toBeInstanceOf(Map);
   });
+
+  it('promotes approved memories and summaries atomically', () => {
+    const now = new Date().toISOString();
+    const valid = {
+      project: 'atomic-project', prompt_ids: [], summary: 'First proposal', key_insights: ['One'],
+      technical_decisions: [], created_at: now, updated_at: now, access_count: 0,
+    };
+
+    expect(() => db.promoteMemories([valid, { ...valid, summary: null as unknown as string }])).toThrow();
+    expect(db.getAllMemoriesByProject('atomic-project')).toEqual([]);
+    expect(db.getProjectSummary('atomic-project')).toBeNull();
+  });
 });
 
 describe('PhDB search (SPEC-005)', () => {

@@ -86,10 +86,15 @@ describe('getProjectContext', () => {
     const agentContext = formatProjectContext(context, { promptExcerptLength: 300, responseExcerptLength: 200 });
 
     expect(compact).toContain('Project Knowledge: ph');
-    expect(compact).toContain('[memory #12] Use local SQLite');
+    expect(compact).toContain('[memory #12; prompts #1] Use local SQLite');
     expect(compact).toContain('### Interaction #1');
     expect(compact).not.toContain('```');
     expect(verbose).toContain('```\nprompt 1\n```');
     expect(agentContext).toContain('Prompt: prompt 1');
+    expect(compact).toContain('prompts #1');
+    const bounded = formatProjectContext(context, { promptExcerptLength: 300, maxChars: 200 });
+    expect(bounded).toContain('[Context truncated');
+    expect(bounded).toContain('prompt #1');
+    expect(bounded).toContain('prompts #1');
   });
 });

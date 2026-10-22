@@ -33,13 +33,13 @@ knowledge base" core of the evolution plan (docs/superpowers/specs/
 
 ## 4. Flows
 
-### 4.1 Append-only memory (src/db/index.ts:535-640)
+### 4.1 Append-only memory (src/db/memory-repository.ts)
 `upsertProjectMemory({project, prompt_id, summary, key_insights,
 technical_decisions, git_context_snapshot})` INSERTS a new row per analysis —
 full timeline preserved. `searchMemories(project, limit)` returns latest N;
 `getAllMemoriesByProject` (774) ascending for timelines.
 
-### 4.2 Curated summary (src/db/index.ts:643-699)
+### 4.2 Curated summary (src/db/memory-repository.ts)
 `upsertProjectSummary(params)` upserts ONE row per project: merges new insights/
 decisions into existing arrays, deduping by content; updates prompt_count,
 first/last_analyzed. `getProjectSummary(project)` (690).
@@ -63,15 +63,15 @@ PreviewPane memory tab (SPEC-012); `ph context` markdown output; `ph timeline`.
 ## 7. Acceptance criteria (Given/When/Then)
 - **G1**: Given two analyses for the same project, When `upsertProjectMemory`
   runs twice, Then `memories` contains 2 rows (append-only)
-  (src/db/index.ts:612-628).
+  (src/db/memory-repository.ts).
 - **G2**: Given two summaries with the same insight, When `upsertProjectSummary`
   runs twice, Then the insight appears once in key_insights and there is 1 row
-  (src/db/index.ts:643-690).
+  (src/db/memory-repository.ts).
 - **G3**: Given `upsertProjectSummary` with prompt_count 3, When the row is
   read, Then prompt_count is 3 and first/last_analyzed are set
-  (src/db/index.ts:643-690).
+  (src/db/memory-repository.ts).
 - **G4**: Given `recordMemoryAccess(id)`, When run, Then access_count
-  increments and last_accessed updates (src/db/index.ts:701-706).
+  increments and last_accessed updates (src/db/memory-repository.ts).
 - **G5**: Given `ph memory-migrate` on a DB with memories but no summaries,
   When run, Then project_summaries rows are backfilled
   (src/commands/memory-migrate.ts).
@@ -79,9 +79,9 @@ PreviewPane memory tab (SPEC-012); `ph context` markdown output; `ph timeline`.
 ## 8. Key implementation map
 | Concern | File(s) |
 |---|---|
-| Memories CRUD + upsert | src/db/index.ts:535-640 |
-| Summary upsert/merge + read | src/db/index.ts:643-699 |
-| Access tracking | src/db/index.ts:701-706 |
+| Memories CRUD + upsert | src/db/memory-repository.ts |
+| Summary upsert/merge + read | src/db/memory-repository.ts |
+| Access tracking | src/db/memory-repository.ts |
 | Migrate command | src/commands/memory-migrate.ts |
 | Evolution design | docs/superpowers/specs/2026-06-12-ph-evolution-design.md |
 

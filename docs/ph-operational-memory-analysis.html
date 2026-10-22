@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>ph — From Prompt History to Operational Memory</title>
+  <style>
+    :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f6fa;font-synthesis:none;text-rendering:optimizeLegibility;--ink:#172033;--muted:#64748b;--line:#dbe2ec;--accent:#0969da;--soft:#eaf2ff;--good:#087443;--warn:#995c00;--card:#fff}
+    *{box-sizing:border-box}body{margin:0;line-height:1.58}main{max-width:1040px;margin:0 auto;padding:48px 28px 72px}header{padding:34px 38px;border-radius:20px;background:linear-gradient(135deg,#102a43,#174e7a);color:white}header p{max-width:720px;color:#d6e7f5}h1{font-size:clamp(2rem,5vw,3.3rem);line-height:1.08;letter-spacing:-.04em;margin:.2em 0}h2{margin:44px 0 12px;font-size:1.55rem;letter-spacing:-.025em}h3{margin:0 0 7px;font-size:1.05rem}p{margin:8px 0 14px}.eyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:.75rem;font-weight:750;color:#a8d5ff}.meta{display:flex;gap:18px;flex-wrap:wrap;font-size:.9rem;color:#d6e7f5}.callout{background:var(--soft);border-left:4px solid var(--accent);padding:17px 20px;border-radius:0 12px 12px 0;margin:22px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}.card p{font-size:.94rem;color:var(--muted);margin-bottom:0}.tag{display:inline-block;background:#edf2f7;color:#334155;border-radius:999px;padding:3px 9px;font-size:.77rem;font-weight:700}.tag.good{background:#e8f6ee;color:var(--good)}table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:.91rem}th,td{text-align:left;vertical-align:top;padding:13px 14px;border-bottom:1px solid var(--line)}th{background:#edf2f7;font-size:.82rem;text-transform:uppercase;letter-spacing:.06em}tr:last-child td{border-bottom:0}td:first-child{font-weight:700;min-width:150px}.decision{border:2px solid var(--accent);border-radius:16px;padding:22px;background:var(--card)}.decision strong{color:var(--accent)}ol,ul{padding-left:1.25rem}li{padding:3px 0}.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}.step{padding:15px;border-radius:12px;background:var(--card);border:1px solid var(--line)}.step b{display:block;color:var(--accent);margin-bottom:5px}.small{font-size:.88rem;color:var(--muted)}code{background:#edf2f7;border-radius:5px;padding:2px 5px;font-size:.9em}footer{border-top:1px solid var(--line);margin-top:42px;padding-top:18px;color:var(--muted);font-size:.84rem}
+    @media(max-width:700px){main{padding:20px 14px 44px}header{padding:25px 22px}.flow{grid-template-columns:1fr 1fr}table{font-size:.82rem}th,td{padding:9px}}
+    @media(prefers-color-scheme:dark){:root{color:#e5edf7;background:#0c1421;--ink:#e5edf7;--muted:#a3b2c5;--line:#2c3b50;--soft:#132b45;--card:#121e2d}header{background:linear-gradient(135deg,#0c1c2b,#153d5d)}th{background:#1b2a3c}code,.tag{background:#253448;color:#d7e6f8}.tag.good{background:#123a2b;color:#86e0ae}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Product analysis · October 10, 2026</div>
+    <h1>From Prompt History<br>to Operational Memory</h1>
+    <p>Product question: How can ph turn prompts, responses, and analysis into knowledge that helps with the next task handled by an AI agent?</p>
+    <div class="meta"><span>Scope: ph</span><span>Status: direction approved; Phases 0–3 implemented</span><span>Horizon: first incremental release</span></div>
+  </header>
+
+  <div class="callout"><strong>Thesis:</strong> ph creates value when it prevents context from being repeated, decisions from being rediscovered, and failed attempts from being repeated. Conversation analysis is a means; the outcome is reliable memory brought into the workflow at the right time.</div>
+
+  <h2>Starting Point</h2>
+  <div class="grid">
+    <article class="card"><span class="tag good">Available</span><h3>Work evidence</h3><p>Prompts and responses are captured with project, tool, and Git context. Memories can retain the IDs of their source prompts.</p></article>
+    <article class="card"><span class="tag good">Available</span><h3>Project knowledge</h3><p>Append-only memories, curated summaries, MCP decision saving, and shared retrieval through <code>ph context</code>, chat, and MCP tools.</p></article>
+    <article class="card"><span class="tag">Gap</span><h3>No guided workflow</h3><p>There is no explicit step to prepare a task with relevant prior work and no review step to turn its outcome into verifiable knowledge.</p></article>
+  </div>
+  <p class="small">The existing ph evolution plan already established curated memory, MCP, and noise reduction. This proposal makes the operational cycle explicit without replacing those foundations.</p>
+
+  <h2>Options Considered</h2>
+  <table>
+    <thead><tr><th>Option</th><th>Benefits</th><th>Costs and risks</th><th>Assessment</th></tr></thead>
+    <tbody>
+      <tr><td>A · Analytics dashboard</td><td>Makes volume, roles, models, and trends visible; useful for inspecting history.</td><td>Does not bring knowledge into the workflow. It may optimize metrics that do not reduce repeated work.</td><td><span class="tag">Not a priority</span></td></tr>
+      <tr><td>B · Automatic injection everywhere</td><td>Context is always available with little user effort.</td><td>Can add noise, tokens, latency, and stale context to every request. Its usefulness is difficult to establish.</td><td><span class="tag">Avoid as the default</span></td></tr>
+      <tr><td>C · Prepare → work → approve</td><td>Makes reuse intentional, preserves sources and consent, and uses existing context, memory, and MCP capabilities.</td><td>Requires a brief user action and a useful proposal summary. Manual promotion adds a step.</td><td><span class="tag good">Recommended</span></td></tr>
+      <tr><td>D · Autonomous memory agent</td><td>Could extract and update knowledge without interrupting the workflow.</td><td>Harder to control; silent corrections, duplicates, and unapproved decisions could contaminate memory.</td><td><span class="tag">Consider after testing C</span></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Decision</h2>
+  <section class="decision">
+    <p><strong>Build a deliberate, measurable workflow and reuse the current data model in the first release.</strong></p>
+    <p>Memory becomes useful when a user or agent consults it before acting and can save what it learned with references to the conversations that support it. Do not introduce a new knowledge graph or always-on agent in the first release.</p>
+    <p class="small">Decision record: direction approved in conversation; implementation details are in <a href="plans/2026-10-10-operational-memory.md">the operational memory work plan</a>.</p>
+  </section>
+
+  <h2>Implementable Workflow</h2>
+  <div class="flow">
+    <div class="step"><b>1 · Prepare</b><code>ph prepare "task"</code><br><span class="small">Detect project, retrieve relevant context, identify sources.</span></div>
+    <div class="step"><b>2 · Work</b><span class="small">The user or agent completes the task with essential context.</span></div>
+    <div class="step"><b>3 · Review</b><code>ph close</code><br><span class="small">Propose decisions or procedures with supporting prompt IDs.</span></div>
+    <div class="step"><b>4 · Promote</b><span class="small">Approve before saving or updating project memory.</span></div>
+  </div>
+  <ul>
+    <li><strong>Prepare:</strong> Reuse <code>getProjectContext()</code> and semantic search. Produce a short brief with decisions, gotchas, prior work, and source IDs. State clearly when there is no evidence.</li>
+    <li><strong>Close:</strong> Start from recent prompts or an explicitly selected range/session. Propose zero or more decisions and procedures. Show what would be saved and which <code>prompt_ids</code> support it.</li>
+    <li><strong>Approval before promotion:</strong> Reuse the existing <code>save_decision</code> and project summary paths, extending them to preserve sources. No permanent update without approval.</li>
+    <li><strong>Lightweight feedback:</strong> Later, consider useful / irrelevant / stale feedback for retrieved memories. Existing access counters are not an explicit usefulness judgment.</li>
+  </ul>
+
+  <h2>Trade-offs and Guardrails</h2>
+  <table>
+    <thead><tr><th>Product decision</th><th>Choice</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td>When to retrieve</td><td>On request through <code>prepare</code> and agent paths explicitly chosen by the user</td><td>Reduces irrelevant additions and keeps the workflow predictable.</td></tr>
+      <tr><td>What to keep</td><td>Confirmed decisions and procedures linked to sources</td><td>Reduces duplicates and makes a memory auditable and correctable.</td></tr>
+      <tr><td>Evidence status</td><td>Distinguish verified, inferred, and unverified claims</td><td>A fluent summary is not proof that a procedure still works.</td></tr>
+      <tr><td>Cross-project retrieval</td><td>Out of scope for the first release</td><td>Information from one project may be false or sensitive in another.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Cost, Rate Limits, and Latency</h2>
+  <div class="grid">
+    <article class="card"><h3>Prepare</h3><p>Lexical search and database reads are local. Semantic retrieval may call an Ollama embedding endpoint; there is no cloud generation cost, while latency and availability depend on the server.</p></article>
+    <article class="card"><h3>Close</h3><p>Proposal extraction can use one optional LLM call. OpenRouter may incur cost and rate limits; MLX-Serve depends on the tunnel and loaded model. Make the provider explicit and let the user skip proposals.</p></article>
+    <article class="card"><h3>Brief limits</h3><p>Apply a configurable character or token budget, show source counts, and truncate raw prompts first. Do not make extra LLM calls whenever the TUI opens.</p></article>
+  </div>
+
+  <h2>How to Measure Success</h2>
+  <p>Measure useful reuse, not the volume of analysis:</p>
+  <ul>
+    <li><strong>Prepare relevance:</strong> the first retrieved memories are relevant to the task and project in judged cases.</li>
+    <li><strong>Reuse rate:</strong> the user confirms that prior work changed or accelerated the task.</li>
+    <li><strong>Source reliability:</strong> every proposed decision links to verifiable prompts and responses; no source is attributed incorrectly.</li>
+    <li><strong>Workflow friction:</strong> prepare and close take few steps and can be skipped.</li>
+    <li><strong>Real task evaluation:</strong> expand the retrieval set in <code>docs/evals/context-retrieval-golden.json</code> with work queries from multiple projects.</li>
+  </ul>
+
+  <h2>Usage Check · October 10, 2026</h2>
+  <div class="callout"><strong>Result:</strong> The full workflow worked against an isolated temporary database. Semantic embeddings were unavailable, so <code>prepare</code> clearly fell back to recent project context. <code>close --dry-run</code> showed the selected source without a model call or database changes. With an SSH port forward to Parmenide, interactive <code>close</code> generated a proposal, accepted approval, and saved it with its source prompt ID.</div>
+  <p><code>ph context --memories-only</code> then returned the promoted knowledge and source reference. The generated proposal included plausible details beyond the sample evidence, so users should review and edit proposals before approval. All writes were limited to the temporary test database.</p>
+
+  <footer>
+    <strong>Local sources:</strong> <code>src/context/index.ts</code>, <code>src/types.ts</code>, <code>src/db/index.ts</code>, <code>src/mcp/server.ts</code>, <code>README.md</code>, <code>docs/superpowers/specs/2026-06-12-ph-evolution-design.md</code>, <code>docs/evals/context-retrieval.md</code>.<br>
+    This document records the product analysis and initial recommendation. Current implementation status is tracked in the linked work plan and SPEC-016.
+  </footer>
+</main>
+</body>
+</html>

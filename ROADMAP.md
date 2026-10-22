@@ -14,9 +14,18 @@ See [README.md](README.md) for current usage, [docs/ph-manual.md](docs/ph-manual
 
 ## Next priorities
 
-1. Run the model-backed retrieval evaluation against the configured embedding model and expand the judged query set using representative, privacy-safe examples.
-2. Split additional TUI behavior out of `BrowseApp` when that creates a clear testing seam and improves locality.
-3. Continue coverage of terminal capture, importer format changes, and remote sync failure recovery.
-4. Decide whether project-state fingerprints should prevent duplicate memory updates.
+### Product scope gate
 
-These priorities are proposals, not shipped features.
+Do not add user-facing commands, transports, or knowledge workflows until the
+`prepare → work → close → promote` loop has been used on three real tasks across
+different projects and the user can identify where it prevented repeated work.
+Keep current commands available while their roles are clarified in the manual.
+
+### Maintenance priorities
+
+1. Run the model-backed retrieval evaluation against the configured embedding model and expand the judged query set using representative, privacy-safe examples.
+2. Continue coverage of terminal capture, importer format changes, and remote sync failure recovery.
+3. Split additional TUI behavior out of `BrowseApp` only when a clear testing seam improves locality.
+
+The maintenance priorities are proposals, not shipped work. The product scope
+gate is the current direction until the usage evidence is collected.
