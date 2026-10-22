@@ -5,13 +5,9 @@
 ## What it does
 
 - Captures conversations through a transparent command wrapper, native hooks, direct logging, or history import.
-- Searches prompts and responses with SQLite FTS5, or searches by semantic similarity with Ollama embeddings and sqlite-vec.
-- Groups records by project, tool, language, role, tags, time, and quality metadata.
-- Builds project summaries and an append-only analysis history with Ollama, Gemini, OpenRouter, or MLX-Serve through `@gi4nks/wise`.
-- Exposes prompt history and project knowledge through an MCP server over stdio.
-- Provides an interactive terminal browser for filtering, reviewing, editing metadata, starring, exporting, and rerunning prompts.
-- The TUI `p` action sends the selected prompt to a configured Wise analysis provider; `r` reruns it with its original CLI tool.
-- Supports optional HTTP sync between a local database and a remote `ph` server.
+- Searches prompts and responses, then retrieves task-relevant project context through one command.
+- Reviews recent work and saves durable project decisions only after explicit approval.
+- Keeps data local by default; hooks and MCP are available for automatic capture and agent access.
 
 ## Install
 
@@ -37,14 +33,17 @@ Requires Node.js 22 or later (the Wise/AI SDK provider stack requires Node 22). 
 
 ```bash
 # Capture a prompt by wrapping an installed AI CLI tool
-ph claude "explain goroutines"
+ph claude
+ph codex
 
 # Search prompt history
 ph search "goroutines"
-ph search --semantic "concurrency patterns"
 
-# Open the interactive browser
-ph browse
+# Retrieve relevant project context for a task
+ph context "add database migrations"
+
+# Review recent work and keep useful project decisions
+ph close
 
 # Add a record directly
 ph log --tool claude --prompt "Explain this function" --response "It parses..."
@@ -86,7 +85,7 @@ ph import opencode
 ph import codex --dry-run
 ```
 
-Codex is also available through wrapper and context-injected modes: `ph codex exec "prompt"` and `ph chat codex exec "prompt"`. See [Codex hook setup](hooks/codex/README.md).
+Codex is also available through wrapper mode: `ph codex exec "prompt"`. See [Codex hook setup](hooks/codex/README.md).
 
 ## Search and project context
 
@@ -101,22 +100,17 @@ ph context "How are database migrations handled?"
 # Limit the output to project summaries and memories
 ph context --memories-only --project ph
 
-# Prepare a task brief with relevant history (read-only)
-ph prepare "add Wise provider" --limit 5 --budget 3500
+# Retrieve a task brief with relevant history (read-only)
+ph context "add Wise provider" --limit 5 --budget 3500
 
-# Review recent work and explicitly promote useful knowledge
-ph close --since 3h
+# Review recent work and explicitly promote useful knowledge (defaults to 3h)
+ph close
 ph close --from 1670 --to 1682 --dry-run
 ```
 
-`ph context`, `ph prepare`, `ph chat`, and MCP project-context tools use shared retrieval and formatting. `prepare` is read-only, prints prompt and memory provenance, and falls back to recent project context if Ollama embeddings are unavailable. `close` reviews selected prompt/response pairs, asks the configured analysis provider for durable knowledge proposals, and requires an interactive terminal before the provider call. Accepted proposals retain their source prompt IDs and are written with summary updates in one atomic database transaction. Semantic results are scoped to the requested project before the result limit is applied.
+`ph context "task"` is the single user-facing path for retrieving task context. It uses semantic retrieval when available and labels its recent-history fallback when embeddings are unavailable. `ph prepare` remains as a compatibility alias. `close` reviews selected prompt/response pairs, asks the configured analysis provider for durable knowledge proposals, and requires an interactive terminal before the provider call. Accepted proposals retain their source prompt IDs and are written with summary updates in one atomic database transaction.
 
-These entry points have different jobs: `context` explores saved project
-knowledge on demand, `prepare` retrieves evidence for one task, `chat` injects
-recent project context into a wrapped tool invocation, and MCP makes history
-available to configured agents. New user-facing workflows are deferred until
-the operational loop has been used on three real tasks across different
-projects.
+Running `ph` prints a short command guide; it does not open a TUI. `ph browse` remains as a compatibility alias for listing recent interactions. `ph help --all` lists maintenance and integration commands.
 
 ## Project memory and analysis
 

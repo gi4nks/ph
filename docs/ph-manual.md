@@ -1,16 +1,14 @@
 # ph — Prompt History and Project Memory
 
-**Zero-friction capture, semantic search, project memory, and MCP-based knowledge retrieval for AI CLI tools.**
+**Capture AI CLI work, find it later, and retrieve project context when you need it.**
 
 ---
 
 ## 1. Overview
 
-ph is a transparent observability and knowledge layer for AI CLI tools (Claude Code, Codex CLI, Gemini CLI, OpenCode, etc.). It automatically records every prompt+response into a local SQLite database with full-text search, semantic vector search, LLM-based analysis, Git context snapshots, session grouping, and an interactive TUI browser.
+ph is a local history and project-context tool for AI CLI work. It records interactions through native hooks or by wrapping a tool, then helps you search history and retrieve project context from the terminal.
 
 **Core principle:** ph captures conversations without changing the normal tool workflow. Optional analysis turns captured history into project summaries and memories that can be searched locally or requested by an MCP client. Capture and full-text search work without an LLM provider; analysis, embeddings, and semantic search require the configured provider.
-
-In the TUI, `p` runs the selected prompt through one of the configured Wise analysis providers (same provider/model/URL settings shown by `ph config show`) and saves the response to history. `r` reruns the prompt with its original CLI tool.
 
 ### Key Features
 
@@ -19,7 +17,7 @@ In the TUI, `p` runs the selected prompt through one of the configured Wise anal
 - **LLM analysis** — role/tag/relevance classification, summary extraction, key insights, technical decisions
 - **Project memory** — per-project accumulated knowledge with deduped insights and decisions
 - **MCP server** — tools for agents to search memories, check project knowledge, get context
-- **Interactive TUI** — browse, filter, edit, star, re-run, export prompts
+- **Plain-text CLI** — the everyday interface is a small set of terminal commands
 - **Session grouping** — automatic conversation grouping with cohesion scoring
 - **Git context** — records branch, modified files, and diff at capture time
 - **Background analysis** — async LLM processing after each capture (optional)
@@ -100,20 +98,34 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 
 ---
 
-## 4. CLI Commands
+## 4. Everyday Commands
 
 | Command | Description |
 |---------|-------------|
-| `ph` (no args) | Open interactive TUI browser |
+| `ph` | Print the short usage guide |
+| `ph <tool> [args...]` | Run an AI CLI tool and capture the interaction |
+| `ph search <query>` | Find earlier work |
+| `ph context "task"` | Retrieve project knowledge and related prompts |
+| `ph close` | Review the last three hours and approve useful project knowledge |
+
+`ph prepare "task"` remains as a compatibility alias for task-aware `ph context`.
+`ph browse` is a compatibility alias for a plain-text list of recent interactions.
+Use `ph help --all` for maintenance and integration commands.
+
+## 4a. Advanced Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `ph` (no args) | Print the short everyday-use guide |
 | `ph <tool> [args...]` | Wrapper mode — run tool + capture |
 | `ph search [query]` | Full-text search prompts |
 | `ph search --semantic <query>` | Semantic (vector) search |
 | `ph search --archive` | Search archived prompts |
-| `ph search -i <query>` | Open results in interactive TUI |
 | `ph last [n]` | Show last N prompts |
-| `ph context [query]` | Get RAG context for current project |
-| `ph prepare "<task>"` | Read-only task brief with relevant history and source IDs |
-| `ph close --since 3h` | Review recent work and propose knowledge for explicit approval |
+| `ph context [task]` | Retrieve task-aware project context; works without semantic embeddings |
+| `ph prepare "<task>"` | Compatibility alias for task-aware context retrieval |
+| `ph browse` | Compatibility alias for recent text results |
+| `ph close [--since 3h]` | Review recent work and propose knowledge for explicit approval |
 | `ph sessions` | Group prompts into work sessions |
 | `ph timeline <project>` | Full chronological project history |
 | `ph stats` | History statistics |
@@ -140,7 +152,6 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 ### Search options
 
 ```
--i / --interactive    Open in TUI browser
 --tool <name>         Filter by tool
 --project <name>      Filter by project
 --language <lang>     Filter by language
@@ -187,41 +198,11 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 
 ---
 
-## 5. TUI Keybindings
-
-| Key | Action |
-|-----|--------|
-| `Up` / `Down`, `Page Up` / `Page Down` | Navigate list |
-| `Tab` | Switch pane (wide mode) |
-| `1`, `2`, `3` | Switch prompt/response/memory tab |
-| `y` | Copy to clipboard |
-| `s` | Toggle star |
-| `e` | Edit metadata |
-| `r` | Rerun prompt (edit before launch) |
-| `Shift+C` | Chat mode: launch tool with project context |
-| `x` | Delete entry |
-| `/` | Search |
-| `o` | Settings panel (toggle auto-analysis, view config) |
-| `f` | Filter panel (flat list, Enter toggle, letter jump) |
-| `c` | Clear all filters |
-| `q` / `Escape` | Quit / back |
-
-### TUI components
-
-- **SearchBar** — always visible spotlight bar at top
-- **FilterPanel** — flat scrollable list of filter options with counts `[N]`, toggle with Enter, jump by letter
-- **SettingsView** — config viewer/editor (auto-analysis toggle, ollama URL/model, filters)
-- **PreviewPane** — three tabs (prompt/response/memory). Memory tab shows project-level knowledge
-- **ListEntry** — role marker, analysis status, star, Q/R badges, optional summary line
-- **Footer** — context-sensitive hints (shows `C:chat` only when entry has project)
-
----
-
-## 6. Project Memory System
+## 5. Project Memory System
 
 ph maintains two levels of per-project knowledge:
 
-### 6a. `project_summaries` (curated, 1 row per project)
+### 5a. `project_summaries` (curated, 1 row per project)
 
 Accumulated knowledge with deduped insights and decisions. Updated on every analysis. Primary source for MCP tools.
 
@@ -233,15 +214,15 @@ ph context --project myproject
 # get_project_summary(project: "myproject")
 ```
 
-### 6b. `memories` (append-only timeline)
+### 5b. `memories` (append-only timeline)
 
 Full chronological history of every analysis run. Preserved for detailed audit.
 
-### Operational workflow: prepare, work, close
+### Operational workflow: retrieve, work, review
 
 ```bash
-# Read-only task brief; project auto-detected from the current directory
-ph prepare "add Wise provider" --limit 5 --budget 3500
+# Read-only task context; project auto-detected from the current directory
+ph context "add Wise provider" --limit 5 --budget 3500
 
 # Inspect the selection without calling an LLM
 ph close --dry-run --since 3h
@@ -251,7 +232,7 @@ ph close --since 3h
 ph close --from 1670 --to 1682 --project ph
 ```
 
-`prepare` uses the task as a semantic retrieval query and prints prompt/memory IDs. If Ollama embeddings are unavailable, it clearly labels the fallback to recent project context. It never writes to SQLite. The character budget limits retrieved content; when the source list itself is larger than the budget, source IDs take precedence and the output can exceed the requested budget.
+`context` uses the task as a semantic retrieval query and prints source-linked prompt and memory excerpts. If Ollama embeddings are unavailable, it labels the fallback to recent project context. Retrieval never writes to SQLite. `prepare` remains an alias for compatibility. The character budget limits retrieved content; when the source list itself is larger than the budget, source IDs take precedence and the output can exceed the requested budget.
 
 `close` selects prompt/response pairs within one project, displays them before generation, and asks the configured analysis provider for durable proposals. It checks for a terminal before making that provider call. Each accepted proposal creates an append-only memory tied to its source prompt IDs; the approved batch and summary updates are committed in one SQLite transaction. A persistence failure rolls back the whole batch. Provider errors, malformed output, dry-run, skipping, and quitting do not promote unapproved knowledge.
 
@@ -267,7 +248,7 @@ ph memory-migrate   # one-time: merge all memories into project_summaries
 
 ---
 
-## 7. Retention & Archiving
+## 6. Retention & Archiving
 
 Configurable auto-archiving to keep the database lean:
 
@@ -290,7 +271,7 @@ ph search --archive
 
 ---
 
-## 8. Background Analysis
+## 7. Background Analysis
 
 When enabled, every `ph log` automatically spawns a detached child process that analyzes the new entry (role, tags, relevance, summary, key insights, technical decisions).
 
@@ -340,7 +321,7 @@ credentials. `ph models mlx-serve` marks entries `[loaded]` or `[unloaded]`.
 
 ---
 
-## 9. MCP Server
+## 8. MCP Server
 
 ph exposes an MCP (Model Context Protocol) server over stdio for AI agents:
 
@@ -366,7 +347,7 @@ ph mcp
 
 ---
 
-## 10. HTTP Server & Remote Sync
+## 9. HTTP Server & Remote Sync
 
 Share prompt history across machines:
 
@@ -385,7 +366,7 @@ Every `ph log` auto-pushes to remote if configured (fire-and-forget, never block
 
 ---
 
-## 11. Database
+## 10. Database
 
 **Location:** `~/.prompt_history.db` (configurable via `ph config set db-path`)
 
@@ -411,7 +392,7 @@ ph embed-all           # (re)generate all embeddings
 
 ---
 
-## 12. Filter Pipeline
+## 11. Filter Pipeline
 
 Before saving, ph filters out:
 
@@ -430,7 +411,7 @@ ph config set filter-min-relevance 3
 
 ---
 
-## 13. Configuration (`~/.ph_config.json`)
+## 12. Configuration (`~/.ph_config.json`)
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -462,7 +443,7 @@ Provider API credentials are environment-only: `OPENROUTER_API_KEY` and
 
 ---
 
-## 14. Architecture
+## 13. Architecture
 
 ```
 Hook/Import → ph log → prompts table (FTS5 indexed)
@@ -495,14 +476,13 @@ src/
   filter/             # Capture-time filter pipeline
   mcp/server.ts       # MCP stdio server
   server/index.ts     # HTTP REST server (zero deps)
-  ui/                 # React/Ink TUI, including extracted filter policy and panel
   importer/           # Gemini/Claude/OpenCode/Codex history importers
 hooks/                # Shell scripts and plugins for AI tools
 ```
 
 ---
 
-## 15. Importing Existing History
+## 14. Importing Existing History
 
 ```bash
 # Import from Claude Code
@@ -526,7 +506,7 @@ ph import codex
 
 ---
 
-## 16. Versioning and Releases
+## 15. Versioning and Releases
 
 Use Conventional Commits to describe changes: `feat:` requests a minor release,
 `fix:` requests a patch release, and `BREAKING CHANGE:` requests a major release.

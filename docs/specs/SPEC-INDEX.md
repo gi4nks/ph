@@ -7,13 +7,14 @@ semantic-release + OIDC provenance).
 
 Cluster map: Core (CLI/architecture) · Capture (wrapper/hooks/log) · DB (PhDB)
 · Search (FTS/semantic) · AI (analysis/embeddings) · Memory (memories/summaries)
-· Sync (server/remote) · MCP · TUI · Import · Analytics · Config.
+· Sync (server/remote) · MCP · Import · Analytics · Config. The history TUI was
+retired on 2026-10-22; SPEC-012 is retained as a decision record.
 
 ## Registry
 
 | ID | Feature | Cluster | Status | Tests |
 |----|---------|---------|--------|-------|
-| SPEC-001 | Architecture & CLI dispatch | Core | **Implemented (baseline)** | — |
+| SPEC-001 | Architecture & CLI dispatch | Core | **Implemented (plain-text daily workflow)** | `src/commands/__tests__/operational-memory.test.ts` |
 | SPEC-002 | Database layer (PhDB) | DB | **Implemented (baseline)** | — |
 | SPEC-003 | Capture modes (pty/inline/hooks/log) | Capture | **Implemented (baseline)** | — |
 | SPEC-004 | Filter pipeline & metadata | Core | **Implemented (baseline)** | — |
@@ -24,11 +25,11 @@ Cluster map: Core (CLI/architecture) · Capture (wrapper/hooks/log) · DB (PhDB)
 | SPEC-009 | Retention & archive | DB | **Implemented (baseline)** | — |
 | SPEC-010 | Remote sync (server + push/pull) | Sync | **Implemented (baseline)** | — |
 | SPEC-011 | MCP server | MCP | **Implemented (baseline)** | — |
-| SPEC-012 | TUI browser | TUI | **Implemented (baseline)** | — |
+| SPEC-012 | Interactive history browser | Retired UI | **Retired 2026-10-22** | — |
 | SPEC-013 | Importers (claude/gemini/opencode/codex) | Import | **Implemented** | import fixtures |
 | SPEC-014 | Analytics commands (sessions/stats/cluster/timeline) | Analytics | **Implemented (baseline)** | — |
 | SPEC-015 | Config & env overrides | Config | **Implemented (baseline)** | — |
-| SPEC-016 | Operational memory workflow (prepare/close/MCP provenance) | Memory, CLI, MCP | **Implemented** | `src/commands/__tests__/operational-memory.test.ts`, `src/mcp/__tests__/server.test.ts` |
+| SPEC-016 | Operational memory workflow (context/close/MCP provenance) | Memory, CLI, MCP | **Implemented** | `src/commands/__tests__/operational-memory.test.ts`, `src/mcp/__tests__/server.test.ts` |
 | SPEC-017 | Internal architecture consolidation (CLI surface gate, MCP modules, DB repositories) | Core, DB, MCP | **Implemented** | `src/knowledge/`, `src/mcp/tools/`, `src/db/{memory,archive}-repository.ts` |
 
 ## Cross-cutting findings (SPEC-ISSUES.md)
