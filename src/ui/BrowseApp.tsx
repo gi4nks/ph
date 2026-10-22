@@ -616,7 +616,7 @@ export const BrowseApp: React.FC<Props> = ({ db, initialTextFilter, initialFilte
     setCursor(c => Math.min(c, Math.max(0, entries.length - 1)));
   }, [entries.length]);
 
-  // Scroll vim-style: muovi il viewport solo quando il cursore esce dal range visibile.
+  // Vim-style scrolling: move the viewport only when the cursor leaves the visible range.
   useEffect(() => {
     setScrollOffset(prev => {
       const clamped = Math.max(0, Math.min(prev, Math.max(0, entries.length - PAGE_SIZE)));
