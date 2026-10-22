@@ -55,7 +55,7 @@ All notable changes to this project will be documented in this file. See [standa
 * **config:** `remote-url`, `remote-api-key` config keys + `PH_REMOTE_URL` env var support
 * **opencode:** native importer (`ph import opencode`) + real-time plugin hook
 
-### (prima di continuare con il commit fammi vedere se ti piace la situazione ) vabene?  
+### Before continuing with the commit, show me the current state and check that it looks good.
 
 
 ## [1.3.0](https://github.com/gi4nks/ph/compare/v1.2.0...v1.3.0) (2026-04-12)
