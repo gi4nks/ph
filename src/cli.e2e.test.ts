@@ -39,8 +39,10 @@ describe('plain-text CLI entry', () => {
         });
       });
 
-      expect(output).toContain('Everyday use');
-      expect(output).toContain('ph context "task"');
+      expect(output).toContain('One-time setup');
+      expect(output).toContain('ph setup');
+      expect(output).toContain('use those tools normally');
+      expect(output).toContain('ph search "query"');
       expect(output).toContain('ph help --all');
       expect(output).not.toContain('\u001b[?1049h');
     } finally {

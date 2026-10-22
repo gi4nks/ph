@@ -28,6 +28,7 @@ import { cmdTimeline } from './commands/timeline.js';
 import { cmdMemoryMigrate } from './commands/memory-migrate.js';
 import { cmdWrap } from './commands/wrap.js';
 import { cmdChat } from './commands/chat.js';
+import { detectCaptureTools, setupCapture } from './commands/setup.js';
 import { cmdModels } from './commands/models.js';
 import { parseFlags } from './commands/_utils.js';
 
@@ -35,6 +36,7 @@ const ADVANCED_USAGE = `ph — local history and project context for AI CLI tool
 
 USAGE:
   ph                                    Print the short everyday-use guide
+  ph setup [tool...]                   Connect supported AI CLIs for automatic capture
   ph <tool> [tool-args...]              Wrap a CLI tool, save prompt to history
   ph search [options] [query]           Search saved prompts
   ph context [options] [query]          Get RAG context for the current project
@@ -152,18 +154,17 @@ EXAMPLES:
   ph models mlx-serve                       Discover models on MLX-Serve (default Parmenide tunnel)
 `;
 
-const USAGE = `PH keeps a searchable record of work with AI CLI tools.
+const USAGE = `PH remembers work across your AI coding sessions.
 
-Everyday use (run from your project directory):
-  ph claude [args...]        Run Claude and save the interaction
-  ph codex [args...]         Run Codex and save the interaction
-  ph search "query"          Find earlier work
-  ph context "task"          Retrieve relevant project context
-  ph close                  Review recent work and save decisions
+One-time setup:
+  ph setup                  Connect PH to installed supported AI CLIs
 
-Run ph <tool> to capture another supported AI CLI.
-Run ph help --all for maintenance and integration commands.
-Use ph search with filters for older or more specific history.
+Then use those tools normally. PH saves completed exchanges in the background.
+
+When you need something back:
+  ph search "query"         Find an earlier decision or solution
+
+You can also capture manually with ph <tool>. Run ph help --all for integrations and maintenance.
 `;
 
 
@@ -209,6 +210,19 @@ async function main(): Promise<void> {
   const preArgs = argv.slice(0, cmdIdx); // pre-tool flags like --ph-tag
 
   switch (command) {
+    case 'setup': {
+      if (cmdArgs.includes('--help') || cmdArgs.includes('-h')) {
+        process.stdout.write('Usage: ph setup [claude|codex|gemini|opencode...]\nWithout tool names, PH detects installed supported CLIs.\n');
+        break;
+      }
+      const selectedTools = cmdArgs.filter(arg => !arg.startsWith('-'));
+      const tools = selectedTools.length ? selectedTools : detectCaptureTools();
+      const installed = setupCapture(process.env.HOME, undefined, tools);
+      process.stdout.write(installed.length
+        ? `PH capture is connected to: ${installed.join(', ')}. Restart those tools to begin saving new exchanges.\n`
+        : 'No supported AI CLI detected. Install or name one explicitly: claude, codex, gemini, opencode.\n');
+      break;
+    }
     case 'search': {
       const db = new PhDB(dbPath);
       await cmdSearch(db, cfg, cmdArgs);

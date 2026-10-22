@@ -32,22 +32,22 @@ Requires Node.js 22 or later (the Wise/AI SDK provider stack requires Node 22). 
 ## Quick start
 
 ```bash
-# Capture a prompt by wrapping an installed AI CLI tool
-ph claude
-ph codex
+# Connect PH once to the AI CLIs you use
+ph setup
+
+# Then use Claude Code, Codex, or Gemini CLI normally. Completed exchanges
+# are captured in the background by each tool's native hook.
+claude
+codex
 
 # Search prompt history
 ph search "goroutines"
 
-# Retrieve relevant project context for a task
-ph context "add database migrations"
-
-# Review recent work and keep useful project decisions
-ph close
-
 # Add a record directly
 ph log --tool claude --prompt "Explain this function" --response "It parses..."
 ```
+
+`ph setup` detects installed Claude Code, Codex CLI, Gemini CLI, and OpenCode integrations, then installs capture hooks while preserving existing settings. Pass tool names to select explicitly (`ph setup codex claude`). It is safe to run again. Use `ph <tool>` as a wrapper if you prefer not to install hooks.
 
 ## Capture history
 
@@ -108,9 +108,9 @@ ph close
 ph close --from 1670 --to 1682 --dry-run
 ```
 
-`ph context "task"` is the single user-facing path for retrieving task context. It uses semantic retrieval when available and labels its recent-history fallback when embeddings are unavailable. `ph prepare` remains as a compatibility alias. `close` reviews selected prompt/response pairs, asks the configured analysis provider for durable knowledge proposals, and requires an interactive terminal before the provider call. Accepted proposals retain their source prompt IDs and are written with summary updates in one atomic database transaction.
+`ph context "task"` retrieves task-specific history when you want to supply it explicitly. `ph close` is an optional review workflow for promoting durable knowledge; it is not required for capture or search. `ph prepare` remains a compatibility alias for `ph context`.
 
-Running `ph` prints a short command guide; it does not open a TUI. `ph browse` remains as a compatibility alias for listing recent interactions. `ph help --all` lists maintenance and integration commands.
+Running `ph` prints the short setup-first workflow; it does not open a TUI. `ph browse` remains as a compatibility alias for listing recent interactions. `ph help --all` lists maintenance and integration commands.
 
 ## Project memory and analysis
 
