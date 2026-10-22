@@ -28,6 +28,8 @@ Cluster map: Core (CLI/architecture) · Capture (wrapper/hooks/log) · DB (PhDB)
 | SPEC-013 | Importers (claude/gemini/opencode/codex) | Import | **Implemented** | import fixtures |
 | SPEC-014 | Analytics commands (sessions/stats/cluster/timeline) | Analytics | **Implemented (baseline)** | — |
 | SPEC-015 | Config & env overrides | Config | **Implemented (baseline)** | — |
+| SPEC-016 | Operational memory workflow (prepare/close/MCP provenance) | Memory, CLI, MCP | **Implemented** | `src/commands/__tests__/operational-memory.test.ts`, `src/mcp/__tests__/server.test.ts` |
+| SPEC-017 | Internal architecture consolidation (CLI surface gate, MCP modules, DB repositories) | Core, DB, MCP | **Implemented** | `src/knowledge/`, `src/mcp/tools/`, `src/db/{memory,archive}-repository.ts` |
 
 ## Cross-cutting findings (SPEC-ISSUES.md)
 

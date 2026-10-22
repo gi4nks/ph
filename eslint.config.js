@@ -23,7 +23,9 @@ export default [
         clearTimeout: "readonly",
         fetch: "readonly",
         AbortController: "readonly",
+        AbortSignal: "readonly",
         Response: "readonly",
+        URL: "readonly",
       },
     },
     plugins: {

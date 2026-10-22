@@ -24,6 +24,8 @@ import { cmdBackgroundAnalyze } from './commands/background-analyze.js';
 import { cmdCleanup } from './commands/cleanup.js';
 import { cmdVacuum } from './commands/vacuum.js';
 import { cmdContext } from './commands/context.js';
+import { cmdPrepare } from './commands/prepare.js';
+import { cmdClose } from './commands/close.js';
 import { cmdSessions } from './commands/sessions.js';
 import { cmdStats } from './commands/stats.js';
 import { cmdCluster } from './commands/cluster.js';
@@ -44,6 +46,8 @@ USAGE:
   ph <tool> [tool-args...]              Wrap a CLI tool, save prompt to history
   ph search [options] [query]           Search saved prompts
   ph context [options] [query]          Get RAG context for the current project
+  ph prepare "<task>" [options]          Build a read-only task brief with source IDs
+  ph close --since 3h [options]          Review work and propose knowledge to save
   ph chat <tool> <prompt...>            Run tool with project context injected
   ph last [n]                           Show last N prompts (default 10)
   ph sessions [options]                 Group prompts into work sessions
@@ -100,6 +104,17 @@ CONTEXT OPTIONS:
   --memories-only     Show only project knowledge, skip prompts
   --verbose           Include full prompt text in output
 
+PREPARE OPTIONS:
+  --project <name>    Project to retrieve context for (default: auto-detect)
+  --limit <n>         Max results (default 5, max 20)
+  --budget <chars>    Maximum brief content target (default 3500)
+
+CLOSE OPTIONS:
+  --since <duration>  Select recent prompts (e.g. 30m, 3h, 1d)
+  --from <id> --to <id>  Select an inclusive prompt ID range
+  --project <name>    Project to review (default: auto-detect)
+  --dry-run           Show selected prompts without calling an LLM
+
 SESSIONS OPTIONS:
   --gap-hours <n>     Hours gap to split sessions (default 2)
   --limit <n>         Max sessions to show (default 20)
@@ -121,6 +136,8 @@ EXAMPLES:
   ph search "goroutines"
   ph search --tool claude --role debug --since 2026-01-01 "error handling"
   ph search --semantic "how to handle errors gracefully"
+  ph prepare "add Wise provider" --limit 5
+  ph close --since 3h
   ph search -i "database"
   ph last 20
   ph sessions
@@ -275,6 +292,18 @@ async function main(): Promise<void> {
     case 'context': {
       const db = new PhDB(dbPath);
       await cmdContext(db, cfg, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'prepare': {
+      const db = new PhDB(dbPath);
+      await cmdPrepare(db, cfg, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'close': {
+      const db = new PhDB(dbPath);
+      await cmdClose(db, cfg, cmdArgs);
       db.close();
       break;
     }

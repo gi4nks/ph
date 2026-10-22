@@ -5,6 +5,8 @@ import { createHash } from 'crypto';
 import * as sqliteVec from 'sqlite-vec';
 import type { PromptEntry, SearchOptions, MemoryEntry, ProjectSummary } from '../types.js';
 import { SemanticIndex } from './semantic-index.js';
+import { MemoryRepository } from './memory-repository.js';
+import { ArchiveRepository } from './archive-repository.js';
 
 export function defaultPath(): string {
   return path.join(os.homedir(), '.prompt_history.db');
@@ -45,6 +47,8 @@ export class PhDB {
 
   private db: Database.Database;
   private semanticIndex: SemanticIndex;
+  private memoryRepository: MemoryRepository;
+  private archiveRepository: ArchiveRepository;
 
   /** Absolute path of the SQLite file (used by the HTTP server health endpoint). */
   readonly dbPath: string;
@@ -56,6 +60,8 @@ export class PhDB {
     sqliteVec.load(this.db);
     this.semanticIndex = new SemanticIndex(this.db);
     this.migrate();
+    this.memoryRepository = new MemoryRepository(this.db);
+    this.archiveRepository = new ArchiveRepository(this.db);
   }
 
   private migrate(): void {
@@ -442,60 +448,10 @@ export class PhDB {
     return 0;
   }
 
-  archivePrompts(ids: number[]): number {
-    if (ids.length === 0) return 0;
-    const now = new Date().toISOString();
-    const select = this.db.prepare(`
-      SELECT id, timestamp, tool, prompt, response, args, workdir, hostname, exit_code, metadata
-      FROM prompts WHERE id = ?
-    `);
-    const insert = this.db.prepare(`
-      INSERT INTO prompts_archive (timestamp, tool, prompt, response, args, workdir, hostname, exit_code, metadata, archived_at, original_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const del = this.db.prepare('DELETE FROM prompts WHERE id = ?');
-
-    const transaction = this.db.transaction((toArchive: number[]) => {
-      let count = 0;
-      for (const id of toArchive) {
-        const row = select.get(id) as Record<string, unknown> | undefined;
-        if (!row) continue;
-        insert.run(
-          row.timestamp, row.tool, row.prompt, row.response, row.args,
-          row.workdir, row.hostname, row.exit_code, row.metadata,
-          now, id
-        );
-        del.run(id);
-        count++;
-      }
-      return count;
-    });
-
-    return transaction(ids);
-  }
-
-  searchArchive(opts: { since?: string; until?: string; limit?: number }): Array<Record<string, unknown>> {
-    let sql = 'SELECT * FROM prompts_archive WHERE 1=1';
-    const params: unknown[] = [];
-    if (opts.since) { sql += ' AND timestamp >= ?'; params.push(opts.since); }
-    if (opts.until) { sql += ' AND timestamp <= ?'; params.push(opts.until); }
-    sql += ' ORDER BY timestamp DESC';
-    if (opts.limit) { sql += ' LIMIT ?'; params.push(opts.limit); }
-    return this.db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
-  }
-
-  purgeArchive(beforeDate: string): number {
-    const result = this.db.prepare('DELETE FROM prompts_archive WHERE archived_at < ?').run(beforeDate);
-    return result.changes;
-  }
-
-  getArchiveStats(): { total: number; oldest: string | null; newest: string | null } {
-    const row = this.db.prepare(`
-      SELECT COUNT(*) as total, MIN(timestamp) as oldest, MAX(timestamp) as newest
-      FROM prompts_archive
-    `).get() as { total: number; oldest: string | null; newest: string | null };
-    return row;
-  }
+  archivePrompts(ids: number[]): number { return this.archiveRepository.archivePrompts(ids); }
+  searchArchive(opts: { since?: string; until?: string; limit?: number }): Array<Record<string, unknown>> { return this.archiveRepository.searchArchive(opts); }
+  purgeArchive(beforeDate: string): number { return this.archiveRepository.purgeArchive(beforeDate); }
+  getArchiveStats(): { total: number; oldest: string | null; newest: string | null } { return this.archiveRepository.getArchiveStats(); }
 
   vacuum(): void {
     this.db.exec('VACUUM');
@@ -511,252 +467,40 @@ export class PhDB {
     return map;
   }
 
-  // ─── Memory operations ──────────────────────────────────────────────────────
+  // ─── Memory repository facade ─────────────────────────────────────────────
 
-  insertMemory(mem: Omit<MemoryEntry, 'id'>): number {
-    const info = this.db
-      .prepare(`
-        INSERT INTO memories (project, prompt_ids, summary, key_insights, technical_decisions,
-                              git_context_snapshot, created_at, updated_at, access_count, last_accessed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        mem.project,
-        JSON.stringify(mem.prompt_ids),
-        mem.summary,
-        JSON.stringify(mem.key_insights),
-        JSON.stringify(mem.technical_decisions),
-        mem.git_context_snapshot ?? null,
-        mem.created_at,
-        mem.updated_at,
-        mem.access_count,
-        mem.last_accessed ?? null,
-      );
-    return info.lastInsertRowid as number;
-  }
-
-  updateMemory(id: number, updates: Partial<Omit<MemoryEntry, 'id' | 'project' | 'created_at'>>): void {
-    const setClauses: string[] = [];
-    const params: unknown[] = [];
-
-    if (updates.prompt_ids !== undefined) {
-      setClauses.push('prompt_ids = ?');
-      params.push(JSON.stringify(updates.prompt_ids));
-    }
-    if (updates.summary !== undefined) {
-      setClauses.push('summary = ?');
-      params.push(updates.summary);
-    }
-    if (updates.key_insights !== undefined) {
-      setClauses.push('key_insights = ?');
-      params.push(JSON.stringify(updates.key_insights));
-    }
-    if (updates.technical_decisions !== undefined) {
-      setClauses.push('technical_decisions = ?');
-      params.push(JSON.stringify(updates.technical_decisions));
-    }
-    if (updates.git_context_snapshot !== undefined) {
-      setClauses.push('git_context_snapshot = ?');
-      params.push(updates.git_context_snapshot);
-    }
-    if (updates.access_count !== undefined) {
-      setClauses.push('access_count = ?');
-      params.push(updates.access_count);
-    }
-    if (updates.last_accessed !== undefined) {
-      setClauses.push('last_accessed = ?');
-      params.push(updates.last_accessed);
-    }
-
-    setClauses.push('updated_at = ?');
-    params.push(new Date().toISOString());
-    params.push(id);
-
-    this.db
-      .prepare(`UPDATE memories SET ${setClauses.join(', ')} WHERE id = ?`)
-      .run(...params);
-  }
-
-  getMemoryById(id: number): MemoryEntry | undefined {
-    const row = this.db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as Record<string, unknown> | undefined;
-    if (!row) return undefined;
-    return this.hydrateMemory(row);
-  }
-
-  searchMemories(project: string, limit: number = 10): MemoryEntry[] {
-    const rows = this.db
-      .prepare('SELECT * FROM memories WHERE project = ? ORDER BY updated_at DESC LIMIT ?')
-      .all(project, limit) as Record<string, unknown>[];
-    return rows.map(r => this.hydrateMemory(r));
-  }
-
-  upsertProjectMemory(entry: { project: string; prompt_id: number; summary: string; key_insights: string[]; technical_decisions: string[]; git_context_snapshot?: string }): number {
-    // Append-only: create a new memory entry each time, preserving full history
-    return this.insertMemory({
-      project: entry.project,
-      prompt_ids: [entry.prompt_id],
-      summary: entry.summary,
-      key_insights: entry.key_insights,
-      technical_decisions: entry.technical_decisions,
-      git_context_snapshot: entry.git_context_snapshot,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      access_count: 0,
-      last_accessed: undefined,
-    });
-  }
-
-  getLastMemoryForProject(project: string): MemoryEntry | undefined {
-    const row = this.db
-      .prepare('SELECT * FROM memories WHERE project = ? ORDER BY updated_at DESC LIMIT 1')
-      .get(project) as Record<string, unknown> | undefined;
-    if (!row) return undefined;
-    return this.hydrateMemory(row);
-  }
-
-  getAllProjectsWithMemories(): string[] {
-    const rows = this.db
-      .prepare('SELECT DISTINCT project FROM memories ORDER BY project')
-      .all() as { project: string }[];
-    return rows.map(r => r.project);
-  }
-
-  upsertProjectSummary(params: {
-    project: string;
-    summary: string;
-    key_insights: string[];
-    technical_decisions: string[];
-    git_context_snapshot?: string;
-  }): void {
-    const existing = this.getProjectSummary(params.project);
-    const now = new Date().toISOString();
-
-    if (existing) {
-      const allInsights = new Set([...existing.key_insights, ...params.key_insights]);
-      const allDecisions = new Set([...existing.technical_decisions, ...params.technical_decisions]);
-
-      this.db.prepare(`
-        UPDATE project_summaries
-        SET summary = ?,
-            key_insights = ?,
-            technical_decisions = ?,
-            prompt_count = prompt_count + 1,
-            last_analyzed = ?,
-            git_context_snapshot = COALESCE(?, git_context_snapshot)
-        WHERE project = ?
-      `).run(
-        params.summary,
-        JSON.stringify([...allInsights]),
-        JSON.stringify([...allDecisions]),
-        now,
-        params.git_context_snapshot || null,
-        params.project
-      );
-    } else {
-      this.db.prepare(`
-        INSERT INTO project_summaries (project, summary, key_insights, technical_decisions, prompt_count, first_analyzed, last_analyzed, git_context_snapshot)
-        VALUES (?, ?, ?, ?, 1, ?, ?, ?)
-      `).run(
-        params.project,
-        params.summary,
-        JSON.stringify(params.key_insights),
-        JSON.stringify(params.technical_decisions),
-        now,
-        now,
-        params.git_context_snapshot || null
-      );
-    }
-  }
-
-  getProjectSummary(project: string): ProjectSummary | null {
-    const row = this.db.prepare('SELECT * FROM project_summaries WHERE project = ?').get(project) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return this.hydrateProjectSummary(row);
-  }
-
-  getAllProjectsWithSummaries(): string[] {
-    const rows = this.db.prepare('SELECT project FROM project_summaries ORDER BY project').all() as { project: string }[];
-    return rows.map(r => r.project);
-  }
-
-  recordMemoryAccess(id: number): void {
-    this.db
-      .prepare('UPDATE memories SET access_count = access_count + 1, last_accessed = ? WHERE id = ?')
-      .run(new Date().toISOString(), id);
-  }
-
-  deleteMemory(id: number): void {
-    this.db.prepare('DELETE FROM memories WHERE id = ?').run(id);
-  }
-
-  private hydrateMemory(row: Record<string, unknown>): MemoryEntry {
-    return {
-      id: row.id as number,
-      project: row.project as string,
-      prompt_ids: JSON.parse(row.prompt_ids as string),
-      summary: row.summary as string,
-      key_insights: JSON.parse(row.key_insights as string),
-      technical_decisions: JSON.parse(row.technical_decisions as string),
-      git_context_snapshot: row.git_context_snapshot as string | undefined,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
-      access_count: row.access_count as number,
-      last_accessed: row.last_accessed as string | undefined,
-    };
-  }
-
-  private hydrateProjectSummary(row: Record<string, unknown>): ProjectSummary {
-    return {
-      project: row.project as string,
-      summary: row.summary as string,
-      key_insights: JSON.parse(row.key_insights as string),
-      technical_decisions: JSON.parse(row.technical_decisions as string),
-      prompt_count: row.prompt_count as number,
-      first_analyzed: row.first_analyzed as string,
-      last_analyzed: row.last_analyzed as string,
-      git_context_snapshot: row.git_context_snapshot as string | undefined,
-    };
-  }
+  insertMemory(mem: Omit<MemoryEntry, 'id'>): number { return this.memoryRepository.insertMemory(mem); }
+  promoteMemories(memories: Omit<MemoryEntry, 'id'>[]): number[] { return this.memoryRepository.promoteMemories(memories); }
+  updateMemory(id: number, updates: Partial<Omit<MemoryEntry, 'id' | 'project' | 'created_at'>>): void { this.memoryRepository.updateMemory(id, updates); }
+  getMemoryById(id: number): MemoryEntry | undefined { return this.memoryRepository.getMemoryById(id); }
+  searchMemories(project: string, limit = 10): MemoryEntry[] { return this.memoryRepository.searchMemories(project, limit); }
+  upsertProjectMemory(entry: { project: string; prompt_id: number; summary: string; key_insights: string[]; technical_decisions: string[]; git_context_snapshot?: string }): number { return this.memoryRepository.upsertProjectMemory(entry); }
+  getLastMemoryForProject(project: string): MemoryEntry | undefined { return this.memoryRepository.getLastMemoryForProject(project); }
+  getAllProjectsWithMemories(): string[] { return this.memoryRepository.getAllProjectsWithMemories(); }
+  upsertProjectSummary(params: { project: string; summary: string; key_insights: string[]; technical_decisions: string[]; git_context_snapshot?: string }): void { this.memoryRepository.upsertProjectSummary(params); }
+  getProjectSummary(project: string): ProjectSummary | null { return this.memoryRepository.getProjectSummary(project); }
+  getAllProjectsWithSummaries(): string[] { return this.memoryRepository.getAllProjectsWithSummaries(); }
+  recordMemoryAccess(id: number): void { this.memoryRepository.recordMemoryAccess(id); }
+  deleteMemory(id: number): void { this.memoryRepository.deleteMemory(id); }
+  getAllMemoriesByProject(project: string): MemoryEntry[] { return this.memoryRepository.getAllMemoriesByProject(project); }
 
   getAllPromptsByProject(project: string): PromptEntry[] {
     return this.db
-      .prepare(`
-        SELECT * FROM prompts
-        WHERE json_extract(metadata, '$.project') = ?
-        ORDER BY timestamp ASC
-      `)
+      .prepare(`SELECT * FROM prompts WHERE json_extract(metadata, '$.project') = ? ORDER BY timestamp ASC`)
       .all(project) as PromptEntry[];
   }
 
   getPromptsByProjectPaginated(project: string, page: number, pageSize: number): { entries: PromptEntry[]; total: number } {
-    const total = this.db
-      .prepare("SELECT COUNT(*) as count FROM prompts WHERE json_extract(metadata, '$.project') = ?")
-      .get(project) as { count: number };
-
+    const total = this.db.prepare("SELECT COUNT(*) as count FROM prompts WHERE json_extract(metadata, '$.project') = ?").get(project) as { count: number };
     const entries = this.db
-      .prepare(`
-        SELECT * FROM prompts
-        WHERE json_extract(metadata, '$.project') = ?
-        ORDER BY timestamp DESC
-        LIMIT ? OFFSET ?
-      `)
+      .prepare(`SELECT * FROM prompts WHERE json_extract(metadata, '$.project') = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?`)
       .all(project, pageSize, (page - 1) * pageSize) as PromptEntry[];
-
     return { entries, total: total.count };
   }
 
   getPromptCountByProject(project: string): number {
-    const row = this.db
-      .prepare("SELECT COUNT(*) as count FROM prompts WHERE json_extract(metadata, '$.project') = ?")
-      .get(project) as { count: number };
+    const row = this.db.prepare("SELECT COUNT(*) as count FROM prompts WHERE json_extract(metadata, '$.project') = ?").get(project) as { count: number };
     return row.count;
-  }
-
-  getAllMemoriesByProject(project: string): MemoryEntry[] {
-    const rows = this.db
-      .prepare('SELECT * FROM memories WHERE project = ? ORDER BY created_at ASC')
-      .all(project) as Record<string, unknown>[];
-    return rows.map(r => this.hydrateMemory(r));
   }
 
   close(): void {

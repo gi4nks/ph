@@ -10,6 +10,14 @@
     { "id": "gemini-import", "project": "ph", "text": "Gemini history import reads session JSON, pairs human messages with the following model response, and supports dry run and duplicate filtering." },
     { "id": "remote-sync", "project": "ph", "text": "Remote sync pushes unsynced prompts and pulls newer records; sync hashes deduplicate matching prompt, response, tool, and arguments." },
     { "id": "analysis-memory", "project": "ph", "text": "Background analysis appends project memories and merges key insights and technical decisions into a single project summary." },
+    { "id": "shared-context", "project": "ph", "text": "getProjectContext and formatProjectContext are shared by ph context, chat, and MCP; semantic retrieval must stay project scoped." },
+    { "id": "wise-provider", "project": "ph", "text": "Wise provides OpenRouter and MLX-Serve providers in ph; provider and model configuration is shared across CLI and TUI." },
+    { "id": "homo-provider-boundary", "project": "homo", "text": "HOMO uses the shared Wise library to configure multiple AI providers behind the application's AI integration." },
+    { "id": "homo-genesis-context", "project": "homo", "text": "Chapter Genesis carries previous content fragments and book-level lore constraints into generated scenes." },
+    { "id": "picot-sqlite-build", "project": "picot", "text": "PicoT uses SQLite and Next.js; builds should use a SQLite timeout and isolated build data to avoid SQLITE_BUSY races." },
+    { "id": "picot-breadcrumb-context", "project": "picot", "text": "PicoT document preview preserves the originating library listing, search, and filters through breadcrumb navigation." },
+    { "id": "lens-harness-goal", "project": "lens", "text": "Lens integrates the harness goal loop with verified predicates, progress, recovery, and a run_command tool." },
+    { "id": "lens-wise-provider", "project": "lens", "text": "Lens WiseProvider supports OpenRouter and MLX-Serve using configured provider model IDs." },
     { "id": "unrelated-react", "project": "lens", "text": "React rendering uses reconciliation to compare virtual trees and update the browser DOM." },
     { "id": "unrelated-go", "project": "sonic", "text": "Go goroutines communicate using channels and are scheduled by the Go runtime." }
   ],
@@ -21,6 +29,14 @@
     { "query": "How are assistant replies and hidden reasoning handled in Claude imports?", "relevant": ["claude-import"] },
     { "query": "How does Gemini history import pair prompt and model output?", "relevant": ["gemini-import"] },
     { "query": "How does ph avoid duplicate records when synchronizing laptops?", "relevant": ["remote-sync"] },
-    { "query": "How do prompt analyses update the long term project knowledge?", "relevant": ["analysis-memory"] }
+    { "query": "How do prompt analyses update the long term project knowledge?", "relevant": ["analysis-memory"] },
+    { "query": "Which shared retrieval API do CLI, chat, and MCP use?", "relevant": ["shared-context"] },
+    { "query": "How are Wise models and providers configured in ph?", "relevant": ["wise-provider"] },
+    { "query": "How does HOMO pass earlier chapter context and lore into generation?", "relevant": ["homo-genesis-context"] },
+    { "query": "Which provider abstraction does HOMO use for AI backends?", "relevant": ["homo-provider-boundary"] },
+    { "query": "How should PicoT builds avoid SQLite locking conflicts?", "relevant": ["picot-sqlite-build"] },
+    { "query": "What state does PicoT preserve when navigating back from a document?", "relevant": ["picot-breadcrumb-context"] },
+    { "query": "How does Lens verify and recover an agent goal?", "relevant": ["lens-harness-goal"] },
+    { "query": "Which local and hosted AI providers are available to Lens?", "relevant": ["lens-wise-provider"] }
   ]
 }

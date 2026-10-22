@@ -3,7 +3,7 @@
 ## Session Progress
 
 ### Goal
-Remote sync infrastructure: HTTP server for cross-laptop prompt history sharing, with offline-first local SQLite + background push/pull to a remote ph server.
+Operational memory workflow: task preflight, explicit end-of-task knowledge promotion, and shared retrieval for CLI/MCP.
 
 ### Completed
 - **Phase 0**: `cli.ts` ~1500→~80 lines; 19 command handlers → `src/commands/*.ts`
@@ -33,6 +33,7 @@ Remote sync infrastructure: HTTP server for cross-laptop prompt history sharing,
 - **Timeline CLI**: `ph timeline <project>` — full chronological project history with prompts, analysis, memories interleaved in markdown. Added `getAllPromptsByProject()` and `getAllMemoriesByProject()` to PhDB with ascending order queries.
 - **MCP `get_project_timeline`**: Returns full project timeline (prompts + memories in chronological order) via stdio. Auto-discovered by any MCP client.
 - **MCP `check_project_knowledge`**: AI agents call this before implementing a feature. Searches memories (keyword match) + semantic prompt search for previous implementations, discussions, and technical decisions. Returns "found" or "new work" recommendation.
+- **Operational memory workflow (2026-10-10)**: `ph prepare` builds a read-only task brief through shared retrieval with provenance and bounded excerpts; `ph close` reviews selected prompts, proposes durable knowledge, and requires interactive approval before saving memories and updating summaries. MCP uses the same context boundary and validates prompt provenance on `save_decision`.
 
 ### Evolution Plan (`docs/superpowers/specs/2026-06-12-ph-evolution-design.md`)
 - **Phase 1 (complete)**: `project_summaries`, summary merge and deduplication, `ph memory-migrate`, analysis writes to memories and summaries, MCP summary access, and `save_decision` persistence.
@@ -308,7 +309,7 @@ interface PhConfig {
 ph config set background-analysis true
 ```
 
-Dopo ogni `ph log ...` o hook invocation, partirà automaticamente l'analisi in background e le memory entries si accumuleranno.
+After each `ph log ...` command or hook invocation, background analysis runs and appends project memory entries.
 
 ## TUI Keybindings
 
@@ -420,3 +421,6 @@ Dopo ogni `ph log ...` o hook invocation, partirà automaticamente l'analisi in 
 | 2026-10-09 | Added Wise-backed OpenRouter and MLX-Serve analysis providers, model discovery, environment-only credentials, Parmenide tunnel configuration, and Node 22 runtime requirement | TypeScript, Wise, AI SDK | `src/ai/wise.ts`, `src/{ai/provider.ts,commands/models.ts,commands/config.ts,config/index.ts,cli.ts}`, `package.json`, `tsup.config.ts`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-09 | Added `ph config show`, hidden interactive storage for Wise provider keys with mode-0600 config, and MLX-Serve discovery showing loaded state plus actionable SSH tunnel errors | TypeScript, Wise, MLX-Serve | `src/{commands/config.ts,commands/models.ts,ai/wise.ts,ai/provider.ts,config/index.ts,cli.ts}`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-10 | Unified analysis-provider summaries across `ph config show`, TUI Settings, and `p`; `p` now invokes the selected Wise provider and logs its response, while `r` reruns the original CLI tool | TypeScript, Ink, Wise | `src/config/provider-summary.ts`, `src/{commands/config.ts,ui/BrowseApp.tsx,ui/Footer.tsx,ai/provider.ts,cli.ts}` |
+| 2026-10-10 | Added operational memory loop: read-only task `prepare`, human-approved/editable `close` proposals with prompt provenance, shared MCP retrieval and validated `save_decision` sources; expanded offline golden retrieval contract across five projects | TypeScript, SQLite, MCP, Vitest | `src/{commands/{prepare,close}.ts,context/index.ts,mcp/server.ts,cli.ts}`, `docs/{evals,plans}/`, `README.md`, `docs/ph-manual.md` |
+| 2026-10-22 | Hardened memory promotion: approved batches and summary updates now commit atomically; `ph close` checks TTY before provider calls | TypeScript, SQLite, Vitest | `src/db/index.ts`, `src/commands/close.ts`, `src/mcp/server.ts`, `src/db/__tests__/phdb.test.ts`, `docs/specs/SPEC-016-operational-memory.md` |
+| 2026-10-22 | Consolidated PH architecture: scoped feature growth pending three real workflow uses; MCP composition reduced to protocol wiring with domain-grouped handlers and shared task-context/promotion use cases; memory and archive SQL extracted behind the source-compatible PhDB facade | TypeScript, SQLite, MCP, Vitest | `src/knowledge/`, `src/mcp/`, `src/db/{memory,archive}-repository.ts`, `docs/specs/SPEC-017-architecture-consolidation.md`, `ROADMAP.md` |
