@@ -42,20 +42,25 @@ available separately through `ph help --all`.
 
 | Job | Primary command | Contract |
 |---|---|---|
-| Capture | `ph <tool> [args...]` | Run the requested tool and capture its interaction |
+| Setup | `ph setup [tool...]` | Detect supported installed tools by default and install native capture integrations while preserving existing configuration |
+| Capture | Native tool hook after setup; `ph <tool> [args...]` remains optional | Capture completed exchanges without changing the user's normal AI CLI invocation |
 | Find | `ph search <query>` | Print matching history in plain text |
-| Resume | `ph context "task"` | Return project knowledge and relevant, source-linked interactions; use recent context if embeddings are unavailable |
-| Review | `ph close` | Select the last three hours, propose durable knowledge, and require explicit approval |
+| Resume | `ph context "task"` | Optional explicit retrieval of project knowledge and relevant interactions |
+| Review | `ph close` | Optional review of recent work; propose durable knowledge and require explicit approval |
 
-`prepare` is a compatibility alias for `context`. There is no TUI in the
-runtime package. History can be read with `search`, `last`, or the `browse`
-compatibility alias.
+Daily use requires setup once, then normal use of the supported AI CLI; search
+is the only regular PH command. `prepare` is a compatibility alias for
+`context`. There is no TUI in the runtime package. History can also be read
+with `last` or the `browse` compatibility alias.
 
 ## 5. Invariants
 
 - ESM only; relative imports use `.js` extensions.
 - Existing advanced command names remain available unless separately removed.
 - Capture and full-text search do not require an AI provider.
+- `setup` writes only PH hook entries and preserves other JSON configuration;
+  rerunning setup does not duplicate its entries.
+- Setup does not import prior sessions or start an analysis provider.
 - Retrieval labels its recent-history fallback; it does not silently claim
   semantic matching when embeddings are unavailable.
 - `close` does not call a provider or mutate storage without a TTY and explicit
@@ -78,6 +83,13 @@ compatibility alias.
   shown without provider calls or database writes.
 - **G6**: Given `ph browse` or `ph search -i "cache"`, when invoked, then
   matching/recent plain-text results are printed without an interactive UI.
+- **G7**: Given an existing Claude/Codex/Gemini JSON configuration, when
+  `ph setup <tool>` runs, then its existing keys are preserved, one PH hook is
+  installed, and rerunning setup does not duplicate that hook; OpenCode's
+  existing `ph-plugin.ts` is left untouched if it differs from PH's plugin.
+- **G8**: Given a supported tool name, when `ph setup` is called with explicit
+  tool names, then only those integrations are installed; without names, only
+  installed supported CLIs are detected and configured.
 
 ## 7. Implementation Map
 
@@ -87,6 +99,7 @@ compatibility alias.
 | Search and `-i` compatibility | `src/commands/search.ts` |
 | Task-aware context | `src/commands/context.ts`, `src/knowledge/task-context.ts` |
 | Three-hour review default | `src/commands/close.ts` |
+| Native capture setup | `src/commands/setup.ts` |
 | CLI / operational memory tests | `src/commands/__tests__/operational-memory.test.ts` |
 
 ## 8. Related

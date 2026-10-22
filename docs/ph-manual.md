@@ -103,10 +103,13 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 | Command | Description |
 |---------|-------------|
 | `ph` | Print the short usage guide |
+| `ph setup` | Connect installed Claude Code, Codex CLI, Gemini CLI, and OpenCode for automatic capture |
 | `ph <tool> [args...]` | Run an AI CLI tool and capture the interaction |
 | `ph search <query>` | Find earlier work |
 | `ph context "task"` | Retrieve project knowledge and related prompts |
 | `ph close` | Review the last three hours and approve useful project knowledge |
+
+`ph setup` is the recommended first step for everyday use. It detects installed supported tools (Claude Code, Codex CLI, Gemini CLI, and OpenCode), installs their native capture integrations, and preserves existing settings. Pass tool names to choose explicitly. After setup, keep using your AI CLI normally; `ph search "query"` is the main command for retrieving earlier work. `ph <tool>` remains as a wrapper alternative.
 
 `ph prepare "task"` remains as a compatibility alias for task-aware `ph context`.
 `ph browse` is a compatibility alias for a plain-text list of recent interactions.
