@@ -1,3 +1,17 @@
+# [1.8.0](https://github.com/gi4nks/ph/compare/v1.7.0...v1.8.0) (2026-10-24)
+
+
+### Bug Fixes
+
+* harden PH capture, recall, and synchronization ([0e65743](https://github.com/gi4nks/ph/commit/0e657438bc2e59f2dcf14dd73e02882c29bfa390))
+
+
+### Features
+
+* add operational memory and consolidate architecture ([39aeae5](https://github.com/gi4nks/ph/commit/39aeae507a6bab93c8d1ff49555b82fb7fc9fc37))
+* make PH capture setup automatic ([35aad32](https://github.com/gi4nks/ph/commit/35aad321730dd8f1b04665af890e60e8c75a56e9))
+* simplify PH command-line workflow ([05b5ea7](https://github.com/gi4nks/ph/commit/05b5ea7202d55a05c277eafc6e2b51b1913f5063))
+
 # [1.7.0](https://github.com/gi4nks/ph/compare/v1.6.0...v1.7.0) (2026-10-18)
 
 
