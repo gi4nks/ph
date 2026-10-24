@@ -21,14 +21,14 @@ describe('ph setup', () => {
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
     fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify({ theme: 'dark', hooks: { Stop: [{ matcher: 'other', hooks: [{ type: 'command', command: 'existing-hook' }] }] } }));
 
-    expect(setupCapture(home, hooks, ['claude'])).toEqual(['claude']);
+    expect(setupCapture(home, hooks, ['claude'])).toEqual([{ tool: 'claude', status: 'installed' }]);
     const configPath = path.join(home, '.claude/settings.json');
     const installedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     expect(installedConfig.theme).toBe('dark');
     expect(installedConfig.hooks.Stop).toHaveLength(2);
     expect(fs.statSync(path.join(home, '.ph/hooks/claude-ph-hook.sh')).mode & 0o111).toBeTruthy();
 
-    setupCapture(home, hooks, ['claude']);
+    expect(setupCapture(home, hooks, ['claude'])).toEqual([{ tool: 'claude', status: 'already-configured' }]);
     expect(JSON.parse(fs.readFileSync(configPath, 'utf8')).hooks.Stop).toHaveLength(2);
   });
 

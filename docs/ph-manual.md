@@ -8,7 +8,7 @@
 
 ph is a local history and project-context tool for AI CLI work. It records interactions through native hooks or by wrapping a tool, then helps you search history and retrieve project context from the terminal.
 
-**Core principle:** ph captures conversations without changing the normal tool workflow. Optional analysis turns captured history into project summaries and memories that can be searched locally or requested by an MCP client. Capture and full-text search work without an LLM provider; analysis, embeddings, and semantic search require the configured provider.
+**Core principle:** ph captures conversations without changing the normal tool workflow. Optional analysis enriches each captured interaction with searchable summary, insights, decisions, and classification. Analysis does not promote active project memories; `ph close` and MCP `save_decision` are the explicit promotion paths. Capture and full-text search work without an LLM provider; analysis, embeddings, and semantic search require the configured provider.
 
 ### Key Features
 
@@ -105,15 +105,19 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 | `ph` | Print the short usage guide |
 | `ph setup` | Connect installed Claude Code, Codex CLI, Gemini CLI, and OpenCode for automatic capture |
 | `ph <tool> [args...]` | Run an AI CLI tool and capture the interaction |
-| `ph search <query>` | Find earlier work |
+| `ph search <query>` | Find earlier work in the current project (five matches by default) |
+| `ph show <id>` | Inspect the complete prompt, response, capture metadata, and analysis |
+| `ph show <id> --json` | Print the complete interaction as JSON |
 | `ph context "task"` | Retrieve project knowledge and related prompts |
 | `ph close` | Review the last three hours and approve useful project knowledge |
 
-`ph setup` is the recommended first step for everyday use. It detects installed supported tools (Claude Code, Codex CLI, Gemini CLI, and OpenCode), installs their native capture integrations, and preserves existing settings. Pass tool names to choose explicitly. After setup, keep using your AI CLI normally; `ph search "query"` is the main command for retrieving earlier work. `ph <tool>` remains as a wrapper alternative.
+`ph setup` is the recommended first step for everyday use. It detects installed supported tools (Claude Code, Codex CLI, Gemini CLI, and OpenCode), installs their native capture integrations, preserves existing settings, and reports whether each integration was installed or already configured. Pass tool names to choose explicitly. After setup, keep using your AI CLI normally; `ph search "query"` is the main command for retrieving earlier work. `ph <tool>` remains as a wrapper alternative.
+
+`ph search "query"` searches the project detected from the current directory and returns five matches by default, ordered by text relevance. Use `--limit <n>` to show more, or `--all` to search across every project. When no project can be detected, PH searches all saved work and labels that scope. Searches with no current-project matches explain how to broaden the search.
 
 `ph prepare "task"` remains as a compatibility alias for task-aware `ph context`.
 `ph browse` is a compatibility alias for a plain-text list of recent interactions.
-Use `ph help --all` for maintenance and integration commands.
+Use `ph help --all` for maintenance and integration commands, including `ph status` for recent capture and background-work state.
 
 ## 4a. Advanced Command Reference
 
@@ -121,7 +125,7 @@ Use `ph help --all` for maintenance and integration commands.
 |---------|-------------|
 | `ph` (no args) | Print the short everyday-use guide |
 | `ph <tool> [args...]` | Wrapper mode — run tool + capture |
-| `ph search [query]` | Full-text search prompts |
+| `ph search [query]` | Full-text search (current project, five matches by default) |
 | `ph search --semantic <query>` | Semantic (vector) search |
 | `ph search --archive` | Search archived prompts |
 | `ph last [n]` | Show last N prompts |
@@ -139,10 +143,11 @@ Use `ph help --all` for maintenance and integration commands.
 | `ph cleanup --retention` | Archive old/unqualified prompts per retention policy |
 | `ph cleanup-reusability` | Cleanup by reusability score |
 | `ph star <id>` | Toggle bookmark |
-| `ph export <id>` | Export prompt (txt/json/md) |
+| `ph export <id> [--format txt|json|md] [--archive]` | Export a complete interaction |
+| `ph status` | Show recent capture, analysis, and remote-push state without content |
 | `ph import gemini|claude|opencode|codex` | Import from AI CLI history |
 | `ph log --tool <name> ...` | Direct log (hook target) |
-| `ph embed-all` | Generate embeddings for all prompts |
+| `ph embed-all` | Generate embeddings for prompts without vectors |
 | `ph config get|set <key> <value>` | View/edit config |
 | `ph vacuum` | Compact SQLite database |
 | `ph memory-migrate` | Merge existing memories into project_summaries |
@@ -165,11 +170,12 @@ Use `ph help --all` for maintenance and integration commands.
 --archive             Search archived prompts
 --since YYYY-MM-DD    Start date
 --until YYYY-MM-DD    End date
---limit <n>           Max results (default 50)
+--limit <n>           Max results (default 5)
+--all                 Search across all projects instead of the current project
 --top                 Quality >= 8
 --min-quality <n>     Min quality (0-10)
 --min-relevance <n>   Min relevance (0-10)
---full                Show full prompt text
+--full                Show full prompt and response text
 ```
 
 ### Context options
@@ -207,7 +213,7 @@ ph maintains two levels of per-project knowledge:
 
 ### 5a. `project_summaries` (curated, 1 row per project)
 
-Accumulated knowledge with deduped insights and decisions. Updated on every analysis. Primary source for MCP tools.
+Accumulated, explicitly promoted knowledge with deduped insights and decisions. Updated by approved `close` proposals, MCP `save_decision`, and legacy migration; automatic analysis does not write here.
 
 ```bash
 # View accumulated project knowledge
@@ -219,7 +225,7 @@ ph context --project myproject
 
 ### 5b. `memories` (append-only timeline)
 
-Full chronological history of every analysis run. Preserved for detailed audit.
+Legacy append-only project knowledge records retained for detailed audit. New automatic analysis results stay on their source interaction instead of creating memory rows.
 
 ### Operational workflow: retrieve, work, review
 
@@ -276,7 +282,7 @@ ph search --archive
 
 ## 7. Background Analysis
 
-When enabled, every `ph log` automatically spawns a detached child process that analyzes the new entry (role, tags, relevance, summary, key insights, technical decisions).
+When enabled, every `ph log` marks analysis pending and starts a detached child process that adds role, tags, relevance, summary, key insights, and technical decisions to the interaction. It does not create project memories or summaries. `ph status` shows pending, complete, or safe failure state. Remote push status is shown when configured.
 
 ```bash
 ph config set background-analysis true
@@ -355,17 +361,21 @@ ph mcp
 Share prompt history across machines:
 
 ```bash
-# Start server
-ph server --port 3001 --host 0.0.0.0
+# Configure the required server key, then start on loopback
+ph config set remote-api-key "$PH_REMOTE_API_KEY"
+ph server --port 3001
 
-# From another machine
+# On the server, expose the listener only on a protected interface and put TLS
+# in front of it before using the endpoint across an untrusted network.
+# On each client, set the server URL and the same key:
+ph config set remote-api-key "$PH_REMOTE_API_KEY"
 ph config set remote-url http://server-ip:3001
-ph remote push      # send local unsynced prompts
-ph remote pull      # fetch remote prompts
+ph remote push      # resumable ID-based sync
+ph remote pull      # resumable ID-based sync
 ph remote status    # show sync state
 ```
 
-Every `ph log` auto-pushes to remote if configured (fire-and-forget, never blocks).
+The server requires a key before it starts, binds to `127.0.0.1` by default, and exposes only a status value at public `/health`. All data routes require Bearer authentication. Push and pull cursors are scoped to the remote target and the local database UUID. Push pages are split to stay below the 32 MiB request-body limit; interrupted pages can be retried safely. Bulk push waits at a live wrapper record and continues after the response is saved. `ph log` and both wrapper modes push after capture; requests time out after five seconds so an unavailable server cannot hang the command indefinitely. An invalid optional remote URL marks sync failed while the interaction remains saved locally and the wrapped CLI still runs. Current limitation: replacing the remote database behind the same URL is not detected, and last-push/pull status times are global across targets.
 
 ---
 
@@ -390,7 +400,7 @@ Every `ph log` auto-pushes to remote if configured (fire-and-forget, never block
 ph vacuum              # compact DB
 ph cleanup             # remove short/trivial/duplicate prompts
 ph cleanup --retention # archive per retention policy
-ph embed-all           # (re)generate all embeddings
+ph embed-all           # generate vectors for prompts without embeddings
 ```
 
 ---
@@ -437,8 +447,8 @@ ph config set filter-min-relevance 3
 | `retentionMinRelevance` | `3` | Archive prompts below this relevance |
 | `remoteUrl` | — | Remote ph server URL (or `PH_REMOTE_URL` env) |
 | `remoteApiKey` | — | Remote server API key |
-| `remoteLastPush` | — | Timestamp of last successful push |
-| `remoteLastPull` | — | Timestamp of last successful pull |
+| `remoteLastPush` | — | Global timestamp of last successful push |
+| `remoteLastPull` | — | Global timestamp of last successful pull |
 
 Provider API credentials are environment-only: `OPENROUTER_API_KEY` and
 `MLX_SERVE_API_KEY` (`GLB_OMLX_API_KEY` is a fallback). They are not written to

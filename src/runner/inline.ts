@@ -3,6 +3,8 @@ import fs from 'fs';
 import { PhDB } from '../db/index.js';
 import { captureGitContext } from './git-context.js';
 import { createCaptureRecord } from '../capture/index.js';
+import { completeLiveCapture, prepareLiveCapture } from '../capture/lifecycle.js';
+import type { PhConfig } from '../config/index.js';
 
 export function extractPrompt(args: string[]): string {
   for (let i = args.length - 1; i >= 0; i--) {
@@ -39,33 +41,46 @@ export async function runInline(
   db: PhDB,
   tool: string,
   tags: string[],
-  role?: string,
-  onInserted?: (id: number) => void
+  cfg: PhConfig,
+  role?: string
 ): Promise<void> {
   const workdir = process.cwd();
   const gitContext = captureGitContext(workdir);
 
-  const id = db.insert(createCaptureRecord({
+  const record = prepareLiveCapture(createCaptureRecord({
     tool,
     prompt: extractPrompt(args),
     args: args.join(' '),
     workdir,
     gitContext,
     metadata: { ...(role ? { role } : {}), ...(tags.length > 0 ? { tags } : {}) },
-  }));
+  }), cfg, { inProgress: true });
+  const id = db.insert(record);
 
-  if (onInserted) onInserted(id);
-
-  const child = spawn(realBin, args, { stdio: 'inherit' });
-
-  child.on('error', (err) => {
-    process.stderr.write(`ph: spawn error: ${err.message}\n`);
-    process.exit(1);
+  const child = spawn(realBin, args, { stdio: ['inherit', 'pipe', 'inherit'] });
+  let response = '';
+  let spawnError: Error | undefined;
+  child.stdout?.setEncoding('utf8');
+  child.stdout?.on('data', (chunk: string) => {
+    process.stdout.write(chunk);
+    response += chunk;
   });
 
-  child.on('exit', (code, signal) => {
-    const exitCode = code ?? (signal ? 1 : 0);
-    if (id > 0) db.updateExitCode(id, exitCode);
-    process.exit(exitCode);
+  return new Promise(resolve => {
+    child.once('error', error => { spawnError = error; });
+    child.once('close', async (code, signal) => {
+      const exitCode = spawnError ? 1 : (code ?? (signal ? 1 : 0));
+      if (spawnError) process.stderr.write(`ph: spawn error: ${spawnError.message}\n`);
+      try {
+        db.updateResponse(id, response);
+        db.updateExitCode(id, exitCode);
+      } catch (error) {
+        process.stderr.write(`ph: could not persist wrapper response: ${(error as Error).message}\n`);
+        process.exitCode = 1;
+      }
+      await completeLiveCapture(db.dbPath, cfg, id);
+      if (process.exitCode === undefined || process.exitCode === 0) process.exitCode = exitCode;
+      resolve();
+    });
   });
 }

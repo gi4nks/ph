@@ -1,9 +1,6 @@
-import { createHash } from 'crypto';
 import type { LLMProvider } from '../ai/provider.js';
 import type { PhDB } from '../db/index.js';
 import type { PromptEntry, PromptMetadata } from '../types.js';
-import { captureGitContext } from '../runner/git-context.js';
-import type { GitContext } from '../runner/git-context.js';
 
 export interface AnalysisResult {
   project?: string;
@@ -156,6 +153,9 @@ export function mergeMetadata(
   if (result.key_insights && (force || !merged.key_insights?.length)) {
     merged.key_insights = result.key_insights;
   }
+  if (result.technical_decisions && (force || !merged.technical_decisions?.length)) {
+    merged.technical_decisions = result.technical_decisions;
+  }
 
   // Clean up empty strings set by LLM
   if (!merged.project)  delete merged.project;
@@ -173,13 +173,6 @@ function parseMeta(raw: string): PromptMetadata {
 function hasMetadata(entry: PromptEntry): boolean {
   const meta = parseMeta(entry.metadata);
   return Boolean(meta.role || meta.tags?.length || meta.project || meta.language);
-}
-
-function gitFingerprint(ctx: GitContext): string {
-  const hash = createHash('sha256');
-  hash.update(ctx.branch);
-  hash.update(ctx.diff);
-  return `git:${hash.digest('hex').slice(0, 14)}`;
 }
 
 export interface AnalyzeAllOpts {
@@ -213,19 +206,15 @@ export async function analyzeAll(
   const toProcess = force ? entries : entries.filter(e => !hasMetadata(e));
   const stats: AnalyzeAllResult = { updated: 0, skipped: entries.length - toProcess.length, failed: 0, pruned: 0 };
 
-  // Capture git context once for the batch
-  const gitCtx = captureGitContext(process.cwd());
-  const gitFp = gitCtx ? gitFingerprint(gitCtx) : undefined;
-
   for (let i = 0; i < toProcess.length; i++) {
     const entry = toProcess[i];
     let result: AnalysisResult | null = null;
     let errMsg: string | undefined;
 
     try {
+      if (!dryRun) db.updateMetadataFields(entry.id, { analysis_status: 'pending', analysis_error: null });
       result = await analyzePrompt(entry.prompt, provider);
       const existing = parseMeta(entry.metadata);
-      const merged = mergeMetadata(existing, result, force);
 
       // Prune if relevance is below threshold
       if (pruneBelow > 0 && result.relevance !== undefined && result.relevance < pruneBelow) {
@@ -235,37 +224,26 @@ export async function analyzeAll(
         }
         stats.pruned++;
       } else {
-        db.updateMetadata(entry.id, JSON.stringify(merged));
-        // Populate project memory if we have a project + summary
-        if (result.project && result.summary) {
-          // Skip duplicate memory when project git state hasn't changed
-          if (gitFp) {
-            const lastMem = db.getLastMemoryForProject(result.project);
-            if (lastMem?.git_context_snapshot === gitFp) {
-              stats.updated++;
-              continue;
-            }
-          }
-          db.upsertProjectMemory({
-            project: result.project,
-            prompt_id: entry.id,
-            summary: result.summary,
-            key_insights: result.key_insights ?? [],
-            technical_decisions: result.technical_decisions ?? [],
-            git_context_snapshot: gitFp,
+        if (Object.keys(result).length === 0) {
+          if (!dryRun) db.updateMetadataFields(entry.id, { analysis_status: 'failed', analysis_error: 'analysis_failed' });
+          stats.failed++;
+          errMsg = 'analysis_failed';
+        } else {
+          db.updateMetadataFields(entry.id, {
+            ...mergeMetadata(existing, result, force),
+            analysis_status: 'complete',
+            analysis_error: null,
           });
-          db.upsertProjectSummary({
-            project: result.project,
-            summary: result.summary,
-            key_insights: result.key_insights ?? [],
-            technical_decisions: result.technical_decisions ?? [],
-          });
+          stats.updated++;
         }
-        stats.updated++;
       }
     } catch (e: unknown) {
       errMsg = (e as Error).message;
       stats.failed++;
+      if (!dryRun) {
+        try { db.updateMetadataFields(entry.id, { analysis_status: 'failed', analysis_error: 'analysis_persistence_failed' }); }
+        catch { /* retain the original failure in the command result */ }
+      }
     }
 
     onProgress?.(i + 1, toProcess.length, entry, result, errMsg);

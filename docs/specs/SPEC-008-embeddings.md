@@ -82,8 +82,14 @@ unreachable.
 ## 9. Open questions / discrepancies
 - 768 is hard-coded in the vec0 DDL; a model with a different dim fails at
   insert time with a vec0 error.
-- `searchSemantic` runs KNN before filtering by project — the server filters in
-  JS afterwards (src/server/index.ts:81-89); large DBs pay KNN cost first.
+- Project-scoped `searchSemantic` requests all vectors as the KNN candidate set
+  and applies the project predicate in SQL afterward; large databases may pay
+  full-index KNN cost first (`src/db/semantic-index.ts:17-35`).
+- CLI semantic search uses the legacy BLOB vectors and a TypeScript cosine
+  ranking path, while context, HTTP, and MCP use `sqlite-vec`. Vector rows do
+  not retain their producing model, and `ph embed-all` fills missing vectors
+  rather than rebuilding after a model change. The same query can therefore
+  return different results or compare incompatible vector spaces (ISSUE-026).
 
 ## 10. Related
 - SPEC-005 (semantic search), SPEC-014 (cluster/cohesion use embeddings),

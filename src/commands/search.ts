@@ -3,19 +3,33 @@ import type { PhConfig } from '../config/index.js';
 import type { SearchOptions } from '../types.js';
 import { getEmbeddings } from '../embedding/index.js';
 import { printResults } from '../display/print.js';
+import { decodePromptMetadata } from '../interaction/detail.js';
 import { parseFlags, parseDate } from './_utils.js';
+import { detectProject } from '../runner/project.js';
+
+const DEFAULT_LIMIT = 5;
+const MAX_LIMIT = 1000;
 
 export async function cmdSearch(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   const interactive = args.includes('-i') || args.includes('--interactive');
   const { flags, positional } = parseFlags(args.filter(arg => arg !== '-i' && arg !== '--interactive'));
   if (interactive) process.stderr.write('ph search -i now prints plain-text results; the interactive browser has been removed.\n');
   const query = positional.join(' ');
+  const explicitProject = typeof flags.project === 'string' ? flags.project : undefined;
+  const currentProject = detectProject(process.cwd()).projectName;
+  const project = flags.all || flags.archive ? undefined : (explicitProject ?? (currentProject || undefined));
+  const limit = parseLimit(flags.limit);
+
+  if (flags.archive) process.stdout.write('Scope: archived work\n');
+  else if (project) process.stdout.write(`Project: ${project}\n`);
+  else if (flags.all) process.stdout.write('Scope: all projects\n');
+  else process.stdout.write('Scope: all saved work (no project detected)\n');
 
   if (flags['archive']) {
     const archiveResults = db.searchArchive({
       since: flags['since'] ? new Date(flags['since'] as string).toISOString() : undefined,
       until: flags['until'] ? new Date(flags['until'] as string).toISOString() : undefined,
-      limit: Number(flags['limit'] ?? 50),
+      limit,
     });
     if (archiveResults.length === 0) {
       console.log('No archived prompts found.');
@@ -25,34 +39,40 @@ export async function cmdSearch(db: PhDB, cfg: PhConfig, args: string[]): Promis
     for (const r of archiveResults) {
       const date = new Date(r.timestamp as string).toLocaleString();
       const id = r.original_id ?? r.id;
-      const prompt = (r.prompt as string).replace(/\n/g, ' ').slice(0, 120);
+      const full = Boolean(flags['full']);
+      const promptRaw = r.prompt as string;
+      const prompt = full ? promptRaw : promptRaw.replace(/\n/g, ' ').slice(0, 120);
       console.log(`  #${id} [${r.tool}] (${date})`);
-      console.log(`    ${prompt}${(r.prompt as string).length > 120 ? '...' : ''}`);
+      console.log(`    Prompt: ${prompt}${!full && promptRaw.length > 120 ? '...' : ''}`);
       if (r.response) {
-        const resp = (r.response as string).replace(/\n/g, ' ').slice(0, 80);
-        console.log(`    Response: ${resp}${(r.response as string).length > 80 ? '...' : ''}`);
+        const responseRaw = r.response as string;
+        const resp = full ? responseRaw : responseRaw.replace(/\n/g, ' ').slice(0, 120);
+        console.log(`    Response: ${resp}${!full && responseRaw.length > 120 ? '...' : ''}`);
       }
+      const metadata = decodePromptMetadata(String(r.metadata ?? '{}'));
+      if (metadata.summary) console.log(`    Analysis: ${metadata.summary}`);
+      console.log(`    Inspect: ph show ${id} --archive`);
       console.log();
     }
     return;
   }
 
   if (flags['semantic'] && query) {
-    await cmdSearchSemantic(db, cfg, query, Number(flags['limit'] ?? 50), Boolean(flags['full']));
+    await cmdSearchSemantic(db, cfg, query, limit, Boolean(flags['full']), project);
     return;
   }
 
   const opts: SearchOptions = {
     query,
     tool: flags['tool'] as string | undefined,
-    project: flags['project'] as string | undefined,
+    project,
     language: flags['language'] as string | undefined,
     role: flags['role'] as string | undefined,
     tag: flags['tag'] as string | undefined,
     starred: Boolean(flags['starred']),
     minQuality: flags['top'] ? 8 : (flags['min-quality'] ? Number(flags['min-quality']) : undefined),
     minRelevance: flags['min-relevance'] ? Number(flags['min-relevance']) : undefined,
-    limit: Number(flags['limit'] ?? 50),
+    limit,
   };
 
   if (flags['since']) opts.since = parseDate(flags['since'] as string, '--since');
@@ -63,10 +83,16 @@ export async function cmdSearch(db: PhDB, cfg: PhConfig, args: string[]): Promis
   }
 
   const results = db.search(opts);
+  if (results.length === 0 && project) {
+    process.stdout.write(query
+      ? `No matches in ${project}. Use ph search --all to search other projects.\n`
+      : `No saved work for ${project}. Use ph search --all to search all projects.\n`);
+    return;
+  }
   printResults(results, Boolean(flags['full']));
 }
 
-export async function cmdSearchSemantic(db: PhDB, cfg: PhConfig, query: string, limit: number, showFull: boolean): Promise<void> {
+export async function cmdSearchSemantic(db: PhDB, cfg: PhConfig, query: string, limit: number, showFull: boolean, project?: string): Promise<void> {
   const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
   const model = cfg.ollamaEmbedModel ?? 'nomic-embed-text-v2-moe';
 
@@ -78,7 +104,7 @@ export async function cmdSearchSemantic(db: PhDB, cfg: PhConfig, query: string, 
     process.exit(1);
   }
 
-  const embeddings = db.getAllEmbeddings();
+  const embeddings = project ? db.getEmbeddingsForProject(project) : db.getAllEmbeddings();
   const scores: Array<{ id: number; sim: number }> = [];
 
   for (const [id, vec] of embeddings) {
@@ -94,4 +120,13 @@ export async function cmdSearchSemantic(db: PhDB, cfg: PhConfig, query: string, 
     .filter((e): e is NonNullable<typeof e> => e !== undefined);
 
   printResults(results, showFull);
+}
+
+function parseLimit(raw: string | boolean | undefined): number {
+  if (raw === undefined) return DEFAULT_LIMIT;
+  const limit = Number(raw);
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+    throw new Error(`--limit must be an integer between 1 and ${MAX_LIMIT}`);
+  }
+  return limit;
 }

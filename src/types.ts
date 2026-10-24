@@ -11,6 +11,11 @@ export interface PromptEntry {
   metadata: string;
 }
 
+export interface ArchivedPromptEntry extends PromptEntry {
+  archived_at: string;
+  original_id: number | null;
+}
+
 export interface PromptMetadata {
   $schema_version?: number;
   title?: string;
@@ -21,9 +26,17 @@ export interface PromptMetadata {
   starred?: boolean;
   relevance?: number;
   quality?: number;
+  technical_decisions?: string[];
   git_context?: { branch: string; files: string[]; diff: string };
   summary?: string;
   key_insights?: string[];
+  analysis_status?: 'pending' | 'complete' | 'failed';
+  analysis_error?: 'worker_launch_failed' | 'provider_unavailable' | 'analysis_failed' | 'analysis_persistence_failed';
+  remote_sync_status?: 'pending' | 'complete' | 'failed';
+  remote_sync_error?: 'push_failed' | 'invalid_remote_url';
+  remote_sync_target?: string;
+  capture_status?: 'in_progress';
+  capture_owner_pid?: number;
 }
 
 export interface MemoryEntry {

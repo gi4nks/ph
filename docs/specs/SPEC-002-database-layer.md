@@ -28,6 +28,9 @@ effort migrations, zero ORM.
 - `embeddings` (legacy BLOB, 87-91) + `vec_embeddings` vec0 float[768] (100-104).
 - `memories` (106-121) append-only per project; `project_summaries` (PhDB.PROJECT_SUMMARIES_SCHEMA, :123);
   `prompts_archive` (PhDB.ARCHIVE_SCHEMA, :124).
+- `ph_meta` stores a persistent database UUID and one-time migration markers.
+  The `search_metadata` backfill marker prevents reopening PH from rescanning
+  rows whose derived metadata is legitimately empty.
 - `PromptEntry` / `PromptMetadata` / `MemoryEntry` / `ProjectSummary` types
   (src/types.ts:1-52).
 
@@ -77,6 +80,10 @@ None — library layer consumed by commands, TUI, MCP and HTTP server.
   consistent with the tables (src/db/index.ts:410+).
 - **G6**: Given a fresh DB, When opened, Then `vec_embeddings` exists as a vec0
   table with float[768] (src/db/index.ts:95-104).
+- **G7**: Given an existing prompt database, When the searchable-metadata
+  migration completes, Then its marker is persisted and a later open does not
+  rerun the backfill query; the database UUID survives reopen and differs for
+  a separate database file.
 
 ## 8. Key implementation map
 | Concern | File(s) |
@@ -90,6 +97,11 @@ None — library layer consumed by commands, TUI, MCP and HTTP server.
 | Types | src/types.ts:1-52 |
 
 ## 9. Open questions / discrepancies
+- Routine `PhDB` construction still runs schema probes and a JSON query across
+  prompts missing `$schema_version`. The search-metadata backfill is one-time,
+  but remaining migration checks scale with history and repeat for each command
+  and capture hook. Track schema migrations explicitly to bound normal startup
+  work (SPEC-ISSUES-027).
 - **Architecture decision (2026-10-09)**: keep `PhDB` as the single SQLite adapter
   for now. Context consumers depend on the focused `ProjectContextStore` interface
   (`src/context/index.ts`). Vector encoding, compatibility storage, and KNN

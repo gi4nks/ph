@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import Database from 'better-sqlite3';
 import { PhDB } from '../index.js';
 
 /**
@@ -74,6 +75,71 @@ describe('PhDB basics (SPEC-002)', () => {
     expect(vecInfo).toBeInstanceOf(Map);
   });
 
+  it('keeps a stable database identity per file and assigns different identities to separate files', () => {
+    const otherPath = path.join(dir, 'other.db');
+    const other = new PhDB(otherPath);
+    const firstId = db.databaseId;
+    const otherId = other.databaseId;
+    other.close();
+
+    const reopened = new PhDB(path.join(dir, 'test.db'));
+    try {
+      expect(reopened.databaseId).toBe(firstId);
+      expect(otherId).not.toBe(firstId);
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it('backfills legacy analysis metadata once without rescanning blank rows on later opens', () => {
+    const legacyPath = path.join(dir, 'legacy.db');
+    const legacy = new Database(legacyPath);
+    legacy.exec(`CREATE TABLE prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      args TEXT NOT NULL DEFAULT '',
+      workdir TEXT NOT NULL DEFAULT '',
+      hostname TEXT NOT NULL DEFAULT '',
+      exit_code INTEGER NOT NULL DEFAULT 0,
+      metadata TEXT NOT NULL DEFAULT '{}'
+    )`);
+    const insertLegacy = legacy.prepare(
+      'INSERT INTO prompts (timestamp, tool, prompt, metadata) VALUES (?, ?, ?, ?)'
+    );
+    const analyzedId = Number(insertLegacy.run(
+      '2026-08-08T10:00:00.000Z', 'codex', 'legacy prompt',
+      JSON.stringify({ summary: 'legacy cedar finding', key_insights: ['legacy birch insight'] }),
+    ).lastInsertRowid);
+    const blankId = Number(insertLegacy.run(
+      '2026-08-08T11:00:00.000Z', 'codex', 'unanalysed legacy prompt', '{}',
+    ).lastInsertRowid);
+    legacy.close();
+
+    const migrated = new PhDB(legacyPath);
+    try {
+      expect(migrated.search({ query: 'cedar', limit: 5 }).map(row => row.id)).toContain(analyzedId);
+      expect(migrated.search({ query: 'birch', limit: 5 }).map(row => row.id)).toContain(analyzedId);
+      expect(migrated['db'].prepare('SELECT search_metadata FROM prompts WHERE id = ?').get(blankId))
+        .toEqual({ search_metadata: '' });
+      expect(migrated['db'].prepare("SELECT value FROM ph_meta WHERE key = 'search_metadata_backfill_v1'").get())
+        .toEqual({ value: 'complete' });
+    } finally {
+      migrated.close();
+    }
+
+    const prepare = vi.spyOn(Database.prototype, 'prepare');
+    const reopened = new PhDB(legacyPath);
+    try {
+      const backfillWasQueried = prepare.mock.calls.some(([sql]) => String(sql).includes("WHERE search_metadata = ''"));
+      expect(backfillWasQueried).toBe(false);
+    } finally {
+      reopened.close();
+      prepare.mockRestore();
+    }
+  });
+
   it('promotes approved memories and summaries atomically', () => {
     const now = new Date().toISOString();
     const valid = {
@@ -115,6 +181,89 @@ describe('PhDB search (SPEC-005)', () => {
     const results = db.search({ query: 'goroutines', limit: 10 });
     expect(results).toHaveLength(1);
     expect(results[0].tool).toBe('claude');
+  });
+
+  it('loads only the selected project embeddings without parsing every prompt individually', () => {
+    const first = db.insert({
+      timestamp: '2026-08-08T10:00:00.000Z', tool: 'claude', prompt: 'first project prompt', response: '',
+      args: '', workdir: '/a', hostname: 'h', exit_code: 0, metadata: JSON.stringify({ project: 'go-play' }),
+    });
+    const second = db.insert({
+      timestamp: '2026-08-08T11:00:00.000Z', tool: 'claude', prompt: 'other project prompt', response: '',
+      args: '', workdir: '/b', hostname: 'h', exit_code: 0, metadata: JSON.stringify({ project: 'web' }),
+    });
+    db.saveEmbedding(first, new Float32Array(768));
+    db.saveEmbedding(second, new Float32Array(768));
+    db['db'].prepare("UPDATE prompts SET metadata = '{broken json' WHERE id = ?").run(second);
+
+    expect([...db.getEmbeddingsForProject('go-play').keys()]).toEqual([first]);
+    expect([...db.getEmbeddingsForProject('missing').keys()]).toEqual([]);
+  });
+
+  it('searches and refreshes analyzed summary, insight, and decision text', () => {
+    const id = db.insert({
+      timestamp: '2026-08-08T12:00:00.000Z', tool: 'claude', prompt: 'A neutral interaction', response: 'A neutral answer',
+      args: '', workdir: '/a', hostname: 'h', exit_code: 0,
+      metadata: JSON.stringify({ project: 'ph', summary: 'cedar migration', key_insights: ['birch lock'], technical_decisions: ['maple index'] }),
+    });
+
+    expect(db.search({ query: 'cedar', limit: 10 }).map(row => row.id)).toContain(id);
+    expect(db.search({ query: 'birch', limit: 10 }).map(row => row.id)).toContain(id);
+    expect(db.search({ query: 'maple', limit: 10 }).map(row => row.id)).toContain(id);
+
+    db.updateMetadataFields(id, { summary: 'spruce migration' });
+    expect(db.search({ query: 'cedar', limit: 10 }).map(row => row.id)).not.toContain(id);
+    expect(db.search({ query: 'spruce', limit: 10 }).map(row => row.id)).toContain(id);
+  });
+
+  it('rebuilds the analysis search index from an existing response-aware database', () => {
+    const legacyPath = path.join(dir, 'legacy.db');
+    const legacy = new Database(legacyPath);
+    legacy.exec(`
+      CREATE TABLE prompts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, tool TEXT NOT NULL,
+        prompt TEXT NOT NULL, response TEXT NOT NULL DEFAULT '', args TEXT NOT NULL DEFAULT '',
+        workdir TEXT NOT NULL DEFAULT '', hostname TEXT NOT NULL DEFAULT '', exit_code INTEGER NOT NULL DEFAULT 0,
+        metadata TEXT NOT NULL DEFAULT '{}'
+      );
+      INSERT INTO prompts(timestamp, tool, prompt, response, metadata)
+      VALUES ('2026-08-08T10:00:00.000Z', 'codex', 'plain question', 'plain answer',
+        '{"summary":"legacy cedar finding","key_insights":["legacy birch insight"]}');
+      CREATE VIRTUAL TABLE prompts_fts USING fts5(prompt, response, tool UNINDEXED, content='prompts', content_rowid='id');
+      INSERT INTO prompts_fts(prompts_fts) VALUES('rebuild');
+    `);
+    legacy.close();
+
+    const migrated = new PhDB(legacyPath);
+    try {
+      expect(migrated.search({ query: 'cedar', limit: 10 })).toHaveLength(1);
+      expect(migrated.search({ query: 'birch', limit: 10 })).toHaveLength(1);
+    } finally {
+      migrated.close();
+    }
+  });
+
+  it('orders text matches by relevance before recency', () => {
+    db.insert({ timestamp: '2026-08-08T12:00:00.000Z', tool: 'claude', prompt: 'goroutines with channels plus unrelated implementation detail, migration, deployment, and performance notes', response: '', args: '', workdir: '/a', hostname: 'h', exit_code: 0, metadata: '{}' });
+    const results = db.search({ query: 'goroutines with channels', limit: 10 });
+    expect(results[0].prompt).toContain('goroutines with channels');
+    expect(results[0].prompt).toBe('explain goroutines with channels');
+  });
+
+  it('fuses raw and analysis rankings so repeated cross-source evidence rises', () => {
+    const both = db.insert({
+      timestamp: '2026-08-08T08:00:00.000Z', tool: 'codex',
+      prompt: 'quartz cache migration', response: 'quartz cache stays local',
+      args: '', workdir: '/a', hostname: 'h', exit_code: 0,
+      metadata: JSON.stringify({ summary: 'quartz cache decision', key_insights: ['quartz'] }),
+    });
+    db.insert({
+      timestamp: '2026-08-08T12:00:00.000Z', tool: 'codex',
+      prompt: 'quartz', response: '', args: '', workdir: '/a', hostname: 'h', exit_code: 0,
+      metadata: '{}',
+    });
+    const results = db.search({ query: 'quartz', limit: 10 });
+    expect(results.map(row => row.id).indexOf(both)).toBeLessThan(1);
   });
 
   it('scan path with tool filter, no query (G2)', () => {

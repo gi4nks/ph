@@ -10,7 +10,7 @@ This file provides specific context for using Claude within the `ph` project.
 
 ## Reference Architecture
 
-- **Entry Point**: `src/cli.ts` uses manual command dispatch. With no arguments, PH prints a concise command guide. The everyday workflow is `ph <tool>`, `ph search`, `ph context`, and `ph close`.
+- **Entry Point**: `src/cli.ts` uses manual command dispatch. With no arguments, PH explains setup-first capture. Run `ph setup` once, use supported AI tools normally, then use `ph search` when you need earlier work.
 - **Database**: SQLite via `better-sqlite3`, with prompt, archive, memory, summary, and vector-index storage behind `PhDB` and its repositories.
 - **Hooks**: Scripts in `hooks/` are the entry points for transparent data capture.
 
