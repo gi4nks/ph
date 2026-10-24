@@ -1,106 +1,80 @@
-# SPEC-010: Remote Sync (HTTP Server + Push/Pull)
+# SPEC-010 — Remote sync and HTTP server
 
 - **ID**: SPEC-010
 - **Cluster**: Sync
-- **Status**: Implemented (baseline)
-- **Date**: 2026-08-08
-- **Source**: reverse-engineered from code (files listed in §8)
+- **Status**: Implemented; lossless protocol defined by SPEC-019
+- **Date**: 2026-10-24
+- **Source**: `src/server/`, `src/commands/remote.ts`, `src/sync/`
 
-## 1. Purpose
-Cross-laptop prompt history sharing: a zero-dependency HTTP server (`ph server`)
-plus `ph remote push|pull|status` with dedup via `sync_hash`
-(sha256(`tool|prompt|response`)) and fire-and-forget background push after
-`ph log`. Offline-first: the local SQLite DB stays the source of truth.
+## Purpose and scope
 
-## 2. Scope
-- **In scope**: HTTP endpoints, push/pull/status, dedup, background push,
-  config/env precedence, CORS.
-- **Out of scope**: authentication enforcement (see §9), conflict resolution
-  beyond timestamp+hash, server persistence (uses the same PhDB).
-- **Entry points**: `ph server [--port] [--host]`, `ph remote push|pull|status`,
-  `PH_REMOTE_URL` env, `remoteUrl`/`remoteApiKey`/`remoteLastPush`/`remoteLastPull` config.
+Share local PH history across trusted machines while each local SQLite database
+remains usable offline. This spec covers server access, authentication, stable
+pagination, deduplication, cursor persistence, and the status command.
 
-## 3. Data Model
-- `sync_hash`: sha256 hex of `${tool}|${prompt}|${response}`, stored in
-  metadata JSON under `$.sync_hash` (src/server/index.ts:104-108).
-- Config: `remoteUrl`, `remoteApiKey`, `remoteLastPush`, `remoteLastPull`
-  (src/config/index.ts:15-18).
-- Env: `PH_REMOTE_URL` (precedence over config, src/commands/remote.ts:6-8).
+## Server contract
 
-## 4. Flows
+- The default listener is `127.0.0.1`; a non-loopback host must be explicit.
+- The server refuses to start without a non-empty `remote-api-key`.
+- `/health` is public and returns `{ "status": "ok" }`. All data routes require
+  `Authorization: Bearer <remote-api-key>` and compare credentials safely.
+- Request bodies are limited to 32 MiB. Oversized and malformed requests return
+  413 and 400 respectively. Internal errors are returned without exception
+  details.
+- `/api/sync/push` accepts up to 500 entries. It reports imported, duplicate,
+  and rejected records separately; the client advances only after complete
+  acknowledgement of the page.
+- `/api/sync/pull` accepts `afterId` and `limit` (1–500), and returns entries in
+  ascending database row-ID order with `hasMore` and `nextCursor`.
 
-### 4.1 Server (src/server/index.ts:9-164)
-- CORS headers on every response (:15-17); OPTIONS → 204.
-- `/health` → `{ status: 'ok', dbPath }` (:46-48).
-- `POST /api/prompts/search|by-id|semantic` — search delegation (SPEC-005/008).
-- `POST /api/sync/push` (:94-127): per prompt compute hash → skip if
-  `getPromptBySyncHash` finds it → else insert with sync_hash in metadata.
-- `POST /api/sync/pull` (:129-139): prompts since timestamp (or all), capped 10000.
-- `POST /api/memories/search|summary` (:141-154); `GET /api/stats` (:156-161).
+## Client contract
 
-### 4.2 Push (src/commands/remote.ts:37-80)
-`push` sends prompts since `remoteLastPush` (≤5000) to `/api/sync/push`;
-on success updates `cfg.remoteLastPush` and saves.
+- Push selects local rows after a cursor scoped to the normalized target and
+  persistent source database UUID. New imports receive higher IDs even when
+  their timestamps are old, so the next page sees them. Active wrapper captures
+  are not sent until completion; exited-owner markers are reclaimed. Byte-limited
+  HTTP subpages may split one 500-row outer page, and the outer cursor advances
+  only after every subpage is acknowledged.
+- Pull reads remote row-ID pages, inserts or deduplicates every entry, then
+  persists the cursor. Replaying a page is safe through `sync_hash`.
+- Switching the normalized server target or local database starts from row
+  zero. Legacy timestamp or database-unscoped cursors are ignored and trigger an
+  idempotent full scan. A server without cursor response fields produces an
+  actionable upgrade error.
+- `PH_REMOTE_URL` overrides `remoteUrl`. Credentials are never included in the
+  stored target identity.
+- `ph remote status` reports counts after the current target's push cursor and
+  the last successful push/pull times.
 
-### 4.3 Pull (src/commands/remote.ts:82-146)
-`pull` fetches since `remoteLastPull`; dedups locally via `getPromptBySyncHash`;
-advances `remoteLastPull` to the max timestamp.
+## Open reassessment finding
 
-### 4.4 Background push (src/commands/log.ts:65-69)
-After each `ph log`, if a remote is configured, `pushToRemote(...).catch(() => {})`
-— fire-and-forget, never blocks or crashes.
+- **ISSUE-025**: cursor identity currently includes the normalized URL and local
+  database UUID, but not the remote database generation. Replacing the remote
+  SQLite file behind the same URL can make a high stored cursor skip the new
+  database's lower row IDs. Config holds only one cursor per direction, so
+  switching local databases and switching back triggers an idempotent full
+  replay. Last-success timestamps are global config fields rather than
+  target-scoped values. Add a remote identity handshake and persist state per
+  complete source/target identity before treating cursors as durable across
+  server restores.
 
-### 4.5 Status (src/commands/remote.ts:148+)
-Shows remote URL, local total, last push/pull, pending count
-(`getPromptCountSince(remoteLastPush)`).
+## Acceptance criteria
 
-## 5. Invariants & Business rules
-- sync_hash is the dedup key on BOTH sides (server skip + client skip).
-- `PH_REMOTE_URL` env wins over config (remote.ts:6-8).
-- Background push swallows errors (`.catch(() => {})`).
-- The server is read/write open — no auth check (SPEC-ISSUES-013).
+- **G1**: Server startup requires an API key and defaults to loopback; health
+  discloses no database path; data endpoints reject missing/incorrect keys.
+- **G2**: Equal timestamps, old-timestamp late imports, and multiple pages do
+  not skip rows.
+- **G3**: A failed record prevents that page's cursor from advancing; retrying
+  the page does not duplicate acknowledged records.
+- **G4**: Pull pages are ordered and cursor-based; legacy timestamp configuration
+  replays from the beginning; an old server fails clearly.
+- **G5**: Malformed and oversized bodies return bounded client errors and do not
+  expose internal exceptions.
+- **G6**: `PH_REMOTE_URL` takes precedence and target changes restart sync from
+  row zero.
+- **G7**: Changing local database files restarts push and pull at row zero;
+  byte-limited subpages all remain within the server request cap; live records
+  are not bulk-pushed before response completion.
 
-## 6. UI / UX surface
-CLI progress lines (`Pushing N prompts…`, `Imported: X, Skipped: Y`).
-
-## 7. Acceptance criteria (Given/When/Then)
-- **G1**: Given the same `tool|prompt|response`, When `sha256` runs, Then the
-  same hash is produced both in push and server paths
-  (src/server/index.ts:104, remote.ts:116).
-- **G2**: Given an existing sync_hash in metadata, When `/api/sync/push` receives
-  the entry, Then it is skipped (imported stays 0, skipped 1)
-  (src/server/index.ts:104-106).
-- **G3**: Given `remoteLastPush` set, When `push` runs, Then only prompts newer
-  than the timestamp are sent (src/commands/remote.ts:39-43).
-- **G4**: Given `PH_REMOTE_URL` env and a config remoteUrl, When `remoteUrl()`
-  runs, Then the env value wins (src/commands/remote.ts:6-8).
-- **G5**: Given `remoteLastPush` absent, When `status` runs, Then pending equals
-  the local total (src/commands/remote.ts:151-156).
-- **G6**: Given `POST /api/stats`, When the server handles it, Then
-  total/totalMemories/byTool are returned (src/server/index.ts:156-161).
-
-## 8. Key implementation map
-| Concern | File(s) |
-|---|---|
-| HTTP server + endpoints | src/server/index.ts:9-164 |
-| Push/pull/status | src/commands/remote.ts:37-160 |
-| Background push | src/commands/log.ts:65-85 |
-| Config/env | src/config/index.ts:15-18, remote.ts:6-8 |
-| Dedup primitive | src/db/index.ts:403-407 |
-
-## 9. Open questions / discrepancies
-- ~~sync_hash excludes args/workdir~~ Fixed 2026-08-08: shared `syncHash`
-  helper (src/utils/syncHash.ts) — args included only when present, backward
-  compatible with the legacy `tool|prompt|response` hash.
-- ~~The server NEVER verifies `remoteApiKey`~~ Fixed 2026-08-08: auth gate in
-  `createRequestHandler` (Bearer + timingSafeEqual) on every endpoint except
-  /health when `remoteApiKey` is configured.
-- `remoteLastPush` uses the CLIENT clock; clock skew between laptops breaks
-  incremental sync.
-- No pagination beyond the 10000/5000 caps; a laptop with >5000 unsynced
-  prompts needs repeated pushes.
-
-## 10. Related
-- SPEC-002 (dedup/insert primitives), SPEC-005/008 (search endpoints),
-  SPEC-015 (config). GWT tests target the deterministic parts (hash, dedup,
-  since-window) — no network needed.
+Focused server and protocol tests live under `src/server/__tests__/` and
+`src/sync/`. SPEC-019 defines cross-cutting capture and ranking requirements.

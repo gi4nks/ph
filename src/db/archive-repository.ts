@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { ArchivedPromptEntry } from '../types.js';
 
 export class ArchiveRepository {
   constructor(private readonly db: Database.Database) {}
@@ -43,6 +44,12 @@ export class ArchiveRepository {
     sql += ' ORDER BY timestamp DESC';
     if (opts.limit) { sql += ' LIMIT ?'; params.push(opts.limit); }
     return this.db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+  }
+
+  getByOriginalIdOrArchiveId(id: number): ArchivedPromptEntry | undefined {
+    return this.db.prepare(
+      'SELECT * FROM prompts_archive WHERE original_id = ? OR (original_id IS NULL AND id = ?) ORDER BY archived_at DESC LIMIT 1'
+    ).get(id, id) as ArchivedPromptEntry | undefined;
   }
 
   purgeArchive(beforeDate: string): number {

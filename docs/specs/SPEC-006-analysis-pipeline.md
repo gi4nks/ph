@@ -8,8 +8,9 @@
 
 ## 1. Purpose
 Turns raw prompts into structured knowledge: role/tags/relevance/quality plus
-summary/key_insights/technical_decisions via an LLM. Results feed metadata
-(SPEC-002), memories and project summaries (SPEC-007).
+summary/key_insights/technical_decisions via an LLM. Results enrich interaction
+metadata (SPEC-002) and derived full-text search. They do not create active
+memories or project summaries; explicit approval promotes durable knowledge.
 
 ## 2. Scope
 - **In scope**: ANALYSIS_PROMPT, parseAnalysisResponse, analyzePrompt, mergeMetadata,
@@ -41,8 +42,8 @@ contract; input truncated to 2000 chars (:49). No markdown fences allowed.
 metadata unless `force=true` (:136-183).
 
 ### 4.4 Batch (src/analyzer/index.ts:205)
-`analyzeAll(db, provider, opts)` iterates unanalyzed prompts, updates metadata,
-writes memories (SPEC-007). CLI `ph analyze` with `--limit/--force/--prune/
+`analyzeAll(db, provider, opts)` iterates unanalyzed prompts and updates only
+per-interaction metadata, including lifecycle outcome fields. CLI `ph analyze` with `--limit/--force/--prune/
 --dry-run`.
 
 ### 4.5 Background (src/background/analyzer.ts:7)
@@ -60,8 +61,9 @@ deletes low-score ones (SPEC-009 cross-ref).
 - Input truncated to 2000 chars before the LLM.
 
 ## 6. UI / UX surface
-`ph analyze` progress output; TUI shows `●` (analyzed) vs `○` (pending) in
-ListEntry (SPEC-012).
+`ph analyze` progress output; `ph show` displays full analysis and state;
+`ph status` lists bounded recent background/remote lifecycle outcomes without
+printing prompt or response content.
 
 ## 7. Acceptance criteria (Given/When/Then)
 - **G1**: Given an LLM response with fenced JSON, When `parseAnalysisResponse`

@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Support a deliberate `prepare → work → close → promote` loop. Retrieval is shared by CLI and MCP. Captured work only becomes curated knowledge after explicit user approval, and promoted memories keep verifiable prompt sources.
+Support a deliberate `prepare → work → close → promote` loop. Task retrieval is shared by CLI context, chat, and MCP knowledge checks. General context without a task remains non-semantic. Captured work only becomes curated knowledge after explicit user approval, and promoted memories keep verifiable prompt sources.
 
 ## Behavior
 

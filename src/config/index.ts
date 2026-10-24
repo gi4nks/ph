@@ -22,6 +22,8 @@ export interface PhConfig {
   remoteApiKey?: string;                 // optional API key for remote server
   remoteLastPush?: string;               // ISO timestamp of last successful push
   remoteLastPull?: string;               // ISO timestamp of last successful pull
+  remotePushCursor?: { target: string; databaseId: string; id: number };
+  remotePullCursor?: { target: string; databaseId: string; id: number };
   retentionDays?: number;              // default: 90 — auto-archive prompts older than N days
   retentionMinStarred?: boolean;       // default: true — never archive starred prompts
   retentionMinAnalyzed?: boolean;      // default: true — never archive analyzed prompts (has summary or role)

@@ -6,9 +6,11 @@ import type { PhConfig } from '../config/index.js';
 import { getEmbeddings } from '../embedding/index.js';
 import { syncHash } from '../utils/syncHash.js';
 import { timingSafeEqual } from 'crypto';
+import { MAX_REQUEST_BODY_BYTES, SYNC_PAGE_SIZE } from '../sync/protocol.js';
 
-export async function runServer(port: number = 3001, host: string = '0.0.0.0'): Promise<void> {
+export async function runServer(port: number = 3001, host: string = '127.0.0.1'): Promise<void> {
   const cfg = loadConfig();
+  assertServerConfig(cfg);
   const dbPath = process.env.PH_DB ?? cfg.dbPath ?? defaultPath();
   const db = new PhDB(dbPath);
 
@@ -20,6 +22,12 @@ export async function runServer(port: number = 3001, host: string = '0.0.0.0'): 
       resolve();
     });
   });
+}
+
+export function assertServerConfig(cfg: PhConfig): void {
+  if (!cfg.remoteApiKey?.trim()) {
+    throw new Error('Configure remote-api-key before starting the PH HTTP server.');
+  }
 }
 
 /**
@@ -40,24 +48,29 @@ export function createRequestHandler(db: PhDB, cfg: PhConfig) {
 
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
-    // Auth gate (SPEC-ISSUES-013): when remoteApiKey is configured, every
-    // endpoint except /health requires `Authorization: Bearer <key>`.
+    // Health is public; all other endpoints require a configured bearer key.
     if (url.pathname !== '/health' && !authorized(req, cfg)) {
       json(res, 401, { error: 'unauthorized' });
       return;
     }
 
     try {
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_REQUEST_BODY_BYTES);
       await route(req, res, body, db, cfg);
     } catch (err) {
-      json(res, 500, { error: (err as Error).message });
+      if ((err as Error).name === 'RequestBodyTooLargeError') {
+        json(res, 413, { error: 'request body too large' });
+      } else if (err instanceof SyntaxError) {
+        json(res, 400, { error: 'invalid JSON request body' });
+      } else {
+        json(res, 500, { error: 'internal server error' });
+      }
     }
   };
 }
 
 function authorized(req: http.IncomingMessage, cfg: PhConfig): boolean {
-  if (!cfg.remoteApiKey) return true;
+  if (!cfg.remoteApiKey?.trim()) return false;
   const expected = `Bearer ${cfg.remoteApiKey}`;
   const a = Buffer.from(req.headers.authorization ?? '');
   const b = Buffer.from(expected);
@@ -70,7 +83,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
   const method = req.method || 'GET';
 
   if (method === 'GET' && path === '/health') {
-    return json(res, 200, { status: 'ok', dbPath: db.dbPath });
+    return json(res, 200, { status: 'ok' });
   }
 
   if (method === 'POST' && path === '/api/prompts/search') {
@@ -112,6 +125,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
   if (method === 'POST' && path === '/api/sync/push') {
     const { prompts } = JSON.parse(body);
     if (!Array.isArray(prompts)) return json(res, 400, { error: 'prompts must be an array' });
+    if (prompts.length > SYNC_PAGE_SIZE) return json(res, 400, { error: `prompts must contain at most ${SYNC_PAGE_SIZE} records` });
 
     let imported = 0;
     let skipped = 0;
@@ -136,8 +150,8 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
           metadata: JSON.stringify(metaObj),
         });
         imported++;
-      } catch (e) {
-        errors.push((e as Error).message);
+      } catch {
+        errors.push('record rejected');
       }
     }
 
@@ -145,12 +159,15 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, body: 
   }
 
   if (method === 'POST' && path === '/api/sync/pull') {
-    const { since } = JSON.parse(body);
-    const limit = 10000;
-    const results = since
-      ? db.getPromptsSince(since, limit)
-      : db.getAllPrompts(limit);
-    return json(res, 200, { prompts: results, hasMore: results.length >= limit });
+    const { afterId = 0, limit = SYNC_PAGE_SIZE } = JSON.parse(body);
+    if (!Number.isInteger(afterId) || afterId < 0 || !Number.isInteger(limit) || limit < 1 || limit > SYNC_PAGE_SIZE) {
+      return json(res, 400, { error: 'afterId and limit are outside the supported range' });
+    }
+    const page = db.getPromptsAfterId(afterId, limit + 1);
+    const hasMore = page.length > limit;
+    const prompts = hasMore ? page.slice(0, limit) : page;
+    const nextCursor = prompts.at(-1)?.id ?? afterId;
+    return json(res, 200, { prompts, hasMore, nextCursor });
   }
 
   if (method === 'POST' && path === '/api/memories/search') {
@@ -181,11 +198,25 @@ function json(res: http.ServerResponse, status: number, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
-function readBody(req: http.IncomingMessage): Promise<string> {
+function readBody(req: http.IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolve, reject) => {
     if (req.method === 'GET') return resolve('');
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    let size = 0;
+    let rejected = false;
+    req.on('data', (chunk: Buffer) => {
+      if (rejected) return;
+      size += chunk.length;
+      if (size > maxBytes) {
+        rejected = true;
+        const error = new Error('request body too large');
+        error.name = 'RequestBodyTooLargeError';
+        reject(error);
+        req.resume();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
     req.on('error', reject);
   });
