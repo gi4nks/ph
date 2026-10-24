@@ -10,24 +10,24 @@ This file provides specific context for using Claude within the `ph` project.
 
 ## Reference Architecture
 
-- **Entry Point**: `src/cli.ts` handles command parsing via `commander`.
-- **Database**: SQLite via `better-sqlite3`. Main tables: `prompts`, `embeddings`.
+- **Entry Point**: `src/cli.ts` uses manual command dispatch. With no arguments, PH explains setup-first capture. Run `ph setup` once, use supported AI tools normally, then use `ph search` when you need earlier work.
+- **Database**: SQLite via `better-sqlite3`, with prompt, archive, memory, summary, and vector-index storage behind `PhDB` and its repositories.
 - **Hooks**: Scripts in `hooks/` are the entry points for transparent data capture.
 
 ## Code Style
 
 - Follow the rules defined in `eslint.config.js`.
 - Maintain interfaces in `src/types.ts`.
-- Never remove existing features without authorization.
+- Keep the user-facing surface small. Maintenance and integration commands are documented under `ph help --all`.
 - Always document changes to prompt metadata.
 
 ## Useful Agent Commands
 
 ```bash
 npm run lint          # Linting check
-make build            # Complete build
+npm run build         # Bundle the CLI
 make release-patch    # Create a new patch release
-ph capture --role debug "test prompt" # Manual capture test
+ph --ph-role debug claude "test prompt" # Capture through an installed AI CLI
 ```
 
 ## Versioning Workflow

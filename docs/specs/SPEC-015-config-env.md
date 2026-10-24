@@ -19,6 +19,7 @@ get/set`, and environment overrides (`PH_DB`, `PH_REMOTE_URL`, `GEMINI_API_KEY`)
 - `PhConfig` (src/config/index.ts:5-22): geminiApiKey, dbPath, analyzeProvider,
   ollamaUrl, ollamaModel, ollamaEmbedModel, filterMinLength, filterMinRelevance,
   backgroundAnalysis, remoteUrl, remoteApiKey, remoteLastPush, remoteLastPull,
+  remotePushCursor {target, databaseId, id}, remotePullCursor {target, databaseId, id},
   retentionDays, retentionMinStarred, retentionMinAnalyzed, retentionMinRelevance.
 - Env: `PH_DB` (dbPath, cli.ts:157), `PH_REMOTE_URL` (remote.ts:6-8),
   `GEMINI_API_KEY` (cli.ts:153-155).
@@ -75,6 +76,9 @@ file.
 - `save()` writes the whole object — concurrent `ph` processes (e.g. a hook
   logging while the user sets config) can clobber each other's writes (no
   locking).
+- `remoteLastPush` and `remoteLastPull` are global timestamps rather than
+  target-scoped values, so status can display another remote's last success.
+  Cursor identity also omits the remote database generation (SPEC-ISSUES-025).
 - Config comments in AGENTS.md describe defaults that live in code
   (load-time defaults in cli.ts/commands) — the doc is authoritative for intent,
   code for truth.

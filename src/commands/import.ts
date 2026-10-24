@@ -12,7 +12,7 @@ import { parseFlags } from './_utils.js';
 
 export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   if (args.length === 0) {
-    process.stderr.write('Usage: ph import <source> [--dry-run] [--analyze]\n');
+    process.stderr.write('Usage: ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>] [--workdir <path>]\n');
     process.stderr.write('Supported sources: gemini, claude, opencode, codex\n');
     process.exit(1);
   }
@@ -23,6 +23,7 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
   const analyze = Boolean(flags['analyze']);
   const useFilter = Boolean(flags['filter']);
   const transcriptFile = typeof flags.file === 'string' ? flags.file : undefined;
+  const workdirOverride = typeof flags.workdir === 'string' ? flags.workdir : undefined;
   const homeDir = os.homedir();
 
   if (dryRun) console.log('Dry run — nothing will be written to the database.');
@@ -71,10 +72,10 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
       result = await importClaudeHistory(db, path.join(homeDir, '.claude'), dryRun, analyzer, onProgress, filter);
       break;
     case 'opencode':
-      result = await importOpenCodeHistory(db, path.join(homeDir, '.local', 'share', 'opencode', 'storage'), dryRun, analyzer, onProgress, filter);
+      result = await importOpenCodeHistory(db, path.join(homeDir, '.local', 'share', 'opencode', 'storage'), dryRun, analyzer, onProgress, filter, transcriptFile, workdirOverride);
       break;
     case 'codex':
-      result = await importCodexHistory(db, path.join(homeDir, '.codex'), dryRun, analyzer, onProgress, filter, transcriptFile);
+      result = await importCodexHistory(db, path.join(homeDir, '.codex'), dryRun, analyzer, onProgress, filter, transcriptFile, workdirOverride);
       break;
     default:
       process.stderr.write(`ph: unknown import source "${source}". Supported: gemini, claude, opencode, codex\n`);

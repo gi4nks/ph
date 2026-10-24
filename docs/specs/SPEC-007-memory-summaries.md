@@ -7,11 +7,10 @@
 - **Source**: reverse-engineered from code (files listed in §8)
 
 ## 1. Purpose
-Project-level knowledge derived from analysis: an append-only `memories` table
-(full timeline per project) PLUS a single curated `project_summaries` row per
-project (merged, deduped by insight/decision content). This is the "curated
-knowledge base" core of the evolution plan (docs/superpowers/specs/
-2026-06-12-ph-evolution-design.md).
+Project-level knowledge explicitly promoted from reviewed proposals or MCP
+decisions: an append-only `memories` table plus one merged, deduplicated
+`project_summaries` row per project. Current automatic analysis enriches prompt
+metadata only and does not write to these active stores.
 
 ## 2. Scope
 - **In scope**: memories CRUD, upsertProjectMemory (append-only),
@@ -19,7 +18,7 @@ knowledge base" core of the evolution plan (docs/superpowers/specs/
   tracking.
 - **Out of scope**: LLM analysis itself (SPEC-006), MCP exposure (SPEC-011),
   context output (SPEC-014).
-- **Entry points**: analysis pipeline, `ph memory-migrate`, `ph context`,
+- **Entry points**: `ph close`, MCP `save_decision`, `ph memory-migrate`, `ph context`,
   `ph timeline`, MCP tools, `save_decision`.
 
 ## 3. Data Model
@@ -35,8 +34,8 @@ knowledge base" core of the evolution plan (docs/superpowers/specs/
 
 ### 4.1 Append-only memory (src/db/memory-repository.ts)
 `upsertProjectMemory({project, prompt_id, summary, key_insights,
-technical_decisions, git_context_snapshot})` INSERTS a new row per analysis —
-full timeline preserved. `searchMemories(project, limit)` returns latest N;
+technical_decisions, git_context_snapshot})` inserts a new row for an explicitly
+approved or saved decision; automatic per-prompt analysis does not call it. `searchMemories(project, limit)` returns latest N;
 `getAllMemoriesByProject` (774) ascending for timelines.
 
 ### 4.2 Curated summary (src/db/memory-repository.ts)
@@ -52,7 +51,8 @@ first/last_analyzed. `getProjectSummary(project)` (690).
 `recordMemoryAccess(id)` bumps access_count + last_accessed (used by MCP reads).
 
 ## 5. Invariants & Business rules
-- memories = append-only timeline; project_summaries = 1 row per project.
+- memories = append-only timeline of promoted knowledge; project_summaries = 1 row per project.
+- Automatic analysis writes source interaction metadata only; explicit promotion owns active knowledge.
 - Summary merge dedups by insight/decision CONTENT (not id).
 - `save_decision` writes to summaries too (MCP, SPEC-011).
 - Access stats are write-on-read (recordMemoryAccess on MCP/timeline reads).
@@ -92,5 +92,5 @@ PreviewPane memory tab (SPEC-012); `ph context` markdown output; `ph timeline`.
   but their use beyond storage is undocumented.
 
 ## 10. Related
-- SPEC-006 (analysis feeds memories), SPEC-011 (MCP tools), SPEC-014 (context/
+- SPEC-006 (interaction analysis metadata), SPEC-011 (MCP tools), SPEC-014 (context/
   timeline). No tests (SPEC-ISSUES-007) — G1/G2/G3 are prime vitest targets.

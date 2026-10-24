@@ -4,9 +4,9 @@ import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
 import { captureGitContext } from '../runner/git-context.js';
 import { createCaptureRecord } from '../capture/index.js';
+import { completeLiveCapture, prepareLiveCapture } from '../capture/lifecycle.js';
 import { runInline, resolveRealBinary } from '../runner/inline.js';
 import { runPTY, isTerminal } from '../pty/wrapper.js';
-import { spawnBackgroundAnalysis } from '../background/analyzer.js';
 
 export async function cmdWrap(dbPath: string, tool: string, args: string[], cfg: PhConfig): Promise<void> {
   let debugLog: string | undefined;
@@ -48,9 +48,10 @@ export async function cmdWrap(dbPath: string, tool: string, args: string[], cfg:
   if (interactive) {
     const workdir = process.cwd();
     const gitContext = captureGitContext(workdir);
+    const completionTasks: Promise<void>[] = [];
 
     const onPrompt = (prompt: string, ts: Date): number => {
-      return db.insert(createCaptureRecord({
+      return db.insert(prepareLiveCapture(createCaptureRecord({
         timestamp: ts.toISOString(),
         tool,
         prompt,
@@ -58,25 +59,27 @@ export async function cmdWrap(dbPath: string, tool: string, args: string[], cfg:
         workdir,
         gitContext,
         metadata: { ...(role ? { role } : {}), ...(tags.length > 0 ? { tags } : {}) },
-      }));
+      }), cfg, { inProgress: true }));
     };
 
     const onResponse = (id: number, response: string) => {
-      if (!response.trim()) return;
       db.updateResponse(id, response);
-      if (cfg.backgroundAnalysis) {
-        spawnBackgroundAnalysis(id, dbPath);
-      }
+      completionTasks.push(completeLiveCapture(dbPath, cfg, id));
     };
 
-    const exitCode = await runPTY(realBin!, cleanArgs, onPrompt, onResponse, debugLog);
-    db.close();
+    let exitCode: number;
+    try {
+      exitCode = await runPTY(realBin, cleanArgs, onPrompt, onResponse, debugLog);
+      await Promise.all(completionTasks);
+    } finally {
+      db.close();
+    }
     process.exit(exitCode);
   } else {
-    await runInline(realBin!, cleanArgs, db, tool, tags, role, (id) => {
-      if (cfg.backgroundAnalysis) {
-        spawnBackgroundAnalysis(id, dbPath);
-      }
-    });
+    try {
+      await runInline(realBin, cleanArgs, db, tool, tags, cfg, role);
+    } finally {
+      db.close();
+    }
   }
 }

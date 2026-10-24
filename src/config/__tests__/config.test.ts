@@ -52,4 +52,43 @@ describe('config load/save (SPEC-015)', () => {
     const { load } = await freshConfig();
     expect(load()).toEqual({});
   });
+
+  it('cmdConfig supports set/get with kebab-case, camelCase, retention keys, and redacts secrets', async () => {
+    vi.resetModules();
+    vi.stubEnv('HOME', tmp);
+    fs.mkdirSync(tmp, { recursive: true });
+    const { cmdConfig } = await import('../../commands/config.js');
+    const { load } = await import('../index.js');
+
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logs.push(args.join(' '));
+    });
+
+    try {
+      await cmdConfig(['set', 'backgroundAnalysis', 'true']);
+      await cmdConfig(['set', 'retention-days', '45']);
+      await cmdConfig(['set', 'remote-url', 'https://remote.example']);
+      await cmdConfig(['set', 'gemini-api-key', 'super-secret-key']);
+
+      await expect(cmdConfig(['set', 'remote-url', 'not a URL'])).rejects.toThrow(/absolute HTTP or HTTPS/i);
+
+      expect(load()).toMatchObject({
+        backgroundAnalysis: true,
+        retentionDays: 45,
+        remoteUrl: 'https://remote.example',
+        geminiApiKey: 'super-secret-key',
+      });
+
+      logs.length = 0;
+      await cmdConfig(['get', 'background-analysis']);
+      await cmdConfig(['get', 'retentionDays']);
+      await cmdConfig(['get', 'geminiApiKey']);
+      await cmdConfig(['get', 'ollama-model']);
+
+      expect(logs).toEqual(['true', '45', '[redacted]', '(not set)']);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

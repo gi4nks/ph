@@ -43,6 +43,7 @@ export async function importCodexHistory(
   onProgress?: (evaluated: number, imported: number, total: number, current: string) => void,
   filter?: FilterPipeline,
   transcriptFile?: string,
+  workdirOverride?: string,
 ): Promise<ImportResult> {
   const result: ImportResult = { filesScanned: 0, promptsFound: 0, promptsImported: 0, skipped: 0, filtered: 0, errors: [] };
   const dedupFilter = filter ?? new FilterPipeline({ minLength: 0, minRelevance: 0, existingHashes: db.getAllPromptHashes() });
@@ -94,7 +95,7 @@ export async function importCodexHistory(
       }
       const response = agentMessages.length > 0 ? agentMessages.join('')
         : finalAssistantItems.length > 0 ? finalAssistantItems.join('') : assistantItems.join('');
-      entries.push({ prompt, response: response.slice(0, 8000), timestamp: event.timestamp ?? new Date(0).toISOString(), workdir, sessionId });
+      entries.push({ prompt, response: response.slice(0, 8000), timestamp: event.timestamp ?? new Date(0).toISOString(), workdir: workdirOverride || workdir, sessionId });
     }
   }
 

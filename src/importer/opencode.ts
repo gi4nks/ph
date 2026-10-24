@@ -43,7 +43,9 @@ export async function importOpenCodeHistory(
   dryRun: boolean,
   analyzer?: LLMProvider,
   onProgress?: (evaluated: number, imported: number, total: number, current: string) => void,
-  filter?: FilterPipeline
+  filter?: FilterPipeline,
+  dbFileOverride?: string,
+  workdirOverride?: string
 ): Promise<ImportResult> {
   const result: ImportResult = {
     filesScanned: 0,
@@ -54,7 +56,17 @@ export async function importOpenCodeHistory(
     errors: [],
   };
 
-  const dbPath = path.join(opencodeDir, '..', 'opencode.db');
+  let dbPath: string;
+  if (dbFileOverride) {
+    dbPath = path.resolve(dbFileOverride);
+  } else if (opencodeDir.endsWith('.db') && fs.existsSync(opencodeDir)) {
+    dbPath = opencodeDir;
+  } else if (fs.existsSync(path.join(opencodeDir, 'opencode.db'))) {
+    dbPath = path.join(opencodeDir, 'opencode.db');
+  } else {
+    dbPath = path.join(opencodeDir, '..', 'opencode.db');
+  }
+
   if (!fs.existsSync(dbPath)) {
     result.errors.push(`opencode database not found at ${dbPath}`);
     return result;
@@ -146,7 +158,7 @@ export async function importOpenCodeHistory(
         }
 
         const timestamp = new Date(msg.data.time.created).toISOString();
-        const workdir = session.directory || '';
+        const workdir = workdirOverride?.trim() || session.directory || '';
 
         pendingEntries.push({
           prompt: prompt.trim(),

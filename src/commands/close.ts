@@ -37,7 +37,7 @@ export async function cmdClose(db: PhDB, cfg: PhConfig, args: string[]): Promise
   const { flags } = parseFlags(args);
   const project = (flags.project as string | undefined) || detectProject(process.cwd()).projectName;
   if (!project) throw new Error('Could not detect project. Use --project <name>.');
-  const since = flags.since as string | undefined;
+  const since = (flags.since as string | undefined) ?? (!flags.from && !flags.to ? '3h' : undefined);
   const from = flags.from as string | undefined;
   const to = flags.to as string | undefined;
   if (Boolean(since) === Boolean(from || to) || Boolean(from) !== Boolean(to)) {

@@ -5,13 +5,9 @@
 ## What it does
 
 - Captures conversations through a transparent command wrapper, native hooks, direct logging, or history import.
-- Searches prompts and responses with SQLite FTS5, or searches by semantic similarity with Ollama embeddings and sqlite-vec.
-- Groups records by project, tool, language, role, tags, time, and quality metadata.
-- Builds project summaries and an append-only analysis history with Ollama, Gemini, OpenRouter, or MLX-Serve through `@gi4nks/wise`.
-- Exposes prompt history and project knowledge through an MCP server over stdio.
-- Provides an interactive terminal browser for filtering, reviewing, editing metadata, starring, exporting, and rerunning prompts.
-- The TUI `p` action sends the selected prompt to a configured Wise analysis provider; `r` reruns it with its original CLI tool.
-- Supports optional HTTP sync between a local database and a remote `ph` server.
+- Searches prompts and responses, then retrieves task-relevant project context through one command.
+- Reviews recent work and saves durable project decisions only after explicit approval.
+- Keeps data local by default; hooks and MCP are available for automatic capture and agent access.
 
 ## Install
 
@@ -36,19 +32,27 @@ Requires Node.js 22 or later (the Wise/AI SDK provider stack requires Node 22). 
 ## Quick start
 
 ```bash
-# Capture a prompt by wrapping an installed AI CLI tool
-ph claude "explain goroutines"
+# Connect PH once to the AI CLIs you use
+ph setup
+
+# Then use Claude Code, Codex, or Gemini CLI normally. Completed exchanges
+# are captured in the background by each tool's native hook.
+claude
+codex
 
 # Search prompt history
 ph search "goroutines"
-ph search --semantic "concurrency patterns"
-
-# Open the interactive browser
-ph browse
+ph show 42                       # Full prompt, response, and available analysis
+# Search all projects when needed
+ph search --all "goroutines"
 
 # Add a record directly
 ph log --tool claude --prompt "Explain this function" --response "It parses..."
 ```
+
+`ph setup` detects installed Claude Code, Codex CLI, Gemini CLI, and OpenCode integrations, then installs capture hooks while preserving existing settings. Pass tool names to select explicitly (`ph setup codex claude`). It is safe to run again. Use `ph <tool>` as a wrapper if you prefer not to install hooks.
+
+`ph search "query"` searches the current project and shows five matches, ranked by text relevance. Use `--limit <n>` for more results or `--all` to search across projects. Codex hook captures use the active CLI working directory so new conversations get associated with the project where Codex was launched.
 
 ## Capture history
 
@@ -86,7 +90,7 @@ ph import opencode
 ph import codex --dry-run
 ```
 
-Codex is also available through wrapper and context-injected modes: `ph codex exec "prompt"` and `ph chat codex exec "prompt"`. See [Codex hook setup](hooks/codex/README.md).
+Codex is also available through wrapper mode: `ph codex exec "prompt"`. See [Codex hook setup](hooks/codex/README.md).
 
 ## Search and project context
 
@@ -94,6 +98,9 @@ Codex is also available through wrapper and context-injected modes: `ph codex ex
 ph search --tool claude --role debug --since 2026-01-01
 ph search --semantic "How did I configure SQLite migrations?"
 ph search --archive "database migration"
+ph show 42 --json                # Machine-readable interaction detail
+ph show 42                       # full prompt, response, and available analysis
+ph show 42 --json                # machine-readable detail
 
 # Retrieve project knowledge and related prompts for the current directory
 ph context "How are database migrations handled?"
@@ -101,22 +108,17 @@ ph context "How are database migrations handled?"
 # Limit the output to project summaries and memories
 ph context --memories-only --project ph
 
-# Prepare a task brief with relevant history (read-only)
-ph prepare "add Wise provider" --limit 5 --budget 3500
+# Retrieve a task brief with relevant history (read-only)
+ph context "add Wise provider" --limit 5 --budget 3500
 
-# Review recent work and explicitly promote useful knowledge
-ph close --since 3h
+# Review recent work and explicitly promote useful knowledge (defaults to 3h)
+ph close
 ph close --from 1670 --to 1682 --dry-run
 ```
 
-`ph context`, `ph prepare`, `ph chat`, and MCP project-context tools use shared retrieval and formatting. `prepare` is read-only, prints prompt and memory provenance, and falls back to recent project context if Ollama embeddings are unavailable. `close` reviews selected prompt/response pairs, asks the configured analysis provider for durable knowledge proposals, and requires an interactive terminal before the provider call. Accepted proposals retain their source prompt IDs and are written with summary updates in one atomic database transaction. Semantic results are scoped to the requested project before the result limit is applied.
+`ph context "task"` retrieves task-specific history when you want to supply it explicitly. `ph close` is an optional review workflow for promoting durable knowledge; it is not required for capture or search. `ph prepare` remains a compatibility alias for `ph context`.
 
-These entry points have different jobs: `context` explores saved project
-knowledge on demand, `prepare` retrieves evidence for one task, `chat` injects
-recent project context into a wrapped tool invocation, and MCP makes history
-available to configured agents. New user-facing workflows are deferred until
-the operational loop has been used on three real tasks across different
-projects.
+Running `ph` prints the short setup-first workflow; it does not open a TUI. `ph browse` remains as a compatibility alias for listing recent interactions. `ph help --all` lists maintenance and integration commands.
 
 ## Project memory and analysis
 
@@ -170,7 +172,7 @@ authentication, set `MLX_SERVE_API_KEY` or run `ph config set mlx-serve-api-key`
 for a hidden prompt. `ph config show` redacts credentials. The model catalog
 marks installed models as `[loaded]` or `[unloaded]`.
 
-Project summaries merge deduplicated insights and technical decisions. Individual analysis results remain in an append-only memory timeline. Analysis and embeddings require the corresponding provider to be available; basic capture and full-text search do not.
+Automatic analysis enriches each interaction with classification, summary, insights, and decisions; these derived fields are searchable and visible with `ph show`. Analysis does not modify active project memories or summaries. Only approved `ph close` proposals and MCP `save_decision` promote knowledge. Existing memories remain available. Task context retrieval is shared by `ph context`, `ph chat`, and MCP knowledge checks, with a labeled recent-history fallback.
 
 ## MCP integration
 
@@ -200,7 +202,7 @@ ph remote pull
 ph remote status
 ```
 
-`PH_REMOTE_URL` overrides the configured remote URL. If `remote-api-key` is set on the server, clients must also provide that key. Use a private network or a TLS-terminating proxy when connecting across machines. Each `ph log` performs a non-blocking push when a remote is configured.
+`PH_REMOTE_URL` overrides the configured remote URL. The server refuses to start until `remote-api-key` is configured, and every client must provide the same key. It listens on loopback by default; use an explicit `--host` only for a protected network interface and use TLS when traffic crosses an untrusted network. `/health` is public and returns status only. Resumable ID cursors are scoped to both the remote target and local database, and byte-bounded subpages stay below the server's 32 MiB request cap. A bulk push pauses before a live wrapper interaction until its response is saved. `ph log` and both wrapper modes push after capture when a remote is configured; the request is bounded to five seconds so an unavailable server cannot hang the command indefinitely. An invalid remote URL does not prevent local capture or launching the wrapped tool. Current limitation: a remote database replacement behind the same URL is not detected, and last-push/pull status timestamps are shared across targets.
 
 ## Configuration and storage
 
@@ -221,7 +223,7 @@ Configuration is stored in `~/.ph_config.json`; the database defaults to `~/.pro
 | `filter-min-length` | `15` | Minimum prompt length accepted by filtering |
 | `filter-min-relevance` | `3` | Relevance threshold for filtered imports/analysis workflows |
 | `remote-url` | unset | Remote `ph` server; `PH_REMOTE_URL` takes precedence |
-| `remote-api-key` | unset | Optional server authentication key |
+| `remote-api-key` | unset | Required to start the HTTP server; sent by remote clients |
 
 Provider credentials can be stored in `~/.ph_config.json` through the hidden
 `ph config set <provider>-api-key` prompts or supplied through environment

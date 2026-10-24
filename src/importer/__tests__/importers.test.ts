@@ -75,6 +75,25 @@ describe('history import formats', () => {
     const [prompt] = db.getAllPrompts();
     expect(result).toMatchObject({ filesScanned: 1, promptsFound: 1, promptsImported: 1 });
     expect(prompt).toMatchObject({ prompt: 'How does OpenCode pairing work?', response: 'Assistant messages link to a parent ID.', workdir: '/work/ph' });
+
+    const dbOverride = new PhDB(path.join(dir, 'ph-override.db'));
+    try {
+      const overrideResult = await importOpenCodeHistory(
+        dbOverride,
+        dir,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        path.join(dir, 'opencode', 'opencode.db'),
+        '/custom/workdir'
+      );
+      const [overridePrompt] = dbOverride.getAllPrompts();
+      expect(overrideResult).toMatchObject({ filesScanned: 1, promptsFound: 1, promptsImported: 1 });
+      expect(overridePrompt.workdir).toBe('/custom/workdir');
+    } finally {
+      dbOverride.close();
+    }
   });
 
   it('imports Codex rollout user messages with their assistant response and cwd', async () => {
@@ -104,5 +123,24 @@ describe('history import formats', () => {
     ]);
     await importCodexHistory(db, codexDir, false);
     expect(db.getAllPrompts().filter((prompt) => prompt.tool === 'codex')).toHaveLength(3);
+  });
+
+  it('uses the hook working directory when a Codex transcript has a synthetic cwd', async () => {
+    const codexDir = path.join(dir, 'codex');
+    const transcript = path.join(dir, 'rollout-hook.jsonl');
+    const projectDir = path.join(dir, 'real-project');
+    fs.mkdirSync(codexDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'package.json'), '{}');
+    fs.writeFileSync(transcript, [
+      JSON.stringify({ type: 'session_meta', payload: { cwd: '/synthetic/codex-project' } }),
+      JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Find this project later' }] } }),
+      JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Saved with the active project path.' }] } }),
+    ].join('\n'));
+
+    await importCodexHistory(db, codexDir, false, undefined, undefined, undefined, transcript, projectDir);
+    const [entry] = db.getAllPrompts();
+    expect(entry.workdir).toBe(projectDir);
+    expect(JSON.parse(entry.metadata).project).toBe('real-project');
   });
 });

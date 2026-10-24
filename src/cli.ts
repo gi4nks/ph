@@ -1,17 +1,13 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'child_process';
-import React from 'react';
-import { render } from 'ink';
 import { load as loadConfig } from './config/index.js';
 import { PhDB, defaultPath } from './db/index.js';
-import { resolveRealBinary } from './runner/inline.js';
-import { isTerminal } from './pty/wrapper.js';
 import { runMCPServer } from './mcp/server.js';
 import { runServer } from './server/index.js';
 import { cmdRemote } from './commands/remote.js';
-import { BrowseApp } from './ui/BrowseApp.js';
 import { cmdSearch } from './commands/search.js';
+import { cmdShow } from './commands/show.js';
+import { cmdStatus } from './commands/status.js';
 import { cmdLast } from './commands/last.js';
 import { cmdStar } from './commands/star.js';
 import { cmdExport } from './commands/export.js';
@@ -24,7 +20,6 @@ import { cmdBackgroundAnalyze } from './commands/background-analyze.js';
 import { cmdCleanup } from './commands/cleanup.js';
 import { cmdVacuum } from './commands/vacuum.js';
 import { cmdContext } from './commands/context.js';
-import { cmdPrepare } from './commands/prepare.js';
 import { cmdClose } from './commands/close.js';
 import { cmdSessions } from './commands/sessions.js';
 import { cmdStats } from './commands/stats.js';
@@ -35,28 +30,31 @@ import { cmdTimeline } from './commands/timeline.js';
 import { cmdMemoryMigrate } from './commands/memory-migrate.js';
 import { cmdWrap } from './commands/wrap.js';
 import { cmdChat } from './commands/chat.js';
+import { detectCaptureTools, setupCapture } from './commands/setup.js';
 import { cmdModels } from './commands/models.js';
-import { getProvider, getProviderSetupError } from './ai/provider.js';
 import { parseFlags } from './commands/_utils.js';
 
-const USAGE = `ph — prompt history tracker
+const ADVANCED_USAGE = `ph — local history and project context for AI CLI tools
 
 USAGE:
-  ph                                    Open interactive TUI browser (default)
+  ph                                    Print the short everyday-use guide
+  ph setup [tool...]                   Connect supported AI CLIs for automatic capture
   ph <tool> [tool-args...]              Wrap a CLI tool, save prompt to history
-  ph search [options] [query]           Search saved prompts
+  ph search [options] [query]           Search this project (5 matches; --all searches everything)
+  ph show <id> [--json] [--archive]     Inspect one complete interaction and its analysis
   ph context [options] [query]          Get RAG context for the current project
-  ph prepare "<task>" [options]          Build a read-only task brief with source IDs
-  ph close --since 3h [options]          Review work and propose knowledge to save
+  ph prepare "<task>" [options]          Alias for task-aware ph context
+  ph close [--since 3h] [options]        Review work and propose knowledge to save
   ph chat <tool> <prompt...>            Run tool with project context injected
   ph last [n]                           Show last N prompts (default 10)
   ph sessions [options]                 Group prompts into work sessions
   ph stats                              Show history statistics
+  ph status                             Show recent capture and background-work status
   ph cluster [options]                  Cluster prompts by similarity
   ph analyze-reusability [options]      Analyze prompt reusability
   ph star <id>                          Toggle star on a prompt
-  ph export <id> [--format txt|json|md] Export a single prompt
-  ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>]
+  ph export <id> [--format txt|json|md] [--archive] Export one complete interaction
+  ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>] [--workdir <path>]
                                                 Import from Gemini, Claude, OpenCode, or Codex history
   ph analyze [--limit n] [--force] [--prune] [--dry-run]  Analyze prompts with LLM
   ph models [openrouter|mlx-serve]     List models from an AI provider
@@ -71,8 +69,9 @@ USAGE:
   ph embed-all                          Generate embeddings for all prompts
   ph log --tool <name> --prompt <text> [--response <text>]  Log a prompt+response directly
   ph config show                        Show active AI provider configuration
+  ph config get <key>                   Read config value (secrets are redacted)
   ph config set <key> [value]           Save config value (secret keys prompt hidden)
-  ph browse                             Interactive TUI browser
+  ph browse                             Print the latest interactions
 
 WRAP FLAGS (placed before the tool name):
   --ph-tag <tag>                        Add a tag to the captured prompt
@@ -80,7 +79,6 @@ WRAP FLAGS (placed before the tool name):
   --ph-debug                            Write a debug log to ~/.ph_debug.log
 
 SEARCH OPTIONS:
-  -i, --interactive   Open results in interactive TUI browser
   --tool <name>       Filter by tool name (claude, gemini, opencode, codex, …)
   --project <name>    Filter by project name
   --language <lang>   Filter by language (go, typescript, python, …)
@@ -94,8 +92,8 @@ SEARCH OPTIONS:
   --archive           Search archived prompts
   --since YYYY-MM-DD
   --until YYYY-MM-DD
-  --limit <n>         Max results (default 50)
-  --full              Show full prompt without truncation
+  --limit <n>         Max results (default 5)
+  --full              Show full prompt and response without truncation
 
 CONTEXT OPTIONS:
   --project <name>    Project to get context for (default: auto-detect)
@@ -134,11 +132,12 @@ EXAMPLES:
   ph claude "explain goroutines"
   ph --ph-role debug --ph-tag auth claude "fix JWT expiration bug"
   ph search "goroutines"
+  ph show 42
   ph search --tool claude --role debug --since 2026-01-01 "error handling"
   ph search --semantic "how to handle errors gracefully"
-  ph prepare "add Wise provider" --limit 5
+  ph context "add Wise provider" --limit 5
+  ph show 42 --json
   ph close --since 3h
-  ph search -i "database"
   ph last 20
   ph sessions
   ph sessions --gap-hours 4 --min-size 3
@@ -162,58 +161,34 @@ EXAMPLES:
   ph models mlx-serve                       Discover models on MLX-Serve (default Parmenide tunnel)
 `;
 
+const USAGE = `PH remembers work across your AI coding sessions.
+
+One-time setup:
+  ph setup                  Connect PH to installed supported AI CLIs
+
+Then use those tools normally. PH saves completed exchanges in the background.
+
+When you need something back:
+  ph search "query"         Search this project; use --all to search everything
+  ph show <id>              Inspect the full prompt, response, and available analysis
+  ph context "task"         Retrieve relevant project context when needed
+
+Run ph help --all for optional integrations and maintenance commands.
+`;
+
+function setupStatusLabel(status: 'installed' | 'updated' | 'already-configured'): string {
+  switch (status) {
+    case 'installed': return 'Installed capture for';
+    case 'updated': return 'Updated capture for';
+    case 'already-configured': return 'Already configured for';
+  }
+}
+
 
 
 
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
-
-type BrowseAppProps = React.ComponentProps<typeof BrowseApp>;
-
-/**
- * Opens the TUI browser inside the alternate screen (SPEC-001).
- * Shared by the default, `browse` and `search -i` paths (SPEC-ISSUES-010).
- * Resolves with the rerun request (or null) after the TUI exits.
- */
-async function openBrowser(
-  db: PhDB,
-  opts: Pick<BrowseAppProps, 'initialTextFilter' | 'initialFilters'> = {},
-): Promise<{ tool: string; prompt: string } | null> {
-  let pendingRerun: { tool: string; prompt: string } | null = null;
-  process.stdout.write('\x1b[?1049h');
-  try {
-    const { waitUntilExit } = render(
-      React.createElement(BrowseApp, {
-        db,
-        ...opts,
-        onRerun: (tool, prompt) => { pendingRerun = { tool, prompt }; },
-      })
-    );
-    await waitUntilExit();
-  } finally {
-    process.stdout.write('\x1b[?1049l');
-  }
-  return pendingRerun;
-}
-
-/** Executes a TUI rerun request after the browser closed. */
-async function runRerun(rerun: { tool: string; prompt: string } | null, dbPath: string, cfg: ReturnType<typeof loadConfig>): Promise<void> {
-  if (!rerun) return;
-  if (rerun.tool.startsWith('wise:')) {
-    const providerId = rerun.tool.slice('wise:'.length) as NonNullable<ReturnType<typeof loadConfig>['analyzeProvider']>;
-    const setupError = getProviderSetupError(cfg, providerId);
-    if (setupError) throw new Error(setupError);
-    const provider = getProvider(cfg, providerId);
-    if (!provider) throw new Error(`Cannot create ${providerId} provider from the saved configuration.`);
-    const response = await provider.generate(rerun.prompt);
-    process.stdout.write(`${response}\n`);
-    await cmdLog(dbPath, cfg, ['--tool', `wise:${providerId}`, '--prompt', rerun.prompt, '--response', response]);
-    return;
-  }
-  const realBin = resolveRealBinary(rerun.tool);
-  const child = spawnSync(realBin, [rerun.prompt], { stdio: 'inherit' });
-  process.exit(child.status ?? 0);
-}
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -227,16 +202,8 @@ async function main(): Promise<void> {
   const dbPath = process.env.PH_DB ?? cfg.dbPath ?? defaultPath();
 
   if (argv.length === 0) {
-    if (isTerminal()) {
-      const db = new PhDB(dbPath);
-      const rerun = await openBrowser(db);
-      db.close();
-      await runRerun(rerun, dbPath, cfg);
-      process.exit(0);
-    } else {
-      process.stdout.write(USAGE);
-      process.exit(0);
-    }
+    process.stdout.write(USAGE);
+    process.exit(0);
   }
 
   // Find first non-flag argument, skipping --ph-tag <value> and --ph-debug
@@ -251,7 +218,7 @@ async function main(): Promise<void> {
   }
 
   if (cmdIdx === -1) {
-    process.stdout.write(USAGE);
+    process.stdout.write(argv.includes('--all') ? ADVANCED_USAGE : USAGE);
     process.exit(0);
   }
 
@@ -260,32 +227,43 @@ async function main(): Promise<void> {
   const preArgs = argv.slice(0, cmdIdx); // pre-tool flags like --ph-tag
 
   switch (command) {
-    case 'search': {
-      const { flags, positional } = parseFlags(cmdArgs);
-      const query = positional.join(' ');
-      
-      if (flags['i'] || flags['interactive']) {
-        const db = new PhDB(dbPath);
-        const rerun = await openBrowser(db, {
-          initialTextFilter: query,
-          initialFilters: {
-            tool: flags['tool'] as string,
-            project: flags['project'] as string,
-            language: flags['language'] as string,
-            role: flags['role'] as string,
-            tag: flags['tag'] as string,
-            starred: Boolean(flags['starred']),
-            minQuality: flags['top'] ? 8 : (flags['min-quality'] ? Number(flags['min-quality']) : undefined),
-            minRelevance: flags['min-relevance'] ? Number(flags['min-relevance']) : undefined,
-          },
-        });
-        db.close();
-        await runRerun(rerun, dbPath, cfg);
+    case 'setup': {
+      if (cmdArgs.includes('--help') || cmdArgs.includes('-h')) {
+        process.stdout.write('Usage: ph setup [claude|codex|gemini|opencode...]\nWithout tool names, PH detects installed supported CLIs.\n');
         break;
       }
-
+      const selectedTools = cmdArgs.filter(arg => !arg.startsWith('-'));
+      const tools = selectedTools.length ? selectedTools : detectCaptureTools();
+      const results = setupCapture(process.env.HOME, undefined, tools);
+      if (results.length === 0) {
+        process.stdout.write('No supported AI CLI detected. Install one or select it explicitly: claude, codex, gemini, opencode.\n');
+        break;
+      }
+      for (const status of ['installed', 'updated', 'already-configured'] as const) {
+        const names = results.filter(result => result.status === status).map(result => result.tool);
+        if (names.length) process.stdout.write(`${setupStatusLabel(status)}: ${names.join(', ')}.\n`);
+      }
+      const restart = results.filter(result => result.status === 'installed' || result.status === 'updated').map(result => result.tool);
+      process.stdout.write(restart.length
+        ? `Restart ${restart.join(' and ')} to load the capture hook.\n`
+        : 'No changes needed.\n');
+      break;
+    }
+    case 'search': {
       const db = new PhDB(dbPath);
       await cmdSearch(db, cfg, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'show': {
+      const db = new PhDB(dbPath);
+      await cmdShow(db, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'status': {
+      const db = new PhDB(dbPath);
+      await cmdStatus(db, cfg);
       db.close();
       break;
     }
@@ -297,7 +275,7 @@ async function main(): Promise<void> {
     }
     case 'prepare': {
       const db = new PhDB(dbPath);
-      await cmdPrepare(db, cfg, cmdArgs);
+      await cmdContext(db, cfg, cmdArgs);
       db.close();
       break;
     }
@@ -384,7 +362,7 @@ async function main(): Promise<void> {
     case 'server': {
       const { flags } = parseFlags(cmdArgs);
       const port = Number(flags['port']) || 3001;
-      const host = (flags['host'] as string) || '0.0.0.0';
+      const host = (flags['host'] as string) || '127.0.0.1';
       await runServer(port, host);
       break;
     }
@@ -425,9 +403,9 @@ async function main(): Promise<void> {
 
     case 'browse': {
       const db = new PhDB(dbPath);
-      const rerun = await openBrowser(db);
+      process.stderr.write('ph browse is now a text-based history listing; use ph search to find specific work.\n');
+      await cmdLast(db, []);
       db.close();
-      await runRerun(rerun, dbPath, cfg);
       break;
     }
 
@@ -466,7 +444,7 @@ async function main(): Promise<void> {
     case 'help':
     case '--help':
     case '-h':
-      process.stdout.write(USAGE);
+      process.stdout.write(cmdArgs.includes('--all') ? ADVANCED_USAGE : USAGE);
       break;
 
     default:
