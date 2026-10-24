@@ -1,4 +1,6 @@
 import type { PromptEntry, PromptMetadata } from '../types.js';
+import { decodePromptMetadata } from '../interaction/detail.js';
+import { getAnalysisStatus } from '../interaction/lifecycle.js';
 
 const C = {
   reset: '\x1b[0m',
@@ -44,10 +46,7 @@ export function printResults(entries: PromptEntry[], showFull: boolean): void {
 }
 
 export function printEntry(e: PromptEntry, showFull: boolean): void {
-  let meta: PromptMetadata = {};
-  try {
-    meta = JSON.parse(e.metadata) as PromptMetadata;
-  } catch (_) {}
+  const meta: PromptMetadata = decodePromptMetadata(e.metadata);
 
   const exitColor = e.exit_code === 0 ? C.green : C.red;
 
@@ -84,12 +83,19 @@ export function printEntry(e: PromptEntry, showFull: boolean): void {
     process.stdout.write(`       ${C.gray}${e.workdir}${C.reset}\n`);
   }
 
-  // Prompt text
-  let prompt = e.prompt;
-  if (!showFull) {
-    prompt = truncatePrompt(prompt);
+  const prompt = showFull ? e.prompt : truncatePrompt(e.prompt);
+  process.stdout.write(`       Prompt: ${prompt.replace(/\n/g, '\n       ')}\n`);
+  if (e.response) {
+    const response = showFull ? e.response : truncatePrompt(e.response, 180);
+    process.stdout.write(`       Response: ${response.replace(/\n/g, '\n       ')}\n`);
+  } else {
+    process.stdout.write('       Response: (not captured)\n');
   }
-  // Indent multiline prompts
-  prompt = prompt.replace(/\n/g, '\n       ');
-  process.stdout.write(`       ${prompt}\n\n`);
+  if (meta.summary) {
+    const summary = showFull ? meta.summary : truncatePrompt(meta.summary, 160);
+    process.stdout.write(`       Analysis: ${getAnalysisStatus(meta)} — ${summary.replace(/\n/g, '\n       ')}\n`);
+  } else {
+    process.stdout.write(`       Analysis: ${getAnalysisStatus(meta)}\n`);
+  }
+  process.stdout.write(`       Inspect: ph show ${e.id}\n\n`);
 }

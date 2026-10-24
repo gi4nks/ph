@@ -20,7 +20,7 @@ available separately through `ph help --all`.
 - **Out of scope**: command internals outside context, MCP/HTTP protocols, and
   import formats.
 - **Entry points**: `ph` prints a concise usage guide; `ph <tool> [args...]`
-  wraps and captures an AI CLI; `search`, `context`, and `close` serve the daily
+  wraps and captures an AI CLI; `search`, `show`, `context`, and `close` serve the daily
   history and memory workflows.
 
 ## 3. Dispatch Rules
@@ -44,12 +44,13 @@ available separately through `ph help --all`.
 |---|---|---|
 | Setup | `ph setup [tool...]` | Detect supported installed tools by default and install native capture integrations while preserving existing configuration |
 | Capture | Native tool hook after setup; `ph <tool> [args...]` remains optional | Capture completed exchanges without changing the user's normal AI CLI invocation |
-| Find | `ph search <query>` | Print matching history in plain text |
+| Find | `ph search <query>` | Search the current project, show five relevant matches; use `--all` to broaden |
+| Inspect | `ph show <id>` | Display the complete captured interaction and its analysis |
 | Resume | `ph context "task"` | Optional explicit retrieval of project knowledge and relevant interactions |
 | Review | `ph close` | Optional review of recent work; propose durable knowledge and require explicit approval |
 
 Daily use requires setup once, then normal use of the supported AI CLI; search
-is the only regular PH command. `prepare` is a compatibility alias for
+is the primary PH command and `show` opens any result in full. `prepare` is a compatibility alias for
 `context`. There is no TUI in the runtime package. History can also be read
 with `last` or the `browse` compatibility alias.
 

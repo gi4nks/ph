@@ -1,15 +1,29 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import * as sqliteVec from 'sqlite-vec';
-import type { PromptEntry, SearchOptions, MemoryEntry, ProjectSummary } from '../types.js';
+import type { PromptEntry, SearchOptions, MemoryEntry, ProjectSummary, ArchivedPromptEntry } from '../types.js';
 import { SemanticIndex } from './semantic-index.js';
 import { MemoryRepository } from './memory-repository.js';
 import { ArchiveRepository } from './archive-repository.js';
 
 export function defaultPath(): string {
   return path.join(os.homedir(), '.prompt_history.db');
+}
+
+function analysisSearchText(raw: string): string {
+  try {
+    const metadata = JSON.parse(raw) as Record<string, unknown>;
+    const values: unknown[] = [metadata['title'], metadata['role'], metadata['project'], metadata['language'], metadata['summary']];
+    for (const key of ['tags', 'key_insights', 'technical_decisions']) {
+      const value = metadata[key];
+      if (Array.isArray(value)) values.push(...value);
+    }
+    return values.filter((value): value is string => typeof value === 'string').join(' ');
+  } catch {
+    return '';
+  }
 }
 
 export class PhDB {
@@ -52,6 +66,8 @@ export class PhDB {
 
   /** Absolute path of the SQLite file (used by the HTTP server health endpoint). */
   readonly dbPath: string;
+  /** Stable identity stored in the database; remote cursors are scoped to it. */
+  readonly databaseId: string;
 
   constructor(dbPath: string) {
     this.dbPath = dbPath;
@@ -60,12 +76,18 @@ export class PhDB {
     sqliteVec.load(this.db);
     this.semanticIndex = new SemanticIndex(this.db);
     this.migrate();
+    this.databaseId = (this.db.prepare("SELECT value FROM ph_meta WHERE key = 'database_id'").get() as { value: string }).value;
     this.memoryRepository = new MemoryRepository(this.db);
     this.archiveRepository = new ArchiveRepository(this.db);
   }
 
   private migrate(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS ph_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS prompts (
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT    NOT NULL,
@@ -103,6 +125,9 @@ export class PhDB {
         FOREIGN KEY(prompt_id) REFERENCES prompts(id) ON DELETE CASCADE
       );
     `);
+
+    const databaseId = this.db.prepare("SELECT value FROM ph_meta WHERE key = 'database_id'").get();
+    if (!databaseId) this.db.prepare("INSERT OR IGNORE INTO ph_meta (key, value) VALUES ('database_id', ?)").run(randomUUID());
 
     // New native vector table (sqlite-vec)
     const vecTable = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='vec_embeddings'").get() as { sql: string } | undefined;
@@ -158,6 +183,28 @@ export class PhDB {
       this.db.exec("ALTER TABLE prompts ADD COLUMN response TEXT NOT NULL DEFAULT ''");
     } catch { /* already exists */ }
 
+    // Derived searchable metadata keeps analysis text in the FTS index without
+    // requiring a JSON scan for every query.
+    try {
+      this.db.exec("ALTER TABLE prompts ADD COLUMN search_metadata TEXT NOT NULL DEFAULT ''");
+    } catch { /* already exists */ }
+    const searchMetadataMigration = this.db.prepare(
+      "SELECT value FROM ph_meta WHERE key = 'search_metadata_backfill_v1'",
+    ).get();
+    if (!searchMetadataMigration) {
+      const backfillSearchMetadata = this.db.transaction(() => {
+        const migration = this.db.prepare(
+          "SELECT value FROM ph_meta WHERE key = 'search_metadata_backfill_v1'",
+        ).get();
+        if (migration) return;
+        const metadataRows = this.db.prepare("SELECT id, metadata FROM prompts WHERE search_metadata = ''").all() as { id: number; metadata: string }[];
+        const updateSearchMetadata = this.db.prepare('UPDATE prompts SET search_metadata = ? WHERE id = ?');
+        for (const row of metadataRows) updateSearchMetadata.run(analysisSearchText(row.metadata), row.id);
+        this.db.prepare("INSERT OR IGNORE INTO ph_meta (key, value) VALUES ('search_metadata_backfill_v1', 'complete')").run();
+      });
+      backfillSearchMetadata.immediate();
+    }
+
     // Migration: migrate data from old embeddings to new vec_embeddings if needed
     const oldEmbeds = this.db.prepare('SELECT count(*) as count FROM embeddings').get() as { count: number };
     const newEmbeds = this.db.prepare('SELECT count(*) as count FROM vec_embeddings').get() as { count: number };
@@ -174,37 +221,111 @@ export class PhDB {
       }
     }
 
-    // Migration: rebuild FTS5 to include response if not already indexed
+    // Keep raw-text BM25 isolated from analyzed metadata so derived fields do not
+    // change the ranking of existing prompt/response matches.
     const ftsRow = this.db
       .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='prompts_fts'")
       .get() as { sql: string } | undefined;
 
-    if (!ftsRow?.sql?.includes('response')) {
+    if (!ftsRow?.sql?.includes('response') || ftsRow.sql.includes('search_metadata')) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec(`
+          DROP TABLE IF EXISTS prompts_fts;
+          DROP TRIGGER IF EXISTS prompts_ai;
+          DROP TRIGGER IF EXISTS prompts_ad;
+          DROP TRIGGER IF EXISTS prompts_au;
+
+          CREATE VIRTUAL TABLE prompts_fts USING fts5(
+            prompt,
+            response,
+            tool UNINDEXED,
+            content='prompts',
+            content_rowid='id'
+          );
+
+          CREATE TRIGGER prompts_ai AFTER INSERT ON prompts BEGIN
+            INSERT INTO prompts_fts(rowid, prompt, response, tool)
+              VALUES (new.id, new.prompt, new.response, new.tool);
+          END;
+
+          CREATE TRIGGER prompts_ad AFTER DELETE ON prompts BEGIN
+            INSERT INTO prompts_fts(prompts_fts, rowid, prompt, response, tool)
+              VALUES('delete', old.id, old.prompt, old.response, old.tool);
+          END;
+
+          CREATE TRIGGER prompts_au AFTER UPDATE OF prompt, response, tool ON prompts BEGIN
+            INSERT INTO prompts_fts(prompts_fts, rowid, prompt, response, tool)
+              VALUES('delete', old.id, old.prompt, old.response, old.tool);
+            INSERT INTO prompts_fts(rowid, prompt, response, tool)
+              VALUES (new.id, new.prompt, new.response, new.tool);
+          END;
+
+          INSERT INTO prompts_fts(prompts_fts) VALUES('rebuild');
+        `);
+        this.db.exec('COMMIT');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    }
+
+    const rawFtsUpdateTrigger = this.db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='trigger' AND name='prompts_au'"
+    ).get();
+    if (!rawFtsUpdateTrigger) {
       this.db.exec(`
-        DROP TABLE IF EXISTS prompts_fts;
-        DROP TRIGGER IF EXISTS prompts_ai;
-        DROP TRIGGER IF EXISTS prompts_ad;
-
-        CREATE VIRTUAL TABLE prompts_fts USING fts5(
-          prompt,
-          response,
-          tool UNINDEXED,
-          content='prompts',
-          content_rowid='id'
-        );
-
-        CREATE TRIGGER prompts_ai AFTER INSERT ON prompts BEGIN
+        CREATE TRIGGER prompts_au AFTER UPDATE OF prompt, response, tool ON prompts BEGIN
+          INSERT INTO prompts_fts(prompts_fts, rowid, prompt, response, tool)
+            VALUES('delete', old.id, old.prompt, old.response, old.tool);
           INSERT INTO prompts_fts(rowid, prompt, response, tool)
             VALUES (new.id, new.prompt, new.response, new.tool);
         END;
-
-        CREATE TRIGGER prompts_ad AFTER DELETE ON prompts BEGIN
-          INSERT INTO prompts_fts(prompts_fts, rowid, prompt, response, tool)
-            VALUES('delete', old.id, old.prompt, old.response, old.tool);
-        END;
-
-        INSERT INTO prompts_fts(prompts_fts) VALUES('rebuild');
       `);
+    }
+
+    // Analysis text has a separate FTS index so adding metadata does not perturb
+    // the established BM25 scores of prompt and response matches.
+    const analysisFtsRow = this.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='prompts_analysis_fts'"
+    ).get() as { sql: string } | undefined;
+    if (!analysisFtsRow?.sql?.includes('search_metadata')) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec(`
+          DROP TABLE IF EXISTS prompts_analysis_fts;
+          DROP TRIGGER IF EXISTS prompts_analysis_ai;
+          DROP TRIGGER IF EXISTS prompts_analysis_ad;
+          DROP TRIGGER IF EXISTS prompts_analysis_au;
+
+          CREATE VIRTUAL TABLE prompts_analysis_fts USING fts5(
+            search_metadata,
+            content='prompts',
+            content_rowid='id'
+          );
+
+          CREATE TRIGGER prompts_analysis_ai AFTER INSERT ON prompts BEGIN
+            INSERT INTO prompts_analysis_fts(rowid, search_metadata) VALUES (new.id, new.search_metadata);
+          END;
+
+          CREATE TRIGGER prompts_analysis_ad AFTER DELETE ON prompts BEGIN
+            INSERT INTO prompts_analysis_fts(prompts_analysis_fts, rowid, search_metadata)
+              VALUES('delete', old.id, old.search_metadata);
+          END;
+
+          CREATE TRIGGER prompts_analysis_au AFTER UPDATE OF search_metadata ON prompts BEGIN
+            INSERT INTO prompts_analysis_fts(prompts_analysis_fts, rowid, search_metadata)
+              VALUES('delete', old.id, old.search_metadata);
+            INSERT INTO prompts_analysis_fts(rowid, search_metadata) VALUES (new.id, new.search_metadata);
+          END;
+
+          INSERT INTO prompts_analysis_fts(prompts_analysis_fts) VALUES('rebuild');
+        `);
+        this.db.exec('COMMIT');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
     }
   }
 
@@ -214,8 +335,8 @@ export class PhDB {
     const response = entry.response ?? '';
     const info = this.db
       .prepare(
-        `INSERT INTO prompts (timestamp, tool, prompt, response, args, workdir, hostname, exit_code, metadata)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO prompts (timestamp, tool, prompt, response, args, workdir, hostname, exit_code, metadata, search_metadata)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         entry.timestamp,
@@ -226,7 +347,8 @@ export class PhDB {
         entry.workdir,
         entry.hostname,
         entry.exit_code,
-        meta
+        meta,
+        analysisSearchText(meta)
       );
     return info.lastInsertRowid as number;
   }
@@ -236,7 +358,27 @@ export class PhDB {
   }
 
   updateMetadata(id: number, metadata: string): void {
-    this.db.prepare('UPDATE prompts SET metadata = ? WHERE id = ?').run(metadata, id);
+    this.db.prepare('UPDATE prompts SET metadata = ?, search_metadata = ? WHERE id = ?').run(metadata, analysisSearchText(metadata), id);
+  }
+
+  updateMetadataFields(id: number, patch: Record<string, unknown>): void {
+    const update = this.db.transaction(() => {
+      const entry = this.getById(id);
+      if (!entry) return;
+      let metadata: Record<string, unknown>;
+      try {
+        const parsed: unknown = JSON.parse(entry.metadata);
+        metadata = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+      } catch {
+        metadata = {};
+      }
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined || value === null) delete metadata[key];
+        else metadata[key] = value;
+      }
+      this.updateMetadata(id, JSON.stringify(metadata));
+    });
+    update();
   }
 
   updateResponse(id: number, response: string): void {
@@ -247,6 +389,10 @@ export class PhDB {
     return this.db
       .prepare('SELECT * FROM prompts WHERE id = ?')
       .get(id) as PromptEntry | undefined;
+  }
+
+  getArchivedById(id: number): ArchivedPromptEntry | undefined {
+    return this.archiveRepository.getByOriginalIdOrArchiveId(id);
   }
 
   search(opts: SearchOptions): PromptEntry[] {
@@ -322,14 +468,34 @@ export class PhDB {
       const sanitized = `"${opts.query.replace(/"/g, '""')}"`;
       const filterClause = ftsFilters.length > 0 ? ' AND ' + ftsFilters.join(' AND ') : '';
       const sql = `
+        WITH raw_matches AS (
+          SELECT f.rowid AS id, bm25(prompts_fts) AS score
+          FROM prompts_fts f WHERE prompts_fts MATCH ?
+        ), raw_ranked AS (
+          SELECT m.id, ROW_NUMBER() OVER (ORDER BY m.score ASC, p.timestamp DESC, p.id DESC) AS position
+          FROM raw_matches m JOIN prompts p ON p.id = m.id
+        ), analysis_matches AS (
+          SELECT f.rowid AS id, bm25(prompts_analysis_fts) AS score
+          FROM prompts_analysis_fts f WHERE prompts_analysis_fts MATCH ?
+        ), analysis_ranked AS (
+          SELECT m.id, ROW_NUMBER() OVER (ORDER BY m.score ASC, p.timestamp DESC, p.id DESC) AS position
+          FROM analysis_matches m JOIN prompts p ON p.id = m.id
+        ), ranked_sources AS (
+          SELECT id, position FROM raw_ranked
+          UNION ALL
+          SELECT id, position FROM analysis_ranked
+        ), fused AS (
+          SELECT id, SUM(1.0 / (60.0 + position)) AS score
+          FROM ranked_sources GROUP BY id
+        )
         SELECT p.*
-        FROM prompts_fts f
-        JOIN prompts p ON p.id = f.rowid
-        WHERE prompts_fts MATCH ?${filterClause}
-        ORDER BY p.timestamp DESC
+        FROM fused r
+        JOIN prompts p ON p.id = r.id
+        WHERE 1=1${filterClause}
+        ORDER BY r.score DESC, p.timestamp DESC, p.id DESC
         LIMIT ?
       `;
-      return this.db.prepare(sql).all(sanitized, ...ftsArgs, opts.limit) as PromptEntry[];
+      return this.db.prepare(sql).all(sanitized, sanitized, ...ftsArgs, opts.limit) as PromptEntry[];
     } else {
       const filterClause = scanFilters.length > 0 ? ' AND ' + scanFilters.join(' AND ') : '';
       const sql = `
@@ -354,6 +520,10 @@ export class PhDB {
     return this.semanticIndex.loadAll();
   }
 
+  getEmbeddingsForProject(project: string): Map<number, Float32Array> {
+    return this.semanticIndex.loadProject(project);
+  }
+
   getPromptsWithoutEmbeddings(): PromptEntry[] {
     return this.semanticIndex.findMissingPrompts();
   }
@@ -368,6 +538,16 @@ export class PhDB {
     return this.db
       .prepare('SELECT * FROM prompts WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?')
       .all(timestamp, limit) as PromptEntry[];
+  }
+
+  getPromptsAfterId(id: number, limit: number): PromptEntry[] {
+    return this.db
+      .prepare('SELECT * FROM prompts WHERE id > ? ORDER BY id ASC LIMIT ?')
+      .all(id, limit) as PromptEntry[];
+  }
+
+  getPromptCountAfterId(id: number): number {
+    return (this.db.prepare('SELECT count(*) as c FROM prompts WHERE id > ?').get(id) as { c: number }).c;
   }
 
   getPromptCount(): number {

@@ -1,6 +1,5 @@
 import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
-import { getEmbeddings } from '../embedding/index.js';
 import { detectProject } from '../runner/project.js';
 import { parseFlags } from './_utils.js';
 import { formatProjectContext, getProjectContext } from '../context/index.js';
@@ -20,8 +19,12 @@ export async function cmdContext(db: PhDB, cfg: PhConfig, args: string[]): Promi
     process.exit(1);
   }
 
-  if (query && !promptsOnly && !memoriesOnly) {
-    const { context, fallbackReason } = await retrieveTaskContext(db, cfg, project, query, limit);
+  if (query) {
+    const { context, fallbackReason } = await retrieveTaskContext(db, cfg, project, query, limit, {
+      includeSummary: !promptsOnly,
+      includeMemories: !promptsOnly,
+      includePrompts: !memoriesOnly,
+    });
     const requestedBudget = flags['budget'];
     const budget = typeof requestedBudget === 'string' ? Number(requestedBudget) : 3500;
     const warning = fallbackReason
@@ -37,8 +40,6 @@ export async function cmdContext(db: PhDB, cfg: PhConfig, args: string[]): Promi
     return;
   }
 
-  const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
-  const model = cfg.ollamaEmbedModel ?? 'nomic-embed-text-v2-moe';
   const context = await getProjectContext(db, {
     project,
     query,
@@ -46,9 +47,6 @@ export async function cmdContext(db: PhDB, cfg: PhConfig, args: string[]): Promi
     includeSummary: !promptsOnly,
     includeMemories: !promptsOnly,
     includePrompts: !memoriesOnly,
-  }, async (text) => {
-    const [vector] = await getEmbeddings([text], ollamaUrl, model, 1);
-    return vector;
   });
 
   process.stdout.write(formatProjectContext(context, { includePromptText: verbose }) + '\n');

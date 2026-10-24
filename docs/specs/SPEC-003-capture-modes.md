@@ -2,7 +2,7 @@
 
 - **ID**: SPEC-003
 - **Cluster**: Capture
-- **Status**: Implemented (baseline)
+- **Status**: Implemented; shared live lifecycle defined by SPEC-019
 - **Date**: 2026-08-08
 - **Source**: reverse-engineered from code (files listed in §8)
 
@@ -37,15 +37,20 @@ or `ph log`. Plus the OpenCode plugin for real-time capture.
    sequences. On Enter: finalize previous response, call `onPrompt`.
 4. On PTY exit: finalize last response, restore stdin, resolve with exitCode.
 
-### 4.2 Inline (src/runner/inline.ts:37)
-`runInline` captures args → `extractPrompt(args)` (:8), runs the binary
-non-interactively (spawnSync), records exit code, then `db.insert`.
+### 4.2 Inline (src/runner/inline.ts)
+`runInline` captures args → `extractPrompt(args)`, persists a normalized record
+with lifecycle status, spawns the tool, forwards stdout unchanged while
+collecting it as the interaction response, then persists response and exit
+code. The shared completion helper dispatches configured analysis and remote
+sync as the PTY and direct-log paths. Configured remote pushes have a
+five-second timeout; invalid URLs do not prevent local capture.
 
 ### 4.3 Direct log (src/commands/log.ts:9-70)
 `ph log --tool <t> --prompt <p> [--response <r>]` builds the entry (project
-detection, language detection, topic extraction), inserts, then optionally
-spawns background analysis (SPEC-006) and a fire-and-forget remote push
-(SPEC-010).
+detection, language detection, topic extraction), inserts, then dispatches
+configured analysis and a remote push with a five-second timeout through the
+shared live capture lifecycle (SPEC-019). Lifecycle states are stored on the
+interaction and shown by `ph status`.
 
 ### 4.4 Hooks + plugin
 - `hooks/claude/ph-hook.sh`, `hooks/gemini/ph-hook.sh` — shell scripts invoked
@@ -63,8 +68,10 @@ spawns background analysis (SPEC-006) and a fire-and-forget remote push
 - Capture never blocks the wrapped tool (background processes for analysis/push).
 - Binary resolution: `resolveRealBinary(tool)` maps known tool names
   (src/runner/inline.ts:15).
-- All supported capture adapters produce the same normalized PromptEntry shape;
-  source-specific metadata remains attached to that record.
+- All live adapters pass through the shared lifecycle preparation/completion
+  seam; source-specific metadata remains attached to the normalized record.
+- Inline wrapper output is both visible to the caller and stored as `response`;
+  child exit status is retained. Empty output is a valid completed response.
 
 ## 6. UI / UX surface
 Transparent: the wrapped tool's own output is forwarded verbatim; ph itself
@@ -85,6 +92,12 @@ prints only capture feedback.
 - **G5**: Given a capture with a project marker and adapter metadata, When
   `createCaptureRecord` builds it, Then it includes detected project/language,
   source metadata, and common fields (src/capture/index.ts).
+- **G6**: Given inline child stdout and a non-zero exit, When the wrapper
+  completes, Then stdout is forwarded and stored as response and the exit code
+  is retained (`src/runner/inline.test.ts`).
+- **G7**: Given analysis or remote sync is configured, When live capture enters
+  through log, inline, or PTY, Then all paths initialize and dispatch the same
+  lifecycle effects (`src/capture/lifecycle.ts`, SPEC-019).
 
 ## 8. Key implementation map
 | Concern | File(s) |

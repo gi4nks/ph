@@ -40,6 +40,16 @@ export class SemanticIndex {
     return new Map(rows.map(row => [row.prompt_id, this.decode(row.vector)]));
   }
 
+  loadProject(project: string): Map<number, Float32Array> {
+    const rows = this.db.prepare(`
+      SELECT e.prompt_id, e.vector
+      FROM embeddings e
+      JOIN prompts p ON p.id = e.prompt_id
+      WHERE json_valid(p.metadata) AND json_extract(p.metadata, '$.project') = ?
+    `).all(project) as { prompt_id: number; vector: Buffer }[];
+    return new Map(rows.map(row => [row.prompt_id, this.decode(row.vector)]));
+  }
+
   findMissingPrompts(): PromptEntry[] {
     return this.db.prepare(
       `SELECT p.* FROM prompts p

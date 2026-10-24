@@ -8,12 +8,12 @@ Keep PH simple to use: capture AI CLI work, find it with plain-text search, retr
 ### Completed
 - **Phase 0**: `cli.ts` ~1500→~80 lines; 19 command handlers → `src/commands/*.ts`
 - **Phase 1 (original)**: `sqlite-vec` integrated, `vec_embeddings` + `memories` tables, auto-migration from old BLOB embeddings
-- **Phase 2.1–2.3**: `ANALYSIS_PROMPT` requests `summary`/`key_insights`/`technical_decisions`; `analyzeAll`/`_bg-analyze` populate `memories` (append-only); shared `ph context` retrieval returns project summaries + memories + prompts as Markdown
+- **Phase 2.1–2.3**: `ANALYSIS_PROMPT` requests `summary`/`key_insights`/`technical_decisions`; analysis persists derived interaction metadata and does not write project memories. Shared `ph context` returns relevant project knowledge and prompts as Markdown.
 - **Phase 3.2**: MCP tools `search_project_memory`, `get_project_context`, `get_project_summary`
 - **Context integration**: `ph chat <tool> <prompt>` injects project context; the legacy TUI shortcut was retired in 2026-10-22
 - **Legacy UI (retired 2026-10-22)**: the Ink/React history browser and its keybindings were removed; use the plain-text CLI.
 - **Memory**: `upsertProjectMemory` is append-only → full timeline per project
-- **Memory merging**: `upsertProjectSummary()` merges new analysis into existing project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
+- **Memory merging**: `upsertProjectSummary()` merges explicitly promoted knowledge into the project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
 - **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
 - **Docs**: `AGENTS.md` fully rewritten; `ROADMAP_RAG.md` updated with completed phases checked
 - **OpenCode importer**: `src/importer/opencode.ts` reads from SQLite DB (`~/.local/share/opencode/opencode.db`), paired 186 user messages with responses, imported 151 prompts into ph after dedup
@@ -21,9 +21,9 @@ Keep PH simple to use: capture AI CLI work, find it with plain-text search, retr
 - **MCP prompt history tools**: `search_prompts`, `get_prompt`, `search_prompts_semantic` added to `src/mcp/server.ts` — full-text search, by-ID lookup, and vector search over raw prompt history
 - **Shared project context**: `src/context/index.ts` centralizes summary, memory, and prompt retrieval plus Markdown rendering for `ph context`, `ph chat`, and MCP `get_project_context`; semantic queries are scoped in the database before the result limit. Focused context and nearest-neighbor scope tests added.
 - **Capture seam**: `src/capture/index.ts` normalizes records from direct log, wrappers, and history importers.
-- **HTTP server (`ph server`)**: `src/server/index.ts` — lightweight REST API using Node `http` module (no deps). Endpoints: `/health`, `/api/prompts/search`, `/api/prompts/by-id`, `/api/prompts/semantic`, `/api/sync/push`, `/api/sync/pull`, `/api/memories/search`, `/api/memories/summary`, `/api/stats`. CORS enabled. Configurable port/host via `--port`/`--host`.
-- **Remote sync (`ph remote`)**: `src/commands/remote.ts` — `push` (sends unsynced local prompts to remote by timestamp), `pull` (fetches remote prompts since last pull, dedup by `sync_hash`), `status` (shows sync state). Dedup via sha256 of `tool|prompt|response` stored in metadata as `sync_hash`.
-- **Background push on log**: `src/commands/log.ts` — after each `ph log`, fire-and-forget push to remote if configured (no blocking).
+- **HTTP server (`ph server`)**: `src/server/index.ts` — lightweight REST API using Node `http` (no deps). Data routes require a configured Bearer key; startup fails without one. Default bind is loopback, health returns status only, and request bodies are capped at 32 MiB.
+- **Remote sync (`ph remote`)**: `src/commands/remote.ts` — resumable row-ID pages (500 entries) for push and pull. Cursors are scoped to the normalized target and local database UUID; cursor advancement waits for full acknowledgement/insertion; `sync_hash` makes retries idempotent. Legacy timestamp cursors trigger a replay from row zero. Current limitations: only one cursor per direction is retained (switching back to another DB replays it), the server database generation is not part of cursor identity, and last-push/pull timestamps are global.
+- **Live capture lifecycle**: `src/capture/lifecycle.ts` initializes and completes configured analysis and remote-push work for `ph log`, inline wrapper, and interactive PTY wrapper. Per-interaction network push has a five-second timeout.
 - **Env/config remote URL**: `PH_REMOTE_URL` env var takes precedence over `ph config set remoteUrl`. Config comment uses generic placeholder — no hardcoded server names.
 - **semantic-release**: Replaced `standard-version` with `semantic-release` for automated CI/CD. Release workflow runs on push to `main`, bumps version via conventional commits, publishes to npm with OIDC provenance.
 - **OIDC trusted publishing**: Package published with provenance attestation via GitHub Actions (`id-token: write`). Publisher identity: `GitHub Actions <npm-oidc-no-reply@github.com>`.
@@ -35,10 +35,10 @@ Keep PH simple to use: capture AI CLI work, find it with plain-text search, retr
 - **MCP `check_project_knowledge`**: AI agents call this before implementing a feature. Searches memories (keyword match) + semantic prompt search for previous implementations, discussions, and technical decisions. Returns "found" or "new work" recommendation.
 - **Operational memory workflow (2026-10-10; simplified 2026-10-22)**: task-aware `ph context` builds a read-only brief through shared retrieval with provenance and bounded excerpts (`ph prepare` is a compatibility alias); `ph close` reviews selected prompts, proposes durable knowledge, and requires interactive approval before saving memories and updating summaries. MCP uses the same context boundary and validates prompt provenance on `save_decision`.
 - **Product simplification (2026-10-22)**: `ph` prints a short command guide; task-aware retrieval is unified under `ph context`; `ph close` defaults to the last three hours. The Ink/React browser was removed. Advanced maintenance and integration commands remain available through `ph help --all`.
-- **Setup-first workflow (2026-10-22)**: `ph setup` installs native Claude Code, Codex, Gemini, and OpenCode capture integrations while preserving existing settings; everyday use no longer requires wrappers, manual context injection, or `ph close`. `ph search` is the explicit recall action.
+- **Setup-first workflow (2026-10-22)**: `ph setup` installs native Claude Code, Codex, Gemini, and OpenCode capture integrations while preserving existing settings, and distinguishes new from existing integrations. `ph search` defaults to five relevant matches in the current project; Codex hook capture associates the active CLI working directory with imported turns. Daily use does not require wrappers, manual context injection, or `ph close`.
 
 ### Evolution Plan (`docs/superpowers/specs/2026-06-12-ph-evolution-design.md`)
-- **Phase 1 (complete)**: `project_summaries`, summary merge and deduplication, `ph memory-migrate`, analysis writes to memories and summaries, MCP summary access, and `save_decision` persistence.
+- **Phase 1 (complete)**: `project_summaries`, summary merge and deduplication, `ph memory-migrate`, explicit knowledge promotion writes memories and summaries, MCP summary access, and `save_decision` persistence.
 - **Phase 2 (complete)**: `prompts_archive`, `ph cleanup --retention`, configurable retention rules, and automatic purging of entries older than twice the retention period.
 - **Phase 3 (complete)**: MCP memory search falls back to project summaries when semantic search has no results; `check_project_knowledge` and `save_decision` are available.
 - **Phase 4 (complete)**: TUI archive count, archived prompt search, and retention cleanup.
@@ -267,14 +267,17 @@ interface PhConfig {
   ollamaEmbedModel?: string;          // default: nomic-embed-text-v2-moe
   filterMinLength?: number;           // default: 15
   filterMinRelevance?: number;        // default: 3
-  backgroundAnalysis?: boolean;       // default: false — runs _bg-analyze after each ph log
+  backgroundAnalysis?: boolean;       // default: false — runs after each completed live capture
   retentionDays?: number;             // default: 90 — auto-archive prompts older than N days
   retentionMinStarred?: boolean;      // default: true — starred prompts never auto-archived
   retentionMinAnalyzed?: boolean;     // default: true — analyzed prompts never auto-archived
   retentionMinRelevance?: number;     // default: 3 — prompts with relevance below threshold pruned first
   remoteUrl?: string;                 // HTTP URL of remote ph server (or set PH_REMOTE_URL env)
-  remoteApiKey?: string;              // optional API key for remote server
+  remoteApiKey?: string;              // required to start HTTP server; client Bearer key
+  remoteLastPush?: string;            // global timestamp of last successful push
   remoteLastPull?: string;            // ISO timestamp of last successful pull
+  remotePushCursor?: { target: string; databaseId: string; id: number }; // target + local DB scoped cursor
+  remotePullCursor?: { target: string; databaseId: string; id: number }; // target + local DB scoped cursor
 }
 ```
 
@@ -284,7 +287,7 @@ interface PhConfig {
 ph config set background-analysis true
 ```
 
-After each `ph log ...` command or hook invocation, background analysis runs and appends project memory entries.
+After each `ph log ...` command or hook invocation, optional background analysis enriches captured interaction metadata. It does not append project memory entries; only reviewed `ph close` proposals and MCP `save_decision` promote durable knowledge.
 
 ## Key Architecture Patterns
 
@@ -294,11 +297,11 @@ After each `ph log ...` command or hook invocation, background analysis runs and
 - **`ph chat`**: wrapper that auto-injects project context (memories + recent prompts) before forwarding to the tool
 - **Background analysis**: spawns detached child process via `spawnBackgroundAnalysis()` — never blocks
 - **Auto-analysis**: enabled via `ph config set background-analysis true` — runs `_bg-analyze` after each `ph log` capture
-- **Multiple memories**: each analysis creates a NEW entry in `memories` table (append-only), preserving full timeline per project instead of overwriting
-- **Memory pipeline**: analysis → `upsertProjectMemory()` creates new memory entry with `key_insights` + `technical_decisions` per project
+- **Multiple memories**: explicitly promoted decisions create append-only entries in `memories`; analysis output stays on its source interaction
+- **Memory pipeline**: analysis enriches the source interaction metadata; `ph close` approval or MCP `save_decision` explicitly promotes source-backed knowledge through `upsertProjectMemory()`
 - **`ph context`**: outputs both project-level knowledge (from `memories`) + recent prompt interactions (markdown, pipe-ready)
 - **Import with analysis**: `ph import gemini --analyze` runs inline LLM analysis on imported prompts (supports `gemini`, `claude`, `opencode`, `codex`)
-- **Memory merging**: `upsertProjectSummary()` merges new analysis into existing project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
+- **Memory merging**: `upsertProjectSummary()` merges explicitly promoted knowledge into the project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
 - **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
 - **MCP summary fallback**: `search_project_memory` returns `project_summaries` content when semantic search yields no results
 - **Search archive**: `ph search --archive` queries the `prompts_archive` table
@@ -308,8 +311,8 @@ After each `ph log ...` command or hook invocation, background analysis runs and
 - **Metadata merging**: `mergeMetadata()` in `analyzer/index.ts` merges new analysis with existing metadata (preserves manual fields unless force=true)
 - **Filter pipeline**: 4 checks (too short, non-printable, trivial pattern, exact duplicate) + optional relevance filter
 - **Project detection**: walks up directory tree checking `.git`, `go.mod`, `package.json`, `Cargo.toml`, etc.
-- **Remote sync**: `ph server` starts HTTP REST API (Node `http` module, no deps). Endpoints for prompt search, CRUD, and sync. `ph remote push` sends unsynced prompts to remote (tracked by `remoteLastPush` timestamp in config). `ph remote pull` fetches remote prompts since `remoteLastPull` and merges locally. Dedup via `sync_hash` (sha256 of `tool|prompt|response`) stored in metadata JSON.
-- **Background push**: after each `ph log`, if `PH_REMOTE_URL` env or `remoteUrl` config is set, fire-and-forget push to remote (`.catch(() => {})` — never blocks or crashes).
+- **Remote sync**: HTTP server requires a Bearer key and binds loopback by default. Push/pull use target- and local-database-scoped row-ID pages, byte-bounded push subpages, full acknowledgement before cursor advancement, and idempotent `sync_hash` deduplication. Only the most recently used database cursor is retained; switching back causes a full replay. Remote database replacement at the same URL is not detected; last-success timestamps are global.
+- **Live follow-up**: `completeLiveCapture` dispatches configured analysis and a bounded per-interaction remote push consistently for direct log and both wrapper modes.
 - **Env overrides**: `PH_REMOTE_URL` env var takes precedence over config file `remoteUrl`. No server names hardcoded in code.
 
 ## Important Files for Quick Reference
@@ -325,7 +328,7 @@ After each `ph log ...` command or hook invocation, background analysis runs and
 - `src/mcp/server.ts` — MCP server with memory + prompt history tools
 - `src/server/index.ts` — HTTP REST server for remote sync (zero deps)
 - `src/commands/remote.ts` — `ph remote push|pull|status`
-- `src/commands/log.ts` — `ph log` with background remote push
+- `src/commands/log.ts` — `ph log` with bounded remote push after capture
 - `src/importer/opencode.ts` — OpenCode history importer
 - `src/importer/codex.ts` — Codex rollout history importer
 - `hooks/claude/ph-hook.sh` — Claude Code hook
@@ -369,3 +372,6 @@ After each `ph log ...` command or hook invocation, background analysis runs and
 | 2026-10-22 | Initial workspace experiment; superseded later the same day by a plain-text CLI and removal of the TUI | TypeScript, Ink, SQLite, Vitest | `src/ui/WorkHome.tsx` (removed), `src/cli.ts`, `README.md`, `CLAUDE.md`, `docs/ph-architecture-review.html` |
 | 2026-10-22 | Simplified PH to a plain-text daily workflow; removed the Ink/React browser and dependencies, unified task retrieval under `context`, and made `close` default to three hours | TypeScript, SQLite | `src/cli.ts`, `src/commands/{context,close,search}.ts`, `src/ui/`, `package.json`, `README.md`, `docs/` |
 | 2026-10-22 | Simplified daily use: added idempotent `ph setup` for native Claude/Codex/Gemini/OpenCode capture integrations; default guidance now makes capture automatic and keeps search as the primary recall command | TypeScript, Node.js, Vitest | `src/commands/setup.ts`, `src/cli.ts`, `README.md`, `docs/ph-manual.md` |
+| 2026-10-22 | Improved actual search use: five current-project results by default, FTS relevance ordering, explicit `--all` scope, truthful setup status, and current-directory attribution for Codex hook imports | TypeScript, SQLite FTS5, Vitest | `src/commands/search.ts`, `src/db/index.ts`, `src/importer/codex.ts`, `hooks/codex/`, `src/commands/setup.ts` |
+| 2026-10-24 | Closed network/capture/search findings with regression coverage for all six: database-scoped sync cursors, byte-bounded subpages, active-capture barrier and stale-marker recovery, invalid-URL isolation including real inline execution, one-time backfill from legacy data with blank rows, and joined project embedding loads | TypeScript, Node HTTP, SQLite FTS5, Vitest | `src/{server,sync,capture,runner,commands,db}`, `src/{commands,db,runner,sync}/__tests__`, `docs/specs/{SPEC-002,SPEC-005,SPEC-010,SPEC-019,SPEC-ISSUES}` |
+| 2026-10-24 | Reassessed PH after network fixes; recorded remaining remote database identity, semantic vector provenance, and startup migration findings; aligned product and operational docs with source | TypeScript, Vitest, Markdown | `docs/specs/SPEC-ISSUES.md`, `docs/specs/{SPEC-002,SPEC-005,SPEC-010}`, `README.md`, `docs/ph-manual.md` |

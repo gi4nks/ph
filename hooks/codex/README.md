@@ -1,6 +1,6 @@
 # Codex CLI hook for ph
 
-The hook imports the active Codex rollout after each completed turn. Codex supplies the transcript path to the `Stop` hook; `ph` pairs user messages with the assistant response and deduplicates turns already captured.
+The hook imports the active Codex rollout after each completed turn. Codex supplies the transcript path to the `Stop` hook; `ph` pairs user messages with the assistant response and deduplicates turns already captured. The hook supplies the active CLI working directory to the importer so captures are associated with the project where Codex was launched, even when the transcript records a synthetic directory.
 
 ## Install
 

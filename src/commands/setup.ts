@@ -11,6 +11,8 @@ const hookDefinitions: Record<string, { directory: string; file: HookFile; event
   gemini: { directory: '.gemini', file: 'settings.json', event: 'AfterAgent', script: 'gemini/ph-hook.sh' },
 };
 const supportedTools = ['claude', 'codex', 'gemini', 'opencode'];
+export type SetupStatus = 'installed' | 'updated' | 'already-configured';
+export interface SetupResult { tool: string; status: SetupStatus }
 
 export function detectCaptureTools(pathValue = process.env.PATH ?? ''): string[] {
   const directories = pathValue.split(path.delimiter).filter(Boolean);
@@ -21,9 +23,9 @@ export function detectCaptureTools(pathValue = process.env.PATH ?? ''): string[]
 }
 
 /** Install capture hooks into the user's existing AI CLI configuration. */
-export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultHooksRoot(), tools = supportedTools): string[] {
+export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultHooksRoot(), tools = supportedTools): SetupResult[] {
   if (!home) throw new Error('Cannot determine the home directory.');
-  const installed: string[] = [];
+  const results: SetupResult[] = [];
   const destination = path.join(home, '.ph', 'hooks');
   fs.mkdirSync(destination, { recursive: true });
 
@@ -37,10 +39,11 @@ export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultH
         if (fs.readFileSync(plugin, 'utf8') !== fs.readFileSync(source, 'utf8')) {
           throw new Error(`Refusing to overwrite existing OpenCode plugin: ${plugin}`);
         }
+        results.push({ tool, status: 'already-configured' });
       } else {
         fs.copyFileSync(source, plugin);
+        results.push({ tool, status: 'installed' });
       }
-      installed.push(tool);
       continue;
     }
     const definition = hookDefinitions[tool];
@@ -48,7 +51,9 @@ export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultH
     const source = path.join(hooksRoot, definition.script);
     if (!fs.existsSync(source)) throw new Error(`Hook script not found: ${source}`);
     const targetScript = path.join(destination, `${tool}-ph-hook.sh`);
-    fs.copyFileSync(source, targetScript);
+    const scriptExists = fs.existsSync(targetScript);
+    const scriptChanged = !scriptExists || fs.readFileSync(targetScript, 'utf8') !== fs.readFileSync(source, 'utf8');
+    if (scriptChanged) fs.copyFileSync(source, targetScript);
     fs.chmodSync(targetScript, 0o755);
 
     const configPath = path.join(home, definition.directory, definition.file);
@@ -63,7 +68,8 @@ export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultH
     }
     const entries = (currentEvent ?? []) as unknown[];
     const command = `${targetScript}`;
-    if (!entries.some(entry => JSON.stringify(entry).includes(command))) {
+    const configured = entries.some(entry => JSON.stringify(entry).includes(command));
+    if (!configured) {
       const hook = { type: 'command', command };
       const entry = tool === 'codex'
         ? { hooks: [hook] }
@@ -72,9 +78,12 @@ export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultH
       config.hooks = hooks;
       writeConfig(configPath, config);
     }
-    installed.push(tool);
+    results.push({
+      tool,
+      status: configured ? (scriptChanged ? 'updated' : 'already-configured') : 'installed',
+    });
   }
-  return installed;
+  return results;
 }
 
 export function defaultHooksRoot(): string {

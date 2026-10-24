@@ -6,6 +6,8 @@ import { runMCPServer } from './mcp/server.js';
 import { runServer } from './server/index.js';
 import { cmdRemote } from './commands/remote.js';
 import { cmdSearch } from './commands/search.js';
+import { cmdShow } from './commands/show.js';
+import { cmdStatus } from './commands/status.js';
 import { cmdLast } from './commands/last.js';
 import { cmdStar } from './commands/star.js';
 import { cmdExport } from './commands/export.js';
@@ -38,7 +40,8 @@ USAGE:
   ph                                    Print the short everyday-use guide
   ph setup [tool...]                   Connect supported AI CLIs for automatic capture
   ph <tool> [tool-args...]              Wrap a CLI tool, save prompt to history
-  ph search [options] [query]           Search saved prompts
+  ph search [options] [query]           Search this project (5 matches; --all searches everything)
+  ph show <id> [--json] [--archive]     Inspect one complete interaction and its analysis
   ph context [options] [query]          Get RAG context for the current project
   ph prepare "<task>" [options]          Alias for task-aware ph context
   ph close [--since 3h] [options]        Review work and propose knowledge to save
@@ -46,11 +49,12 @@ USAGE:
   ph last [n]                           Show last N prompts (default 10)
   ph sessions [options]                 Group prompts into work sessions
   ph stats                              Show history statistics
+  ph status                             Show recent capture and background-work status
   ph cluster [options]                  Cluster prompts by similarity
   ph analyze-reusability [options]      Analyze prompt reusability
   ph star <id>                          Toggle star on a prompt
-  ph export <id> [--format txt|json|md] Export a single prompt
-  ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>]
+  ph export <id> [--format txt|json|md] [--archive] Export one complete interaction
+  ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>] [--workdir <path>]
                                                 Import from Gemini, Claude, OpenCode, or Codex history
   ph analyze [--limit n] [--force] [--prune] [--dry-run]  Analyze prompts with LLM
   ph models [openrouter|mlx-serve]     List models from an AI provider
@@ -65,6 +69,7 @@ USAGE:
   ph embed-all                          Generate embeddings for all prompts
   ph log --tool <name> --prompt <text> [--response <text>]  Log a prompt+response directly
   ph config show                        Show active AI provider configuration
+  ph config get <key>                   Read config value (secrets are redacted)
   ph config set <key> [value]           Save config value (secret keys prompt hidden)
   ph browse                             Print the latest interactions
 
@@ -87,8 +92,8 @@ SEARCH OPTIONS:
   --archive           Search archived prompts
   --since YYYY-MM-DD
   --until YYYY-MM-DD
-  --limit <n>         Max results (default 50)
-  --full              Show full prompt without truncation
+  --limit <n>         Max results (default 5)
+  --full              Show full prompt and response without truncation
 
 CONTEXT OPTIONS:
   --project <name>    Project to get context for (default: auto-detect)
@@ -127,9 +132,11 @@ EXAMPLES:
   ph claude "explain goroutines"
   ph --ph-role debug --ph-tag auth claude "fix JWT expiration bug"
   ph search "goroutines"
+  ph show 42
   ph search --tool claude --role debug --since 2026-01-01 "error handling"
   ph search --semantic "how to handle errors gracefully"
   ph context "add Wise provider" --limit 5
+  ph show 42 --json
   ph close --since 3h
   ph last 20
   ph sessions
@@ -162,10 +169,20 @@ One-time setup:
 Then use those tools normally. PH saves completed exchanges in the background.
 
 When you need something back:
-  ph search "query"         Find an earlier decision or solution
+  ph search "query"         Search this project; use --all to search everything
+  ph show <id>              Inspect the full prompt, response, and available analysis
+  ph context "task"         Retrieve relevant project context when needed
 
-You can also capture manually with ph <tool>. Run ph help --all for integrations and maintenance.
+Run ph help --all for optional integrations and maintenance commands.
 `;
+
+function setupStatusLabel(status: 'installed' | 'updated' | 'already-configured'): string {
+  switch (status) {
+    case 'installed': return 'Installed capture for';
+    case 'updated': return 'Updated capture for';
+    case 'already-configured': return 'Already configured for';
+  }
+}
 
 
 
@@ -217,15 +234,36 @@ async function main(): Promise<void> {
       }
       const selectedTools = cmdArgs.filter(arg => !arg.startsWith('-'));
       const tools = selectedTools.length ? selectedTools : detectCaptureTools();
-      const installed = setupCapture(process.env.HOME, undefined, tools);
-      process.stdout.write(installed.length
-        ? `PH capture is connected to: ${installed.join(', ')}. Restart those tools to begin saving new exchanges.\n`
-        : 'No supported AI CLI detected. Install or name one explicitly: claude, codex, gemini, opencode.\n');
+      const results = setupCapture(process.env.HOME, undefined, tools);
+      if (results.length === 0) {
+        process.stdout.write('No supported AI CLI detected. Install one or select it explicitly: claude, codex, gemini, opencode.\n');
+        break;
+      }
+      for (const status of ['installed', 'updated', 'already-configured'] as const) {
+        const names = results.filter(result => result.status === status).map(result => result.tool);
+        if (names.length) process.stdout.write(`${setupStatusLabel(status)}: ${names.join(', ')}.\n`);
+      }
+      const restart = results.filter(result => result.status === 'installed' || result.status === 'updated').map(result => result.tool);
+      process.stdout.write(restart.length
+        ? `Restart ${restart.join(' and ')} to load the capture hook.\n`
+        : 'No changes needed.\n');
       break;
     }
     case 'search': {
       const db = new PhDB(dbPath);
       await cmdSearch(db, cfg, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'show': {
+      const db = new PhDB(dbPath);
+      await cmdShow(db, cmdArgs);
+      db.close();
+      break;
+    }
+    case 'status': {
+      const db = new PhDB(dbPath);
+      await cmdStatus(db, cfg);
       db.close();
       break;
     }
@@ -324,7 +362,7 @@ async function main(): Promise<void> {
     case 'server': {
       const { flags } = parseFlags(cmdArgs);
       const port = Number(flags['port']) || 3001;
-      const host = (flags['host'] as string) || '0.0.0.0';
+      const host = (flags['host'] as string) || '127.0.0.1';
       await runServer(port, host);
       break;
     }
