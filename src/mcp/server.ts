@@ -8,6 +8,7 @@ import { MCP_TOOL_DEFINITIONS } from "./tools/definitions.js";
 import { handlePromptTool } from "./tools/prompts.js";
 import { handleProjectTool } from "./tools/projects.js";
 import { handleTimelineTool } from "./tools/timeline.js";
+import { handleSharedMemoryTool } from "./tools/shared-memory.js";
 
 export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
   const server = new Server(
@@ -27,6 +28,8 @@ export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
         const result = await handle(name, args, db, cfg);
         if (result) return result;
       }
+      const sharedMemoryResult = await handleSharedMemoryTool(name, args, cfg);
+      if (sharedMemoryResult) return sharedMemoryResult;
       throw new Error(`Unknown tool: ${name}`);
     } catch (error) {
       return {

@@ -116,6 +116,7 @@ describe('history import formats', () => {
     const result = await importCodexHistory(db, codexDir, false);
     const prompts = db.getAllPrompts().filter((prompt) => prompt.tool === 'codex');
     expect(result).toMatchObject({ filesScanned: 1, promptsFound: 3, promptsImported: 3, skipped: 0 });
+    expect(result.importedIds).toHaveLength(3);
     expect(prompts.map(({ prompt, response, workdir }) => ({ prompt, response, workdir }))).toEqual([
       { prompt: 'Modern Codex rollout format', response: 'Final response.', workdir: '/work/ph' },
       { prompt: 'Second turn', response: 'Second answer.', workdir: '/work/ph' },

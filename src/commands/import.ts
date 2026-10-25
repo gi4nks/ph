@@ -9,6 +9,8 @@ import { importCodexHistory } from '../importer/codex.js';
 import { getProvider, getProviderSetupError } from '../ai/provider.js';
 import { FilterPipeline } from '../filter/index.js';
 import { parseFlags } from './_utils.js';
+import { automaticMemoryEnabled } from '../capture/lifecycle.js';
+import { spawnAutomaticMemoryExtraction } from '../background/automatic-memory.js';
 
 export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   if (args.length === 0) {
@@ -83,6 +85,12 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
   }
 
   if (analyze) process.stdout.write('\n');
+  if (source === 'codex' && transcriptFile && automaticMemoryEnabled(cfg)) {
+    for (const id of result.importedIds ?? []) {
+      db.updateMetadataFields(id, { automatic_memory_status: 'pending', automatic_memory_error: null });
+      spawnAutomaticMemoryExtraction(id, db.dbPath);
+    }
+  }
   console.log(`Files scanned:    ${result.filesScanned}`);
   console.log(`Prompts found:    ${result.promptsFound}`);
   console.log(`Prompts imported: ${result.promptsImported}`);

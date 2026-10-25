@@ -45,7 +45,7 @@ export async function importCodexHistory(
   transcriptFile?: string,
   workdirOverride?: string,
 ): Promise<ImportResult> {
-  const result: ImportResult = { filesScanned: 0, promptsFound: 0, promptsImported: 0, skipped: 0, filtered: 0, errors: [] };
+  const result: ImportResult = { filesScanned: 0, promptsFound: 0, promptsImported: 0, skipped: 0, filtered: 0, errors: [], importedIds: [] };
   const dedupFilter = filter ?? new FilterPipeline({ minLength: 0, minRelevance: 0, existingHashes: db.getAllPromptHashes() });
   const files = transcriptFile ? [transcriptFile] : rolloutFiles(path.join(codexDir, 'sessions'));
   result.filesScanned = files.length;
@@ -114,6 +114,7 @@ export async function importCodexHistory(
       }
       const id = db.insert(createCaptureRecord({ timestamp: entry.timestamp, tool: 'codex', prompt: entry.prompt, response: entry.response,
         args: entry.prompt, workdir: entry.workdir, hostname, exit_code: 0, metadata: { ...metadata } }));
+      result.importedIds!.push(id);
       dedupFilter.registerHash(entry.prompt, id);
       result.promptsImported++;
     } catch (error) { result.errors.push(`insert session ${entry.sessionId}: ${(error as Error).message}`); result.skipped++; }

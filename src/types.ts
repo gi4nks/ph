@@ -32,6 +32,9 @@ export interface PromptMetadata {
   key_insights?: string[];
   analysis_status?: 'pending' | 'complete' | 'failed';
   analysis_error?: 'worker_launch_failed' | 'provider_unavailable' | 'analysis_failed' | 'analysis_persistence_failed';
+  automatic_memory_status?: 'pending' | 'complete' | 'empty' | 'failed';
+  automatic_memory_ids?: string[];
+  automatic_memory_error?: 'worker_launch_failed' | 'provider_unavailable' | 'analysis_failed' | 'hub_unavailable' | 'save_failed';
   remote_sync_status?: 'pending' | 'complete' | 'failed';
   remote_sync_error?: 'push_failed' | 'invalid_remote_url';
   remote_sync_target?: string;
@@ -64,6 +67,24 @@ export interface ProjectSummary {
   git_context_snapshot?: string;
 }
 
+export type PersonalMemoryScope = 'work' | 'personal' | 'project';
+export type PersonalMemorySensitivity = 'normal' | 'sensitive';
+
+/** A source-backed, user-governed memory shared through a PH memory hub. */
+export interface PersonalMemory {
+  id: string;
+  content: string;
+  scope: PersonalMemoryScope;
+  kind: string;
+  sensitivity: PersonalMemorySensitivity;
+  source: string;
+  source_ref?: string;
+  status: 'active' | 'forgotten';
+  created_at: string;
+  updated_at: string;
+  forgotten_at?: string;
+}
+
 export interface SearchOptions {
   query?: string;
   tool?: string;
@@ -87,4 +108,5 @@ export interface ImportResult {
   skipped: number;
   filtered: number;
   errors: string[];
+  importedIds?: number[];
 }

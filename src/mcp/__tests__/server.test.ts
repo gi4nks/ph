@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import fs from 'node:fs';
@@ -24,6 +24,7 @@ describe('ph MCP protocol', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await client.close();
     await server.close();
     db.close();
@@ -53,5 +54,51 @@ describe('ph MCP protocol', () => {
     const result = await client.callTool({ name: 'save_decision', arguments: { project: 'ph', summary: 'bad source', promptIds: [2] } });
     expect(result.isError).toBe(true);
     expect(db.searchMemories('ph')).toHaveLength(0);
+  });
+
+  it('provides coding agents with scoped shared-memory search and safe saves', async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
+      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      requests.push({ url, body });
+      if (url.endsWith('/api/memories/search')) {
+        return new Response(JSON.stringify({ memories: [
+          { id: 'safe-id', content: 'A work decision', scope: 'work', kind: 'decision', sensitivity: 'normal', source: 'mcp-coding-agent', source_ref: 'prompt:1' },
+          { id: 'private-id', content: 'Sensitive fact', scope: 'personal', kind: 'fact', sensitivity: 'sensitive', source: 'manual' },
+        ] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ memory: { id: 'saved-id' } }), { status: 201 });
+    }));
+
+    const hubServer = createMCPServer(db, { memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'client-key' });
+    const hubClient = new Client({ name: 'ph-hub-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([hubClient.connect(clientTransport), hubServer.connect(serverTransport)]);
+    try {
+      const tools = await hubClient.listTools();
+      expect(tools.tools.map(tool => tool.name)).toContain('save_shared_memory');
+      const found = await hubClient.callTool({ name: 'search_shared_memory', arguments: { query: 'work decision', scope: 'work' } });
+      expect(JSON.stringify(found.content)).toContain('A work decision');
+      expect(JSON.stringify(found.content)).not.toContain('Sensitive fact');
+      expect(requests[0].body).toMatchObject({ scope: 'work', include_sensitive: false });
+
+      const saved = await hubClient.callTool({ name: 'save_shared_memory', arguments: {
+        content: 'Keep migration reviews source-backed', scope: 'project', kind: 'preference', source_ref: 'prompt:1',
+      } });
+      expect(saved.isError).not.toBe(true);
+      expect(requests[1].body).toMatchObject({
+        content: 'Keep migration reviews source-backed', scope: 'project', sensitivity: 'normal', source: 'mcp-coding-agent', source_ref: 'prompt:1',
+      });
+      expect(requests[1].body['explicit_sensitive']).toBeUndefined();
+
+      const sensitive = await hubClient.callTool({ name: 'save_shared_memory', arguments: {
+        content: 'Sensitive fact', scope: 'personal', kind: 'fact', source_ref: 'prompt:1',
+      } });
+      expect(sensitive.isError).toBe(true);
+      expect(requests).toHaveLength(2);
+    } finally {
+      await hubClient.close();
+      await hubServer.close();
+    }
   });
 });
