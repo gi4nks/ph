@@ -156,4 +156,31 @@ export const MCP_TOOL_DEFINITIONS = [
             required: ["project", "task"],
           },
         },
+        {
+          name: "search_shared_memory",
+          description: "Search the central PH memory hub for non-sensitive work or project memories. Sensitive and personal-scope memories are never returned by this coding-agent tool.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Task, decision, or preference to recall" },
+              scope: { type: "string", enum: ["work", "project"], description: "Memory scope; defaults to project" },
+              limit: { type: "number", description: "Maximum records (1–20; default 5)", default: 5 },
+            },
+            required: ["query"],
+          },
+        },
+        {
+          name: "save_shared_memory",
+          description: "Automatically save durable, non-sensitive work preferences and project decisions when they will help future tasks. Cite the originating PH prompt or session in source_ref. Never save health, finance, relationship, address, credential, or other sensitive personal data with this tool; that requires the user's explicit ph memory save --sensitive command.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "One concise durable memory, not transient task state" },
+              scope: { type: "string", enum: ["work", "project"], description: "Memory scope" },
+              kind: { type: "string", description: "For example preference, decision, or procedure" },
+              source_ref: { type: "string", description: "Originating PH prompt ID or session reference" },
+            },
+            required: ["content", "scope", "kind", "source_ref"],
+          },
+        },
       ];

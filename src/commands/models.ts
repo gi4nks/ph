@@ -25,13 +25,13 @@ export async function cmdModels(cfg: PhConfig, args: string[]): Promise<void> {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     const tunnel = provider === 'mlx-serve' && /127\.0\.0\.1|localhost/.test(baseUrl)
-      ? '\nParmenide: apri in un altro terminale `ssh -N -L 11234:127.0.0.1:11234 parmenide`, poi riprova. Puoi impostare un URL raggiungibile con `ph config set mlx-serve-url <url>`.'
+      ? '\nCheck that the inference service is running and that any required SSH tunnel is open. You can set a reachable endpoint with `ph config set mlx-serve-url <url>`.'
       : '';
     throw new Error(`Cannot query ${provider} at ${baseUrl}: ${detail}${tunnel}`);
   }
   if (models.length === 0) {
     const tunnel = provider === 'mlx-serve'
-      ? '\nSe il CLI gira sul Mac e il server su Parmenide, apri: ssh -N -L 11234:127.0.0.1:11234 parmenide'
+      ? '\nCheck that the configured inference service is reachable and returning models.'
       : '';
     throw new Error(`No models returned by ${provider} at ${baseUrl}. Check connectivity and credentials.${tunnel}`);
   }

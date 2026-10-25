@@ -8,6 +8,9 @@ export async function cmdStatus(db: PhDB, cfg: PhConfig): Promise<void> {
   process.stdout.write('PH capture status\n');
   process.stdout.write(`Background analysis: ${cfg.backgroundAnalysis ? 'enabled' : 'disabled'}\n`);
   process.stdout.write(`Remote push: ${(process.env.PH_REMOTE_URL || cfg.remoteUrl) ? 'configured' : 'not configured'}\n\n`);
+  const hubConfigured = Boolean((process.env.PH_MEMORY_HUB_URL || cfg.memoryHubUrl)
+    && (process.env.PH_MEMORY_HUB_API_KEY || cfg.memoryHubApiKey));
+  process.stdout.write(`Automatic memory: ${cfg.memoryAutoCapture === false ? 'disabled' : hubConfigured ? 'enabled for supported coding CLIs' : 'not configured'}\n\n`);
 
   if (entries.length === 0) {
     process.stdout.write('No interactions have been captured yet.\n');
@@ -21,6 +24,7 @@ export async function cmdStatus(db: PhDB, cfg: PhConfig): Promise<void> {
       `#${entry.id}  ${new Date(entry.timestamp).toLocaleString()}  ${entry.tool}` +
       `${metadata.project ? `  [${metadata.project}]` : ''}\n` +
       `  response: ${entry.response ? 'captured' : 'missing'} · analysis: ${getAnalysisStatus(metadata)}` +
+      ` · memory: ${metadata.automatic_memory_status ?? 'not scheduled'}` +
       ` · remote: ${getRemoteSyncStatus(metadata, Boolean(process.env.PH_REMOTE_URL || cfg.remoteUrl))}\n`
     );
   }

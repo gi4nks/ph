@@ -3,6 +3,7 @@ import { PhDB } from '../db/index.js';
 import { decodePromptMetadata } from '../interaction/detail.js';
 import { patchPromptMetadata } from '../interaction/lifecycle.js';
 import { spawnBackgroundAnalysis } from '../background/analyzer.js';
+import { spawnAutomaticMemoryExtraction } from '../background/automatic-memory.js';
 import { sendSyncPushPage } from '../sync/client.js';
 import type { PromptEntry } from '../types.js';
 import { syncTarget } from '../sync/protocol.js';
@@ -20,6 +21,10 @@ export function prepareLiveCapture<T extends Omit<PromptEntry, 'id'>>(
   if (cfg.backgroundAnalysis) {
     metadata.analysis_status = 'pending';
     delete metadata.analysis_error;
+  }
+  if (automaticMemoryEnabled(cfg) && isSupportedCodingTool(record.tool)) {
+    metadata.automatic_memory_status = 'pending';
+    delete metadata.automatic_memory_error;
   }
   const remoteUrl = configuredRemoteUrl(cfg);
   if (remoteUrl) {
@@ -43,6 +48,17 @@ export function prepareLiveCapture<T extends Omit<PromptEntry, 'id'>>(
 /** Apply configured follow-up work to a persisted live interaction, regardless of capture adapter. */
 export async function completeLiveCapture(dbPath: string, cfg: PhConfig, id: number): Promise<void> {
   if (cfg.backgroundAnalysis) spawnBackgroundAnalysis(id, dbPath);
+  if (automaticMemoryEnabled(cfg)) {
+    try {
+      const db = new PhDB(dbPath);
+      try {
+        const entry = db.getById(id);
+        if (entry && isSupportedCodingTool(entry.tool)) spawnAutomaticMemoryExtraction(id, dbPath);
+      } finally { db.close(); }
+    } catch {
+      process.stderr.write(`ph: could not schedule automatic memory extraction for interaction #${id}\n`);
+    }
+  }
   const remoteUrl = configuredRemoteUrl(cfg);
   if (!remoteUrl) return;
 
@@ -76,6 +92,9 @@ export async function completeLiveCapture(dbPath: string, cfg: PhConfig, id: num
   delete metadata.remote_sync_target;
   delete metadata.capture_status;
   delete metadata.capture_owner_pid;
+  delete metadata.automatic_memory_status;
+  delete metadata.automatic_memory_ids;
+  delete metadata.automatic_memory_error;
   const remoteEntry = { ...entry, metadata: JSON.stringify(metadata) };
   try {
     const result = await sendSyncPushPage(remoteUrl, cfg.remoteApiKey, [remoteEntry], { timeoutMs: 5_000 });
@@ -85,6 +104,16 @@ export async function completeLiveCapture(dbPath: string, cfg: PhConfig, id: num
     setRemoteStatus(dbPath, id, 'failed', 'push_failed');
     process.stderr.write(`ph: remote push failed for interaction #${id}; run ph remote status for details\n`);
   }
+}
+
+export function automaticMemoryEnabled(cfg: PhConfig): boolean {
+  const hubUrl = process.env.PH_MEMORY_HUB_URL || cfg.memoryHubUrl;
+  const hubKey = process.env.PH_MEMORY_HUB_API_KEY || cfg.memoryHubApiKey;
+  return Boolean(hubUrl && hubKey) && cfg.memoryAutoCapture !== false;
+}
+
+export function isSupportedCodingTool(tool: string): boolean {
+  return ['claude', 'codex', 'gemini', 'opencode'].includes(tool.trim().toLowerCase());
 }
 
 function setRemoteStatus(dbPath: string, id: number, status: 'complete' | 'failed', error?: 'push_failed' | 'invalid_remote_url'): void {

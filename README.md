@@ -150,12 +150,13 @@ ph config show                         # shows active settings, redacts keys
 ph analyze
 ```
 
-For MLX-Serve on Parmenide, open an SSH tunnel to its API port (11234 by default),
-then select an ID returned by the server. Keep the tunnel running in a separate terminal:
+For a remote MLX-Serve inference service, open an SSH tunnel to its API port
+(11234 by default), then select an ID returned by the service. Keep the tunnel
+running in a separate terminal:
 
 ```bash
 # Terminal 1
-ssh -N -L 11234:127.0.0.1:11234 parmenide
+ssh -N -L 11234:127.0.0.1:11234 user@inference-host
 ```
 
 ```bash
@@ -182,7 +183,7 @@ Start the stdio server with:
 ph mcp
 ```
 
-The server exposes tools for prompt search and lookup, project context and summaries, project timelines, knowledge checks, and saving decisions. Configure `ph mcp` as a stdio server in the MCP client you use.
+The server exposes tools for prompt search and lookup, project context and summaries, project timelines, knowledge checks, and saving decisions. When the memory hub is configured, it also exposes `search_shared_memory` and `save_shared_memory` for non-sensitive work/project memories. Configure `ph mcp` as a stdio server in the MCP client you use.
 
 ## Remote sync
 
@@ -204,6 +205,22 @@ ph remote status
 
 `PH_REMOTE_URL` overrides the configured remote URL. The server refuses to start until `remote-api-key` is configured, and every client must provide the same key. It listens on loopback by default; use an explicit `--host` only for a protected network interface and use TLS when traffic crosses an untrusted network. `/health` is public and returns status only. Resumable ID cursors are scoped to both the remote target and local database, and byte-bounded subpages stay below the server's 32 MiB request cap. A bulk push pauses before a live wrapper interaction until its response is saved. `ph log` and both wrapper modes push after capture when a remote is configured; the request is bounded to five seconds so an unavailable server cannot hang the command indefinitely. An invalid remote URL does not prevent local capture or launching the wrapped tool. Current limitation: a remote database replacement behind the same URL is not detected, and last-push/pull status timestamps are shared across targets.
 
+## Shared memory hub
+
+The optional memory hub stores source-attributed work and personal memories centrally. Configure it separately from prompt-history sync:
+
+```bash
+ph config set memory-hub-url https://memory.example
+ph config set memory-hub-api-key
+ph memory save "Prefers short technical explanations" --scope work --kind preference
+ph memory search "technical explanations"
+ph context "implement the cache"
+```
+
+`ph close` can share only the project-knowledge proposals you approve, with prompt IDs as provenance. `ph context` retrieves non-sensitive work and project memories from the hub. Sensitive memories require `ph memory save ... --sensitive` and are excluded from context unless explicitly requested with `ph memory search --include-sensitive`. The memory hub does not upload raw prompt history; `ph remote push` remains a separate operation. See [docs/memory-hub.md](docs/memory-hub.md) for deployment, API, privacy boundaries, and current limits.
+
+When the memory hub is configured, supported coding CLI captures also trigger a background memory pass by default. PH sends the interaction to the configured analysis provider, saves only directly evidenced durable work preferences or accepted project decisions to the hub, and records their prompt source IDs. It never writes personal-scope or model-flagged sensitive memories automatically. Use `ph status` to see extraction state, `ph memory undo <interaction-id>` to forget everything saved from an interaction, or `ph config set memory-auto-capture false` to disable this behavior. The MCP save tool remains available for agents and is not the trigger for automatic extraction.
+
 ## Configuration and storage
 
 Configuration is stored in `~/.ph_config.json`; the database defaults to `~/.prompt_history.db`.
@@ -217,7 +234,7 @@ Configuration is stored in `~/.ph_config.json`; the database defaults to `~/.pro
 | `openrouter-model` | unset | Exact OpenRouter model ID, including its provider prefix |
 | `openrouter-url` | `https://openrouter.ai/api/v1` | OpenRouter-compatible API root |
 | `mlx-serve-model` | unset | Exact model ID returned by MLX-Serve |
-| `mlx-serve-url` | `http://127.0.0.1:11234/v1` | MLX-Serve API root, normally the Parmenide SSH tunnel |
+| `mlx-serve-url` | `http://127.0.0.1:11234/v1` | MLX-Serve inference-service API root, optionally reached through an SSH tunnel |
 | `ollama-embed-model` | `nomic-embed-text-v2-moe` | Embedding model; current schema expects 768 dimensions |
 | `background-analysis` | `false` | Analyze newly captured prompts asynchronously |
 | `filter-min-length` | `15` | Minimum prompt length accepted by filtering |

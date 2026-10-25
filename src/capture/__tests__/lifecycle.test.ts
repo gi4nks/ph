@@ -19,6 +19,27 @@ describe('shared live capture lifecycle', () => {
     dirs = [];
   });
 
+  it('schedules automatic memory only when the hub is configured for a supported coding CLI', () => {
+    const record = {
+      timestamp: new Date().toISOString(), tool: 'codex', prompt: 'Use concise technical answers.',
+      response: '', args: '', workdir: '/project', hostname: 'local', exit_code: 0, metadata: '{}',
+    };
+    const enabled = prepareLiveCapture(record, {
+      memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'key',
+    });
+    expect(JSON.parse(enabled.metadata).automatic_memory_status).toBe('pending');
+
+    const disabled = prepareLiveCapture(record, {
+      memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'key', memoryAutoCapture: false,
+    });
+    expect(JSON.parse(disabled.metadata).automatic_memory_status).toBeUndefined();
+
+    const manual = prepareLiveCapture({ ...record, tool: 'manual' }, {
+      memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'key',
+    });
+    expect(JSON.parse(manual.metadata).automatic_memory_status).toBeUndefined();
+  });
+
   it('marks pending before capture and records remote acknowledgement on completion', async () => {
     const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-live-local-'));
     dirs.push(localDir);

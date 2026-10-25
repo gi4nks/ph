@@ -40,10 +40,10 @@ describe('config load/save (SPEC-015)', () => {
   it('save preserves previously set keys (caller merges like the config command)', async () => {
     const { load, save } = await freshConfig();
     save({ ...load(), ollamaModel: 'llama3.2:latest' });
-    save({ ...load(), ollamaUrl: 'http://parmenide:11434' });
+    save({ ...load(), ollamaUrl: 'http://inference-service:11434' });
     const cfg = load();
     expect(cfg.ollamaModel).toBe('llama3.2:latest');
-    expect(cfg.ollamaUrl).toBe('http://parmenide:11434');
+    expect(cfg.ollamaUrl).toBe('http://inference-service:11434');
   });
 
   it('load tolerates a corrupt config file', async () => {
@@ -69,6 +69,9 @@ describe('config load/save (SPEC-015)', () => {
       await cmdConfig(['set', 'backgroundAnalysis', 'true']);
       await cmdConfig(['set', 'retention-days', '45']);
       await cmdConfig(['set', 'remote-url', 'https://remote.example']);
+      await cmdConfig(['set', 'memory-hub-url', 'https://memory.example']);
+      await cmdConfig(['set', 'memory-hub-api-key', 'memory-secret']);
+      await cmdConfig(['set', 'memory-auto-capture', 'false']);
       await cmdConfig(['set', 'gemini-api-key', 'super-secret-key']);
 
       await expect(cmdConfig(['set', 'remote-url', 'not a URL'])).rejects.toThrow(/absolute HTTP or HTTPS/i);
@@ -77,6 +80,9 @@ describe('config load/save (SPEC-015)', () => {
         backgroundAnalysis: true,
         retentionDays: 45,
         remoteUrl: 'https://remote.example',
+        memoryHubUrl: 'https://memory.example',
+        memoryHubApiKey: 'memory-secret',
+        memoryAutoCapture: false,
         geminiApiKey: 'super-secret-key',
       });
 
@@ -84,9 +90,11 @@ describe('config load/save (SPEC-015)', () => {
       await cmdConfig(['get', 'background-analysis']);
       await cmdConfig(['get', 'retentionDays']);
       await cmdConfig(['get', 'geminiApiKey']);
+      await cmdConfig(['get', 'memory-hub-api-key']);
+      await cmdConfig(['get', 'memory-auto-capture']);
       await cmdConfig(['get', 'ollama-model']);
 
-      expect(logs).toEqual(['true', '45', '[redacted]', '(not set)']);
+      expect(logs).toEqual(['true', '45', '[redacted]', '[redacted]', 'false', '(not set)']);
     } finally {
       spy.mockRestore();
     }
