@@ -33,6 +33,7 @@ retired on 2026-10-22; SPEC-012 is retained as a decision record.
 | SPEC-017 | Internal architecture consolidation (CLI surface gate, MCP modules, DB repositories) | Core, DB, MCP | **Implemented** | `src/knowledge/`, `src/mcp/tools/`, `src/db/{memory,archive}-repository.ts` |
 | SPEC-018 | Interaction inspection and recall integrity | Core, Capture, Search, Memory, MCP | **Implemented** | `src/commands/__tests__/`, `src/db/__tests__/phdb.test.ts`, `src/context/__tests__/context.test.ts`, `src/mcp/__tests__/server.test.ts` |
 | SPEC-019 | Network, capture, and retrieval integrity | Capture, Sync, Search, CLI | **Implemented; follow-up edge cases closed** | `src/server/__tests__/server.test.ts`, `src/capture/__tests__/lifecycle.test.ts`, `src/commands/__tests__/remote.test.ts`, `src/sync/__tests__/client.test.ts`, `src/commands/__tests__/search.test.ts`, `src/db/__tests__/phdb.test.ts` |
+| SPEC-020 | Governed personal memory hub | Memory, Server, CLI, MCP | **Implemented; automatic evidence-bound coding-agent capture** | `src/server/__tests__/server.test.ts`, `src/commands/__tests__/memory-hub.test.ts`, `src/commands/__tests__/background-memory.test.ts`, `src/analyzer/__tests__/automatic-memory.test.ts`, `src/mcp/__tests__/server.test.ts` |
 
 ## Cross-cutting findings (SPEC-ISSUES.md)
 

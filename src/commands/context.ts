@@ -4,6 +4,7 @@ import { detectProject } from '../runner/project.js';
 import { parseFlags } from './_utils.js';
 import { formatProjectContext, getProjectContext } from '../context/index.js';
 import { retrieveTaskContext } from '../knowledge/task-context.js';
+import { searchHubMemories } from './memory-hub.js';
 
 export async function cmdContext(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   const { flags, positional } = parseFlags(args);
@@ -37,6 +38,21 @@ export async function cmdContext(db: PhDB, cfg: PhConfig, args: string[]): Promi
       maxChars: Number.isInteger(budget) && budget >= 500 && budget <= 12000 ? budget : 3500,
       emptyMessage: `No saved knowledge found for project "${project}". This may be new work.`,
     }) + '\n');
+    if (!promptsOnly) {
+      try {
+        const [work, projectMemories] = await Promise.all([
+          searchHubMemories(cfg, query, 'work'),
+          searchHubMemories(cfg, query, 'project'),
+        ]);
+        const shared = [...work, ...projectMemories];
+        if (shared.length) {
+          process.stdout.write('\n# Shared PH memory\n');
+          for (const memory of shared) process.stdout.write(`- ${memory.content} [source: ${memory.source}${memory.source_ref ? ` · ${memory.source_ref}` : ''}]\n`);
+        }
+      } catch {
+        process.stderr.write('ph: shared memory hub is unavailable; showing local project context only.\n');
+      }
+    }
     return;
   }
 
