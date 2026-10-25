@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/gi4nks/ph/compare/v1.8.0...v1.9.0) (2026-10-25)
+
+
+### Features
+
+* add automatic shared PH memory capture ([bd1c37b](https://github.com/gi4nks/ph/commit/bd1c37beadcb10a3bac2d20442436d3700fd5528))
+
 # [1.8.0](https://github.com/gi4nks/ph/compare/v1.7.0...v1.8.0) (2026-10-24)
 
 
