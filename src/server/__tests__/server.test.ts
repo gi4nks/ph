@@ -113,6 +113,57 @@ describe('ph HTTP server (SPEC-010)', () => {
     expect(nextPage.hasMore).toBe(false);
   });
 
+  it('stores, searches, forgets, and restores source-backed memories', async () => {
+    const id = '8f06395d-9156-4d33-86f0-000000000001';
+    const saved = await fetch(`${base}/api/memories`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ id, content: 'Prefers concise technical explanations', scope: 'work', kind: 'preference', source: 'manual', source_ref: 'conversation-12' }),
+    });
+    expect(saved.status).toBe(201);
+    expect((await saved.json()).memory).toMatchObject({ id, scope: 'work', sensitivity: 'normal', status: 'active', source_ref: 'conversation-12' });
+
+    const found = await fetch(`${base}/api/memories/search`, {
+      method: 'POST', headers, body: JSON.stringify({ query: 'concise', scope: 'work' }),
+    });
+    expect((await found.json()).memories).toHaveLength(1);
+
+    const forgotten = await fetch(`${base}/api/memories/${id}`, { method: 'DELETE', headers });
+    expect((await forgotten.json()).memory.status).toBe('forgotten');
+    const hidden = await fetch(`${base}/api/memories/search`, { method: 'POST', headers, body: JSON.stringify({ query: 'concise' }) });
+    expect((await hidden.json()).memories).toHaveLength(0);
+    const restored = await fetch(`${base}/api/memories/${id}/restore`, { method: 'POST', headers, body: '{}' });
+    expect((await restored.json()).memory.status).toBe('active');
+    expect(db['db'].prepare('SELECT COUNT(*) AS count FROM personal_memory_versions WHERE memory_id = ?').get(id)).toEqual({ count: 2 });
+  });
+
+  it('requires explicit confirmation to store sensitive memory', async () => {
+    const payload = { id: '8f06395d-9156-4d33-86f0-000000000002', content: 'A sensitive personal note', scope: 'personal', sensitivity: 'sensitive', source: 'manual' };
+    const rejected = await fetch(`${base}/api/memories`, { method: 'POST', headers, body: JSON.stringify(payload) });
+    expect(rejected.status).toBe(403);
+    const accepted = await fetch(`${base}/api/memories`, { method: 'POST', headers, body: JSON.stringify({ ...payload, explicit_sensitive: true }) });
+    expect(accepted.status).toBe(201);
+    expect((await accepted.json()).memory.sensitivity).toBe('sensitive');
+    const hidden = await fetch(`${base}/api/memories/search`, { method: 'POST', headers, body: JSON.stringify({ query: 'sensitive personal' }) });
+    expect((await hidden.json()).memories).toHaveLength(0);
+    const explicit = await fetch(`${base}/api/memories/search`, { method: 'POST', headers, body: JSON.stringify({ query: 'sensitive personal', include_sensitive: true }) });
+    expect((await explicit.json()).memories).toHaveLength(1);
+  });
+
+  it('keeps memory create idempotent and rejects an ID reused for other content', async () => {
+    const payload = { id: '8f06395d-9156-4d33-86f0-000000000003', content: 'Same record', scope: 'project', source: 'test' };
+    const first = await fetch(`${base}/api/memories`, { method: 'POST', headers, body: JSON.stringify(payload) });
+    const retry = await fetch(`${base}/api/memories`, { method: 'POST', headers, body: JSON.stringify(payload) });
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    const duplicate = await fetch(`${base}/api/memories`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ ...payload, id: '8f06395d-9156-4d33-86f0-000000000004' }),
+    });
+    expect((await duplicate.json()).memory.id).toBe(payload.id);
+    const collision = await fetch(`${base}/api/memories`, { method: 'POST', headers, body: JSON.stringify({ ...payload, content: 'Different record' }) });
+    expect(collision.status).toBe(409);
+  });
+
   it('paginates beyond the former 10,000-row ceiling', async () => {
     const insert = db['db'].prepare(`INSERT INTO prompts
       (timestamp, tool, prompt, response, args, workdir, hostname, exit_code, metadata)

@@ -3,10 +3,11 @@ import path from 'path';
 import os from 'os';
 import { createHash, randomUUID } from 'crypto';
 import * as sqliteVec from 'sqlite-vec';
-import type { PromptEntry, SearchOptions, MemoryEntry, ProjectSummary, ArchivedPromptEntry } from '../types.js';
+import type { PromptEntry, SearchOptions, MemoryEntry, ProjectSummary, ArchivedPromptEntry, PersonalMemory, PersonalMemoryScope, PersonalMemorySensitivity } from '../types.js';
 import { SemanticIndex } from './semantic-index.js';
 import { MemoryRepository } from './memory-repository.js';
 import { ArchiveRepository } from './archive-repository.js';
+import { PersonalMemoryRepository } from './personal-memory-repository.js';
 
 export function defaultPath(): string {
   return path.join(os.homedir(), '.prompt_history.db');
@@ -63,6 +64,7 @@ export class PhDB {
   private semanticIndex: SemanticIndex;
   private memoryRepository: MemoryRepository;
   private archiveRepository: ArchiveRepository;
+  private personalMemoryRepository: PersonalMemoryRepository;
 
   /** Absolute path of the SQLite file (used by the HTTP server health endpoint). */
   readonly dbPath: string;
@@ -79,6 +81,7 @@ export class PhDB {
     this.databaseId = (this.db.prepare("SELECT value FROM ph_meta WHERE key = 'database_id'").get() as { value: string }).value;
     this.memoryRepository = new MemoryRepository(this.db);
     this.archiveRepository = new ArchiveRepository(this.db);
+    this.personalMemoryRepository = new PersonalMemoryRepository(this.db);
   }
 
   private migrate(): void {
@@ -156,6 +159,37 @@ export class PhDB {
         last_accessed TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+
+      CREATE TABLE IF NOT EXISTS personal_memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK (scope IN ('work', 'personal', 'project')),
+        kind TEXT NOT NULL DEFAULT 'fact',
+        sensitivity TEXT NOT NULL CHECK (sensitivity IN ('normal', 'sensitive')),
+        source TEXT NOT NULL,
+        source_ref TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'forgotten')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        forgotten_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_personal_memories_scope_status ON personal_memories(scope, status, updated_at);
+      CREATE INDEX IF NOT EXISTS idx_personal_memories_kind ON personal_memories(kind);
+
+      CREATE TABLE IF NOT EXISTS personal_memory_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        sensitivity TEXT NOT NULL,
+        source TEXT NOT NULL,
+        source_ref TEXT,
+        status TEXT NOT NULL,
+        changed_at TEXT NOT NULL,
+        FOREIGN KEY(memory_id) REFERENCES personal_memories(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_personal_memory_versions_memory ON personal_memory_versions(memory_id, id DESC);
     `);
 
     this.db.exec(PhDB.PROJECT_SUMMARIES_SCHEMA);
@@ -663,6 +697,16 @@ export class PhDB {
   recordMemoryAccess(id: number): void { this.memoryRepository.recordMemoryAccess(id); }
   deleteMemory(id: number): void { this.memoryRepository.deleteMemory(id); }
   getAllMemoriesByProject(project: string): MemoryEntry[] { return this.memoryRepository.getAllMemoriesByProject(project); }
+
+  createPersonalMemory(input: { id: string; content: string; scope: PersonalMemoryScope; kind: string; sensitivity: PersonalMemorySensitivity; source: string; source_ref?: string }): PersonalMemory {
+    return this.personalMemoryRepository.create(input);
+  }
+  getPersonalMemory(id: string): PersonalMemory | undefined { return this.personalMemoryRepository.get(id); }
+  searchPersonalMemories(options: { query?: string; scope?: PersonalMemoryScope; limit?: number; includeForgotten?: boolean } = {}): PersonalMemory[] {
+    return this.personalMemoryRepository.search(options);
+  }
+  forgetPersonalMemory(id: string): boolean { return this.personalMemoryRepository.forget(id); }
+  restorePersonalMemory(id: string): boolean { return this.personalMemoryRepository.restore(id); }
 
   getAllPromptsByProject(project: string): PromptEntry[] {
     return this.db

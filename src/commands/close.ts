@@ -6,6 +6,7 @@ import type { PromptEntry } from '../types.js';
 import { promoteProjectKnowledge } from '../knowledge/promotion.js';
 import { detectProject } from '../runner/project.js';
 import { parseFlags } from './_utils.js';
+import { saveHubMemory } from './memory-hub.js';
 
 export interface KnowledgeProposal {
   summary: string;
@@ -106,6 +107,28 @@ export async function cmdClose(db: PhDB, cfg: PhConfig, args: string[]): Promise
     technical_decisions: proposal.technical_decisions,
   })));
   approved.forEach((proposal, index) => process.stdout.write(`Saved memory #${savedIds[index]} with sources ${proposal.source_prompt_ids.map(i => `#${i}`).join(', ')}.\n`));
+  if (cfg.memoryHubUrl || process.env['PH_MEMORY_HUB_URL']) {
+    let shared = 0;
+    for (const proposal of approved) {
+      const content = [
+        `Project: ${project}`,
+        proposal.summary,
+        ...proposal.key_insights.map(item => `Insight: ${item}`),
+        ...proposal.technical_decisions.map(item => `Decision: ${item}`),
+      ].join('\n');
+      try {
+        await saveHubMemory(cfg, {
+          content, scope: 'project', kind: 'project-knowledge', source: 'ph-close',
+          source_ref: proposal.source_prompt_ids.map(id => `prompt:${id}`).join(','),
+        });
+        shared++;
+      } catch {
+        process.stderr.write('ph: approved project knowledge is saved locally; the memory hub could not be reached.\n');
+        break;
+      }
+    }
+    if (shared) process.stdout.write(`Shared ${shared} approved item(s) with the PH memory hub.\n`);
+  }
 }
 
 function parseDuration(raw: string): number {

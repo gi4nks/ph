@@ -17,6 +17,7 @@ import { cmdEmbedAll } from './commands/embed-all.js';
 import { cmdLog } from './commands/log.js';
 import { cmdConfig } from './commands/config.js';
 import { cmdBackgroundAnalyze } from './commands/background-analyze.js';
+import { cmdBackgroundMemory } from './commands/background-memory.js';
 import { cmdCleanup } from './commands/cleanup.js';
 import { cmdVacuum } from './commands/vacuum.js';
 import { cmdContext } from './commands/context.js';
@@ -33,6 +34,7 @@ import { cmdChat } from './commands/chat.js';
 import { detectCaptureTools, setupCapture } from './commands/setup.js';
 import { cmdModels } from './commands/models.js';
 import { parseFlags } from './commands/_utils.js';
+import { cmdMemoryHub } from './commands/memory-hub.js';
 
 const ADVANCED_USAGE = `ph — local history and project context for AI CLI tools
 
@@ -62,6 +64,8 @@ USAGE:
   ph server [--port 3001]               Start HTTP REST server for remote sync
   ph timeline [project]                 Show full project history with prompts and memories
   ph memory-migrate                      Merge existing memories into project_summaries
+  ph memory save|search|show|forget     Use the configured PH memory hub
+  ph memory restore <id>                Restore a forgotten memory
   ph remote push|pull|status            Sync prompts with remote ph server
   ph cleanup [--dry-run] [--min-length N] [--min-score N]  Remove useless prompts
   ph cleanup --retention [--dry-run]          Archive prompts per retention policy
@@ -158,7 +162,7 @@ EXAMPLES:
   ph config set ollama-model llama3.2:latest
   ph ollama-models                          List models available on the local Ollama instance
   ph models openrouter                      Discover OpenRouter models
-  ph models mlx-serve                       Discover models on MLX-Serve (default Parmenide tunnel)
+  ph models mlx-serve                       Discover models on the configured MLX-Serve inference service
 `;
 
 const USAGE = `PH remembers work across your AI coding sessions.
@@ -172,6 +176,7 @@ When you need something back:
   ph search "query"         Search this project; use --all to search everything
   ph show <id>              Inspect the full prompt, response, and available analysis
   ph context "task"         Retrieve relevant project context when needed
+  ph memory search "query"  Search shared work and personal memory
 
 Run ph help --all for optional integrations and maintenance commands.
 `;
@@ -355,6 +360,10 @@ async function main(): Promise<void> {
       db.close();
       break;
     }
+    case 'memory': {
+      await cmdMemoryHub(cfg, cmdArgs, dbPath);
+      break;
+    }
     case 'mcp': {
       await runMCPServer();
       break;
@@ -398,6 +407,11 @@ async function main(): Promise<void> {
 
     case '_bg-analyze': {
       await cmdBackgroundAnalyze(dbPath, cmdArgs);
+      break;
+    }
+
+    case '_bg-memory': {
+      await cmdBackgroundMemory(dbPath, cmdArgs);
       break;
     }
 

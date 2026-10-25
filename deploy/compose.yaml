@@ -1,0 +1,24 @@
+services:
+  ph:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      PH_DB: /data/ph.db
+      PH_SERVER_API_KEY: ${PH_SERVER_API_KEY:?Set PH_SERVER_API_KEY in the deployment environment}
+      PH_SERVER_HOST: 0.0.0.0
+      PH_SERVER_PORT: 3001
+    ports:
+      - "${PH_BIND_ADDRESS:-127.0.0.1}:${PH_PORT:-3001}:3001"
+    volumes:
+      - ph-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ph-data:

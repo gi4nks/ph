@@ -20,6 +20,9 @@ export interface PhConfig {
   ollamaEmbedModel?: string;             // default: nomic-embed-text-v2-moe
   remoteUrl?: string;                    // HTTP URL of remote ph server (or set PH_REMOTE_URL env)
   remoteApiKey?: string;                 // optional API key for remote server
+  memoryHubUrl?: string;                 // central governed-memory API; separate from prompt-history sync
+  memoryHubApiKey?: string;              // memory-hub credential; overridden by PH_MEMORY_HUB_API_KEY
+  memoryAutoCapture?: boolean;           // extract durable work/project memories after supported coding-agent captures (default true when hub is configured)
   remoteLastPush?: string;               // ISO timestamp of last successful push
   remoteLastPull?: string;               // ISO timestamp of last successful pull
   remotePushCursor?: { target: string; databaseId: string; id: number };

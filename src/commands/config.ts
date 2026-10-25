@@ -7,6 +7,7 @@ const SECRET_KEYS = new Set([
   'openrouter-api-key',
   'mlx-serve-api-key',
   'remote-api-key',
+  'memory-hub-api-key',
 ]);
 
 const KEY_ALIASES: Record<string, string> = {
@@ -52,6 +53,12 @@ const KEY_ALIASES: Record<string, string> = {
   'remote-url': 'remote-url',
   remoteApiKey: 'remote-api-key',
   'remote-api-key': 'remote-api-key',
+  memoryHubUrl: 'memory-hub-url',
+  'memory-hub-url': 'memory-hub-url',
+  memoryHubApiKey: 'memory-hub-api-key',
+  'memory-hub-api-key': 'memory-hub-api-key',
+  memoryAutoCapture: 'memory-auto-capture',
+  'memory-auto-capture': 'memory-auto-capture',
 };
 
 const CANONICAL_TO_PROP: Record<string, keyof ReturnType<typeof loadConfig>> = {
@@ -76,6 +83,9 @@ const CANONICAL_TO_PROP: Record<string, keyof ReturnType<typeof loadConfig>> = {
   'retention-min-analyzed': 'retentionMinAnalyzed',
   'remote-url': 'remoteUrl',
   'remote-api-key': 'remoteApiKey',
+  'memory-hub-url': 'memoryHubUrl',
+  'memory-hub-api-key': 'memoryHubApiKey',
+  'memory-auto-capture': 'memoryAutoCapture',
 };
 
 function parseBooleanConfig(key: string, val: string): boolean {
@@ -89,6 +99,10 @@ export async function cmdConfig(args: string[]): Promise<void> {
     const cfg = loadConfig();
     console.log('Analysis providers (* = active; credentials are never shown):');
     for (const provider of getProviderSummaries(cfg)) console.log(formatProviderSummary(provider));
+    const hubConfigured = Boolean((process.env['PH_MEMORY_HUB_URL'] || cfg.memoryHubUrl)
+      && (process.env['PH_MEMORY_HUB_API_KEY'] || cfg.memoryHubApiKey));
+    console.log(`Memory hub: ${hubConfigured ? 'configured' : 'not configured'}`);
+    console.log(`Automatic memory: ${cfg.memoryAutoCapture === false ? 'disabled' : hubConfigured ? 'enabled for supported coding CLIs' : 'waiting for memory hub setup'}`);
     console.log('Configure with: ph config set analyze-provider <ollama|gemini|openrouter|mlx-serve>');
     return;
   }
@@ -115,7 +129,7 @@ export async function cmdConfig(args: string[]): Promise<void> {
     console.log('      mlx-serve-model, mlx-serve-url, mlx-serve-api-key,');
     console.log('      ollama-embed-model, filter-min-length, filter-min-relevance, background-analysis,');
     console.log('      retention-days, retention-min-relevance, retention-min-starred, retention-min-analyzed,');
-    console.log('      remote-url, remote-api-key');
+    console.log('      remote-url, remote-api-key, memory-hub-url, memory-hub-api-key, memory-auto-capture');
     return;
   }
 
@@ -173,6 +187,9 @@ export async function cmdConfig(args: string[]): Promise<void> {
     case 'retention-min-analyzed': cfg.retentionMinAnalyzed = parseBooleanConfig(rawKey, val); break;
     case 'remote-url': parseRemoteUrl(val); cfg.remoteUrl = val; break;
     case 'remote-api-key': cfg.remoteApiKey = val; break;
+    case 'memory-hub-url': parseRemoteUrl(val); cfg.memoryHubUrl = val; break;
+    case 'memory-hub-api-key': cfg.memoryHubApiKey = val; break;
+    case 'memory-auto-capture': cfg.memoryAutoCapture = parseBooleanConfig(rawKey, val); break;
     default: throw new Error(`unknown config key "${rawKey}"`);
   }
 

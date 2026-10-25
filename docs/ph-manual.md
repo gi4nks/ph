@@ -1,14 +1,14 @@
-# ph — Prompt History and Project Memory
+# PH — User Manual
 
-**Capture AI CLI work, find it later, and retrieve project context when you need it.**
+**Capture AI coding sessions, find earlier work, and carry durable project context forward.**
 
 ---
 
 ## 1. Overview
 
-ph is a local history and project-context tool for AI CLI work. It records interactions through native hooks or by wrapping a tool, then helps you search history and retrieve project context from the terminal.
+PH is a local-first history and project-context tool for AI CLI work. It records interactions through native hooks or by wrapping a tool, then lets you search history and retrieve project context from the terminal.
 
-**Core principle:** ph captures conversations without changing the normal tool workflow. Optional analysis enriches each captured interaction with searchable summary, insights, decisions, and classification. Analysis does not promote active project memories; `ph close` and MCP `save_decision` are the explicit promotion paths. Capture and full-text search work without an LLM provider; analysis, embeddings, and semantic search require the configured provider.
+**Core principle:** Keep using your coding tools normally. PH captures their interactions and makes them searchable. Optional analysis adds a summary and tags to each interaction. Local project memories still require review through `ph close` or an explicit MCP `save_decision`. When a memory hub is configured, a separate background process can automatically save directly evidenced, non-sensitive work preferences and project decisions to that hub. This automatic path is triggered by capture; it does not depend on the coding agent choosing to call an MCP tool. Capture and full-text search work without an LLM provider; analysis, embeddings, and automatic memory extraction use the configured inference provider.
 
 ### Key Features
 
@@ -16,6 +16,7 @@ ph is a local history and project-context tool for AI CLI work. It records inter
 - **Full-text search** (FTS5) and **semantic vector search** (Ollama embeddings, 768-dim via sqlite-vec)
 - **LLM analysis** — role/tag/relevance classification, summary extraction, key insights, technical decisions
 - **Project memory** — per-project accumulated knowledge with deduped insights and decisions
+- **Automatic shared memory** — source-linked work preferences and project decisions from captured coding-agent interactions
 - **MCP server** — tools for agents to search memories, check project knowledge, get context
 - **Plain-text CLI** — the everyday interface is a small set of terminal commands
 - **Session grouping** — automatic conversation grouping with cohesion scoring
@@ -49,13 +50,23 @@ ph config set analyze-provider ollama     # ollama (default), gemini, openrouter
 ph config set ollama-model llama3.1:latest
 ```
 
+To enable automatic shared-memory capture, configure the hub separately from remote prompt-history sync:
+
+```bash
+ph config set memory-hub-url https://memory.example
+ph config set memory-hub-api-key   # PH prompts for the key without echoing it
+ph status
+```
+
+Automatic memory capture is enabled when the hub URL and key are configured unless you disable it with `ph config set memory-auto-capture false`. `background-analysis` is a separate feature and does not control memory extraction.
+
 ---
 
 ## 3. Capture Modes
 
 ### 3a. Hook mode (recommended)
 
-AI CLI tools invoke `ph log` automatically after each interaction.
+PH's native integrations capture completed interactions. Most hooks send the captured exchange through `ph log`; the Codex Stop hook imports the active rollout transcript with `ph import codex --file ...`. PH also supports wrapper mode and direct logging.
 
 **Claude Code** — `hooks/claude/ph-hook.sh`:
 ```bash
@@ -110,8 +121,13 @@ echo '{"tool":"claude","prompt":"hi","response":"hello"}' | ph log --stdin
 | `ph show <id> --json` | Print the complete interaction as JSON |
 | `ph context "task"` | Retrieve project knowledge and related prompts |
 | `ph close` | Review the last three hours and approve useful project knowledge |
+| `ph status` | Check recent capture, analysis, automatic-memory, and sync status |
+| `ph memory search <query>` | Search shared memories in the configured hub |
+| `ph memory undo <interaction-id>` | Reversibly forget automatic memories from one interaction |
 
 `ph setup` is the recommended first step for everyday use. It detects installed supported tools (Claude Code, Codex CLI, Gemini CLI, and OpenCode), installs their native capture integrations, preserves existing settings, and reports whether each integration was installed or already configured. Pass tool names to choose explicitly. After setup, keep using your AI CLI normally; `ph search "query"` is the main command for retrieving earlier work. `ph <tool>` remains as a wrapper alternative.
+
+When the memory hub is configured, supported coding-agent captures also start memory extraction in the background. You do not need to invoke `ph memory save` or an MCP save tool for this automatic path.
 
 `ph search "query"` searches the project detected from the current directory and returns five matches by default, ordered by text relevance. Use `--limit <n>` to show more, or `--all` to search across every project. When no project can be detected, PH searches all saved work and labels that scope. Searches with no current-project matches explain how to broaden the search.
 
@@ -144,13 +160,14 @@ Use `ph help --all` for maintenance and integration commands, including `ph stat
 | `ph cleanup-reusability` | Cleanup by reusability score |
 | `ph star <id>` | Toggle bookmark |
 | `ph export <id> [--format txt|json|md] [--archive]` | Export a complete interaction |
-| `ph status` | Show recent capture, analysis, and remote-push state without content |
+| `ph status` | Show recent capture, analysis, automatic-memory, and remote-push state without content |
 | `ph import gemini|claude|opencode|codex` | Import from AI CLI history |
 | `ph log --tool <name> ...` | Direct log (hook target) |
 | `ph embed-all` | Generate embeddings for prompts without vectors |
 | `ph config get|set <key> <value>` | View/edit config |
 | `ph vacuum` | Compact SQLite database |
 | `ph memory-migrate` | Merge existing memories into project_summaries |
+| `ph memory <action>` | Save, search, show, forget, restore, undo, or retry shared memories |
 | `ph mcp` | Start MCP stdio server |
 | `ph server --port 3001` | Start HTTP REST server |
 | `ph remote push|pull|status` | Sync with remote ph server |
@@ -309,8 +326,8 @@ ph config set openrouter-model "provider/model-id"
 ph config show                    # provider settings with credentials redacted
 ph analyze
 
-# MLX-Serve on Parmenide: open this tunnel in a separate terminal.
-ssh -N -L 11234:127.0.0.1:11234 parmenide
+# Optional: forward the configured remote inference service to localhost.
+ssh -N -L 11234:127.0.0.1:11234 user@inference-host
 ```
 
 ```bash
@@ -350,6 +367,8 @@ ph mcp
 | `search_prompts` | Full-text search over prompt history |
 | `get_prompt` | Full details by ID |
 | `search_prompts_semantic` | Vector search over prompts |
+| `search_shared_memory` | Search non-sensitive work/project memories from the configured memory hub |
+| `save_shared_memory` | Save a durable non-sensitive work/project memory with a source reference |
 | `get_project_timeline` | Full chronological project history |
 | `get_project_diff` | Compare project state between dates |
 | `list_prompts` | Paginated prompt listing |
@@ -377,6 +396,36 @@ ph remote status    # show sync state
 
 The server requires a key before it starts, binds to `127.0.0.1` by default, and exposes only a status value at public `/health`. All data routes require Bearer authentication. Push and pull cursors are scoped to the remote target and the local database UUID. Push pages are split to stay below the 32 MiB request-body limit; interrupted pages can be retried safely. Bulk push waits at a live wrapper record and continues after the response is saved. `ph log` and both wrapper modes push after capture; requests time out after five seconds so an unavailable server cannot hang the command indefinitely. An invalid optional remote URL marks sync failed while the interaction remains saved locally and the wrapped CLI still runs. Current limitation: replacing the remote database behind the same URL is not detected, and last-push/pull status times are global across targets.
 
+### PH memory hub
+
+The memory hub is separate from remote prompt-history sync. Configuring it does not upload raw prompts or responses to the hub and does not enable `ph remote push`.
+
+```bash
+ph config set memory-hub-url https://memory.example
+ph config set memory-hub-api-key   # Enter the key at the hidden prompt
+ph status
+```
+
+When the hub URL and key are configured, automatic memory capture is enabled for supported coding CLIs unless you turn it off. PH extracts in the background after each completed Claude Code, Codex CLI, Gemini CLI, or OpenCode interaction. Codex capture also works through its active-transcript import hook. This does not depend on the agent choosing to call an MCP save tool.
+
+PH asks the configured inference provider to extract at most two durable memories. Each must be a work preference or project decision, have an exact supporting quote in the user prompt, and pass sensitivity checks. PH does not automatically write personal-scope memories. The provider receives the captured prompt and response, each limited to 4,000 characters. The hub receives only the derived memory and its prompt source reference. If the selected provider is hosted, the bounded interaction is sent to that provider; choose a private inference service if that is not acceptable. Sensitive-data classification is imperfect, so these checks reduce risk but cannot guarantee that every sensitive statement is detected.
+
+Use these commands to inspect or manage shared memories:
+
+```bash
+ph memory save "Prefers concise technical explanations" --scope work --kind preference
+ph memory search "technical explanations"
+ph memory show <memory-id>
+ph memory forget <memory-id>
+ph memory restore <memory-id>
+ph memory undo <interaction-id>
+ph memory retry <interaction-id>
+```
+
+`ph status` shows automatic-memory state for recent interactions (`pending`, `complete`, `empty`, or `failed`). `ph memory undo <interaction-id>` reversibly forgets all automatic memories tied to that interaction and prints their IDs; use `ph memory restore <memory-id>` to restore one. Use `ph memory retry <interaction-id>` after an inference or hub failure. Set `ph config set memory-auto-capture false` to disable extraction, or `true` to enable it again.
+
+Sensitive memories require an explicit command, for example `printf '%s' 'Sensitive fact' | ph memory save --scope personal --sensitive`. Sensitive results are excluded from search and `ph context` by default; use `ph memory search <query> --include-sensitive` only when you need them. `ph close` remains a reviewed path for local project knowledge. The shared-memory MCP tools are available for agent-initiated search and save, but they are not required for automatic capture. Email, calendar, browser, and personal-assistant connectors are not included yet. See [the memory hub guide](memory-hub.md) for deployment, API, privacy boundaries, and current limitations.
+
 ---
 
 ## 10. Database
@@ -391,6 +440,8 @@ The server requires a key before it starts, binds to `127.0.0.1` by default, and
 | `prompts_archive` | Archived (retention-aged) prompts |
 | `memories` | Append-only per-project analysis timeline |
 | `project_summaries` | Single curated row per project with merged knowledge |
+| `personal_memories` | Source-attributed work, personal, or project memory records |
+| `personal_memory_versions` | Prior state captured when a personal memory is forgotten or restored |
 | `vec_embeddings` | Vector embeddings (768-dim float, sqlite-vec) |
 | `embeddings` | Legacy BLOB embeddings (migrated on connect) |
 
@@ -437,7 +488,7 @@ ph config set filter-min-relevance 3
 | `openrouterModel` | — | Exact OpenRouter model ID |
 | `openrouterUrl` | `https://openrouter.ai/api/v1` | OpenRouter-compatible API root |
 | `mlxServeModel` | — | Exact MLX-Serve model ID |
-| `mlxServeUrl` | `http://127.0.0.1:11234/v1` | MLX-Serve API root (Parmenide SSH tunnel by default) |
+| `mlxServeUrl` | `http://127.0.0.1:11234/v1` | MLX-Serve inference-service API root (optionally reached through an SSH tunnel) |
 | `backgroundAnalysis` | `false` | Auto-analyze after each capture |
 | `filterMinLength` | `15` | Min prompt length to keep |
 | `filterMinRelevance` | `3` | Min relevance to keep (0=disable) |
@@ -447,6 +498,9 @@ ph config set filter-min-relevance 3
 | `retentionMinRelevance` | `3` | Archive prompts below this relevance |
 | `remoteUrl` | — | Remote ph server URL (or `PH_REMOTE_URL` env) |
 | `remoteApiKey` | — | Remote server API key |
+| `memoryHubUrl` | — | Governed memory API URL (or `PH_MEMORY_HUB_URL` env); separate from transcript sync |
+| `memoryHubApiKey` | — | Memory hub key (or `PH_MEMORY_HUB_API_KEY` env); redacted by config commands |
+| `memoryAutoCapture` | Enabled when hub URL and key are configured | Automatically extract evidence-backed work/project memories after supported coding-agent captures |
 | `remoteLastPush` | — | Global timestamp of last successful push |
 | `remoteLastPull` | — | Global timestamp of last successful pull |
 
