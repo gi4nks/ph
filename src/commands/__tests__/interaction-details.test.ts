@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PhDB } from '../../db/index.js';
+import { formatInteractionDetail } from '../../interaction/detail.js';
 import { cmdShow } from '../show.js';
 import { cmdExport } from '../export.js';
 import { cmdStatus } from '../status.js';
@@ -48,7 +49,57 @@ describe('single interaction inspection (SPEC-018)', () => {
     expect(text).toContain('Fixed a sample bug');
     expect(text).toContain('The cache key was stale');
     expect(text).toContain('Use stable keys');
-    expect(text).toContain('Analysis: complete');
+    expect(text).toContain('Analysis status');
+    expect(text).toContain('complete');
+  });
+
+  it('groups capture details, prompt, and response into readable sections', async () => {
+    const id = insert();
+    await cmdShow(db, [String(id)]);
+    const text = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
+    expect(text.indexOf('CAPTURE DETAILS')).toBeLessThan(text.indexOf('PROMPT'));
+    expect(text.indexOf('PROMPT')).toBeLessThan(text.indexOf('RESPONSE'));
+    expect(text).toMatch(/Date\s+2026-10-24T10:00:00\.000Z/);
+    expect(text).toContain('  A complete stored prompt');
+    expect(text).toContain('  A complete stored response');
+    expect(text).not.toContain('\u001b[');
+  });
+
+  it('adds restrained ANSI color only when requested by the terminal layer', () => {
+    const id = insert();
+    const entry = db.getById(id);
+    expect(entry).not.toBeNull();
+    const colored = formatInteractionDetail(entry!, { color: true });
+    expect(colored).toContain('\u001b[36m');
+    expect(formatInteractionDetail(entry!)).not.toContain('\u001b[');
+  });
+
+  it('honors FORCE_COLOR and NO_COLOR while keeping JSON color-free', async () => {
+    const id = insert();
+    const previousForceColor = process.env.FORCE_COLOR;
+    const previousNoColor = process.env.NO_COLOR;
+    try {
+      process.env.FORCE_COLOR = '1';
+      delete process.env.NO_COLOR;
+      await cmdShow(db, [String(id)]);
+      expect(output.mock.calls.map((call: unknown[]) => String(call[0])).join('')).toContain('\u001b[');
+
+      output.mockClear();
+      process.env.NO_COLOR = '';
+      await cmdShow(db, [String(id)]);
+      expect(output.mock.calls.map((call: unknown[]) => String(call[0])).join('')).not.toContain('\u001b[');
+
+      output.mockClear();
+      await cmdShow(db, [String(id), '--json']);
+      const json = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
+      expect(() => JSON.parse(json)).not.toThrow();
+      expect(json).not.toContain('\u001b[');
+    } finally {
+      if (previousForceColor === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = previousForceColor;
+      if (previousNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = previousNoColor;
+    }
   });
 
   it('shows absent response and analysis explicitly', async () => {
@@ -56,8 +107,9 @@ describe('single interaction inspection (SPEC-018)', () => {
     db.updateResponse(id, '');
     await cmdShow(db, [String(id)]);
     const text = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
-    expect(text).toContain('Response captured: no');
-    expect(text).toContain('Analysis: not analyzed');
+    expect(text).toMatch(/Response captured\s+no/);
+    expect(text).toContain('Analysis status');
+    expect(text).toContain('not analyzed');
     expect(text).toContain('(No response captured)');
   });
 

@@ -85,6 +85,27 @@ ph export 42 --format md
 
 Semantic search uses the configured Ollama embedding service. If vectors are missing, the provider is unavailable, or the stored vector model differs, PH reports the reason and falls back to text search. `ph show` displays the complete saved interaction and available analysis metadata. Add `--archive` to `show` or `export` to inspect an archived record. `ph search --archive` lists archived records by date and limit; it does not apply the query text or the normal search filters. Export formats are `txt`, `json`, and `md`.
 
+In a terminal, `ph show` groups capture details, the complete prompt, response, and any analysis into separate sections. Section headings and analysis status use restrained colors; `NO_COLOR=1` disables color, and output redirected to a file or pipe stays plain text. `ph show <id> --json` remains machine-readable.
+
+```text
+Interaction #42
+────────────────────────────────────────────────────
+CAPTURE DETAILS
+────────────────────────────────────────────────────
+  Tool                codex
+  Date                2026-11-06T10:30:00.000Z
+  Project             ph
+  Analysis status     complete
+
+PROMPT
+────────────────────────────────────────────────────
+  Keep prompt persistence behind the repository boundary
+
+RESPONSE
+────────────────────────────────────────────────────
+  The persistence code now delegates through PromptRepository.
+```
+
 Other history views:
 
 ```sh
