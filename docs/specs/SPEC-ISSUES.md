@@ -1,17 +1,17 @@
 # SPEC-ISSUES — ph cross-cutting findings
 
-Discrepancies, dead code, and open questions found while reverse-engineering
-the ph baseline (2026-08-08). Each entry cites `path:line` evidence.
-Status: Open → assigned SPEC / fixed.
+Historical discrepancy ledger from reverse-engineering the PH baseline,
+updated through 2026-11-06. Some detailed entries preserve the paths and behavior
+observed at the time and are not current open findings. The status table at the
+end is authoritative for whether a finding remains open.
 
 ## Database
 
-- **ISSUE-001 — `response` column created by ALTER, not CREATE TABLE** — the
-  `prompts` CREATE TABLE (src/db/index.ts:55-66) omits `response`; the column is
-  added later by a migration `ALTER TABLE prompts ADD COLUMN response`
-  (src/db/index.ts:143-146) that runs on every open. Works, but a fresh DB goes
-  through two steps and the schema is documented with `response` in CREATE
-  (AGENTS.md). → cleanup candidate.
+- **ISSUE-001 — `response` column created by ALTER, not CREATE TABLE (RESOLVED 2026-11-06)** —
+  the current `prompts` table definition creates `response` directly
+  (src/db/index.ts:135-155); the conditional ALTER only adds it to legacy
+  databases that do not yet have the column. Schema-v4 databases take the
+  version-match startup path and do not repeat that migration.
 - **ISSUE-002 — Private `db` accessed from server/remote (FIXED 2026-08-08)** —
   `server/index.ts` used `db.db.prepare(...)` in 6 places and `remote.ts` in 1
   (health, sync push/pull, stats, status). Fixed by adding public PhDB methods
@@ -59,12 +59,12 @@ Status: Open → assigned SPEC / fixed.
 
 ## Docs
 
-- **ISSUE-008 — AGENTS.md stack table stale** — AGENTS.md says ink 6.8 / TS 5.9
-  / eslint 9; package.json has ink 7.0.5 / TS 6.0.3 / eslint 9 (after revert).
-  → docs update.
-- **ISSUE-009 — `standard-version` still a devDep** — replaced by
-  semantic-release (AGENTS.md) but still listed in package.json devDependencies.
-  → chore cleanup.
+- **ISSUE-008 — AGENTS.md stack table stale (RESOLVED 2026-11-06)** — the
+  current project guide now documents the actual TypeScript/SQLite CLI
+  architecture and no longer describes the retired Ink application.
+- **ISSUE-009 — `standard-version` still a devDep (RESOLVED 2026-11-06)** —
+  neither package.json nor package-lock.json contains this dependency; releases
+  use semantic-release.
 
 ## Design smells
 
@@ -82,17 +82,17 @@ Status: Open → assigned SPEC / fixed.
   hash (no mass re-push), entries with different args no longer collapse. Fixed.
 - **ISSUE-013 — server auth was conditional and fail-open (FIXED 2026-10-24)** —
   `remoteApiKey` was sent by the client but the HTTP server never checked it.
-  Now `createRequestHandler` (exported for tests) gates every endpoint except
-  `/health` with `Authorization: Bearer <key>` (timingSafeEqual). Since
-  SPEC-019, startup refuses to run without a key; default bind is loopback and
-  `/health` returns status only (src/server/index.ts). Fixed.
-- **ISSUE-014 — memories prompt_ids unused after summaries** — `prompt_ids` in
-  `memories` (src/db/index.ts:109) is written but the summary merge path
-  (project_summaries) tracks prompt_count instead; the timeline joins via
-  project name. → verify whether prompt_ids is still load-bearing.
-- **ISSUE-015 — `printResults`/`printEntry` display layer** — src/display/print.ts
-  duplicates formatting logic that the TUI ListEntry also renders; two code paths
-  for entry display can drift (e.g. badges, truncation rules).
+  Now `createRequestHandler` (exported for tests) gates every data endpoint
+  with its corresponding bearer key (timingSafeEqual); `/health` is public
+  and returns status only. Startup requires at least one of the history-service
+  or memory-hub keys; the default bind is loopback (src/server/index.ts). Fixed.
+- **ISSUE-014 — memory prompt provenance (RESOLVED 2026-11-06)** — prompt_ids
+  are validated and retained as source references for unified memories. Legacy
+  project_summaries remain historical migration data; they are not the current
+  memory write path.
+- **ISSUE-015 — duplicate CLI/TUI display formatting (RETIRED 2026-10-22)** —
+  the TUI ListEntry path was removed with the browser. Current plain-text
+  formatting is implemented by src/display/print.ts and interaction/detail.ts.
 
 ## Follow-up findings (2026-10-24)
 
@@ -145,55 +145,40 @@ Status: Open → assigned SPEC / fixed.
   coverage in `src/db/__tests__/phdb.test.ts` checks project membership through
   the joined query; `src/commands/__tests__/search.test.ts` verifies the CLI
   chooses the scoped loader and never loads all vectors for a project search.
-- **ISSUE-025 — remote database replacement is invisible to sync cursors (OPEN 2026-10-24)** —
-  Push/pull cursors are keyed by normalized URL and local database UUID, but
-  `/api/sync/pull` returns only row IDs and continuation state. If the remote
-  SQLite database is replaced behind the same URL, a stored high cursor treats
-  its new low IDs as already read; push likewise does not replay old local rows.
-  Config also stores only one push and one pull cursor, so switching A→B→A
-  replays A from row zero (idempotently, but with a full network scan).
-  The global `remoteLastPush` and `remoteLastPull` fields can also report another
-  target's time (`src/commands/remote.ts:111-119, 127-170, 183-199`,
-  `src/server/index.ts:161-170`, `src/config/index.ts:23-26`). Add remote
-  database identity to the protocol and scope all checkpoint/status state to it.
-- **ISSUE-026 — semantic retrieval paths can disagree and vectors lack provenance (OPEN 2026-10-24)** —
-  The CLI loads the legacy BLOB table, computes cosine similarity, and applies
-  a fixed `0.3` cutoff, while context, HTTP, and MCP use `sqlite-vec`. The same
-  query can return a different set and order by consumer. Stored vectors do not
-  identify the configured embedding model; changing `ollama-embed-model` changes
-  query vectors, and `ph embed-all` leaves existing vectors untouched
-  (`src/commands/search.ts:95-120`, `src/db/semantic-index.ts:8-50`,
-  `src/commands/embed-all.ts:6-32`, `src/config/index.ts:20`). Unify the search
-  contract and make vector profile changes explicit.
-- **ISSUE-027 — database migration work scales with history (OPEN 2026-10-24)** —
-  Every `PhDB` constructor calls `migrate()`. Routine opens still select prompts
-  missing `$schema_version` by parsing the JSON field and retry legacy column
-  migrations. On the first open after the derived-search migration, the marker
-  prevents repeats, but every blank `search_metadata` row is loaded and updated
-  individually inside one immediate transaction. Large databases can pay O(n)
-  startup work and hold a write lock during that first backfill
-  (`src/db/index.ts:72-80, 164-205, 209-217`). Version and bound the migration
-  steps, and avoid rewriting rows with no searchable analysis text.
+- **ISSUE-025 — remote database replacement is invisible to sync cursors (RESOLVED 2026-11-05)** —
+  Remote database identity `databaseId` added to the sync push/pull protocol.
+  Checkpoints track `remoteDatabaseId` alongside local `databaseId`. Target state
+  is isolated per remote URL in config, and checkpoints reset automatically when
+  the remote database generation changes.
+- **ISSUE-026 — semantic retrieval paths can disagree and vectors lack provenance (RESOLVED 2026-11-05)** —
+  Retired legacy in-memory BLOB embeddings. All consumers (CLI, MCP, context)
+  standardized on `sqlite-vec`. Model provenance is tracked in `ph_meta` via
+  `embedding_model`, with `EmbeddingModelMismatchError` and graceful FTS5 fallback
+  plus `--force` rebuild flag.
+- **ISSUE-027 — database migration work scales with history (RESOLVED 2026-11-06)** —
+  The current schema version is 4. Startup takes the version-match fast path;
+  one-time migration preserves legacy memory provenance, versions, and summary
+  tables. SPEC-021 documents the migration contract.
 
 ## Issue-to-spec map
 
 | Issue | Spec (fix target) | Status |
 |---|---|---|
-| 001 | SPEC-002 | Open (cleanup) |
+| 001 | SPEC-002 | Fixed 2026-11-06 (fresh schema includes response; conditional legacy backfill only) |
 | 002 | SPEC-002/010 | Fixed 2026-08-08 |
 | 003 | SPEC-015 | Fixed 2026-08-08 |
 | 004 | SPEC-003 | Fixed 2026-08-08 |
 | 005 | SPEC-002 | Fixed 2026-08-08 |
 | 006 | — (tooling) | Fixed 2026-08-08 (eslint 9 + @eslint/js) |
 | 007 | SPEC-002/003/005/009/010/011/012/013/014 | Fixed 2026-10-09; test scope updated after TUI retirement |
-| 008 | — (docs) | Open |
-| 009 | — (chore) | Open |
+| 008 | — (docs) | Fixed 2026-11-06 (current project guide) |
+| 009 | — (chore) | Fixed 2026-11-06 (not present in package manifests) |
 | 010 | SPEC-001 | Fixed 2026-08-08 |
 | 011 | SPEC-012 | Retired 2026-10-22 |
 | 012 | SPEC-010 | Fixed 2026-08-08 (shared syncHash, args-aware, backward compatible) |
-| 013 | SPEC-010/019 | Fixed 2026-10-24 (mandatory key, loopback default, health redaction) |
-| 014 | SPEC-007 | Open |
-| 015 | SPEC-012 | Open |
+| 013 | SPEC-010/019 | Fixed 2026-10-24 (at least one route key, per-route auth, loopback default, health redaction) |
+| 014 | SPEC-007 | Fixed 2026-11-06 (prompt provenance is active in unified memories) |
+| 015 | SPEC-012 | Retired 2026-10-22 with the TUI |
 | 016 | SPEC-004 | Fixed 2026-08-08 |
 | 017 | SPEC-004 | Fixed 2026-08-08 |
 | 018 | SPEC-005/014 | Fixed 2026-10-09 |
@@ -203,6 +188,6 @@ Status: Open → assigned SPEC / fixed.
 | 022 | SPEC-010/019 | Fixed 2026-10-24 (push subpages bounded by serialized request bytes) |
 | 023 | SPEC-002/019 | Fixed 2026-10-24 (one-time transactional search metadata backfill) |
 | 024 | SPEC-005/019 | Fixed 2026-10-24 (project embedding load uses one metadata join) |
-| 025 | SPEC-010/019 | Open (remote database replacement is not detected; timestamps are global) |
-| 026 | SPEC-005/008 | Open (semantic search engines diverge; vectors lack model profile) |
-| 027 | SPEC-002 | Open (routine database initialization repeats history scans) |
+| 025 | SPEC-010/019 | Fixed 2026-11-05 (databaseId in protocol, multi-target cursor isolation) |
+| 026 | SPEC-005/008 | Fixed 2026-11-05 (sqlite-vec unified, model provenance in ph_meta) |
+| 027 | SPEC-002/021 | Fixed 2026-11-06 (schema v4, versioned startup, lossless unified-memory migration) |

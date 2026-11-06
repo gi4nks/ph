@@ -1,6 +1,7 @@
 import { load as loadConfig, save as saveConfig } from '../config/index.js';
 import { formatProviderSummary, getProviderSummaries } from '../config/provider-summary.js';
 import { parseRemoteUrl } from '../sync/protocol.js';
+import { resolveMemoryHubConfig, resolveRemoteSyncConfig } from '../config/runtime.js';
 
 const SECRET_KEYS = new Set([
   'gemini-api-key',
@@ -99,10 +100,10 @@ export async function cmdConfig(args: string[]): Promise<void> {
     const cfg = loadConfig();
     console.log('Analysis providers (* = active; credentials are never shown):');
     for (const provider of getProviderSummaries(cfg)) console.log(formatProviderSummary(provider));
-    const hubConfigured = Boolean((process.env['PH_MEMORY_HUB_URL'] || cfg.memoryHubUrl)
-      && (process.env['PH_MEMORY_HUB_API_KEY'] || cfg.memoryHubApiKey));
-    console.log(`Memory hub: ${hubConfigured ? 'configured' : 'not configured'}`);
-    console.log(`Automatic memory: ${cfg.memoryAutoCapture === false ? 'disabled' : hubConfigured ? 'enabled for supported coding CLIs' : 'waiting for memory hub setup'}`);
+    console.log(`Background analysis: ${cfg.backgroundAnalysis ? 'enabled' : 'disabled'}`);
+    console.log(`Remote sync URL: ${resolveRemoteSyncConfig(cfg).url || '(not configured)'}`);
+    console.log(`Shared memory hub: ${resolveMemoryHubConfig(cfg).url || '(not configured)'}`);
+    console.log(`Automatic memory capture: ${cfg.memoryAutoCapture === false ? 'disabled' : 'enabled when the hub is configured'}`);
     console.log('Configure with: ph config set analyze-provider <ollama|gemini|openrouter|mlx-serve>');
     return;
   }
@@ -187,7 +188,13 @@ export async function cmdConfig(args: string[]): Promise<void> {
     case 'retention-min-analyzed': cfg.retentionMinAnalyzed = parseBooleanConfig(rawKey, val); break;
     case 'remote-url': parseRemoteUrl(val); cfg.remoteUrl = val; break;
     case 'remote-api-key': cfg.remoteApiKey = val; break;
-    case 'memory-hub-url': parseRemoteUrl(val); cfg.memoryHubUrl = val; break;
+    case 'memory-hub-url': {
+      let parsed: URL;
+      try { parsed = new URL(val); } catch { throw new Error('memory-hub-url must be a valid HTTP(S) URL'); }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('memory-hub-url must be a valid HTTP(S) URL');
+      cfg.memoryHubUrl = val;
+      break;
+    }
     case 'memory-hub-api-key': cfg.memoryHubApiKey = val; break;
     case 'memory-auto-capture': cfg.memoryAutoCapture = parseBooleanConfig(rawKey, val); break;
     default: throw new Error(`unknown config key "${rawKey}"`);

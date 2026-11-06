@@ -9,17 +9,23 @@ const hookDefinitions: Record<string, { directory: string; file: HookFile; event
   claude: { directory: '.claude', file: 'settings.json', event: 'Stop', script: 'claude/ph-hook.sh' },
   codex: { directory: '.codex', file: 'hooks.json', event: 'Stop', script: 'codex/ph-hook.sh' },
   gemini: { directory: '.gemini', file: 'settings.json', event: 'AfterAgent', script: 'gemini/ph-hook.sh' },
+  agy: { directory: path.join('.gemini', 'config'), file: 'hooks.json', event: 'Stop', script: 'agy/ph-hook.sh' },
 };
-const supportedTools = ['claude', 'codex', 'gemini', 'opencode'];
+const supportedTools = ['claude', 'codex', 'gemini', 'opencode', 'agy'];
 export type SetupStatus = 'installed' | 'updated' | 'already-configured';
 export interface SetupResult { tool: string; status: SetupStatus }
 
 export function detectCaptureTools(pathValue = process.env.PATH ?? ''): string[] {
   const directories = pathValue.split(path.delimiter).filter(Boolean);
-  return supportedTools.filter(tool => directories.some(directory => {
-    const binary = path.join(directory, tool);
-    try { fs.accessSync(binary, fs.constants.X_OK); return true; } catch { return false; }
-  }));
+  return supportedTools.filter(tool => {
+    const binaries = tool === 'agy' ? ['agy', 'antigravity'] : [tool];
+    return directories.some(directory =>
+      binaries.some(binary => {
+        const fullPath = path.join(directory, binary);
+        try { fs.accessSync(fullPath, fs.constants.X_OK); return true; } catch { return false; }
+      })
+    );
+  });
 }
 
 /** Install capture hooks into the user's existing AI CLI configuration. */
@@ -46,6 +52,43 @@ export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultH
       }
       continue;
     }
+
+    if (tool === 'agy' || tool === 'antigravity') {
+      const source = path.join(hooksRoot, 'agy/ph-hook.sh');
+      if (!fs.existsSync(source)) throw new Error(`Hook script not found: ${source}`);
+      const targetScript = path.join(destination, 'agy-ph-hook.sh');
+      const scriptExists = fs.existsSync(targetScript);
+      const scriptChanged = !scriptExists || fs.readFileSync(targetScript, 'utf8') !== fs.readFileSync(source, 'utf8');
+      if (scriptChanged) fs.copyFileSync(source, targetScript);
+      fs.chmodSync(targetScript, 0o755);
+
+      const configPath = path.join(home, '.gemini', 'config', 'hooks.json');
+      const config = readConfig(configPath);
+      const command = `${targetScript}`;
+
+      // Format for Antigravity hooks.json is:
+      // { "ph-capture": { "Stop": [{ "type": "command", "command": "/path/to/script" }] } }
+      const existingEntry = config['ph-capture'] as Record<string, unknown> | undefined;
+      const stopList = existingEntry && Array.isArray(existingEntry.Stop) ? existingEntry.Stop : [];
+      const configured = stopList.some((item: unknown) => JSON.stringify(item).includes(command));
+
+      if (!configured) {
+        config['ph-capture'] = {
+          Stop: [
+            ...stopList,
+            { type: 'command', command, timeout: 30 },
+          ],
+        };
+        writeConfig(configPath, config);
+      }
+
+      results.push({
+        tool: 'agy',
+        status: configured ? (scriptChanged ? 'updated' : 'already-configured') : 'installed',
+      });
+      continue;
+    }
+
     const definition = hookDefinitions[tool];
     if (!definition) continue;
     const source = path.join(hooksRoot, definition.script);
@@ -115,4 +158,3 @@ function writeConfig(file: string, config: JsonObject): void {
   fs.writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode });
   fs.renameSync(temp, target);
 }
-

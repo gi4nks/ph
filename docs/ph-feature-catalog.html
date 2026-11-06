@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Current, source-grounded guide to PH's CLI, capture integrations, history, context, memories, MCP, sync, and operations.">
+  <title>PH Feature and Operations Catalog</title>
+  <style>
+    :root{color-scheme:light;--ink:#17221f;--muted:#52615c;--paper:#f4f6f1;--card:#fff;--line:#dce4dd;--green:#176b52;--mint:#e6f4ed;--blue:#eaf1f8;--amber:#fbf2dc;--red:#f8e8e5;--shadow:0 12px 34px #1a30220c}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.62 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    a{color:#176b52;text-underline-offset:3px}a:hover{color:#0a4938}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}code{font-size:.92em;background:#eff3ef;padding:.12em .32em;border-radius:4px}pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;background:#16241f;color:#eaf5ef;padding:16px 18px;border-radius:10px;font-size:.9rem}
+    .hero{background:radial-gradient(ellipse at 80% 15%,#31966d55,transparent 35%),linear-gradient(130deg,#14251f,#1e4436 70%,#176b52);color:#f4fff9;padding:64px max(24px,calc((100% - 1160px)/2)) 50px}
+    .eyebrow{font-size:.75rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#b9ecd1}.hero h1{font-size:clamp(2.6rem,7vw,5.2rem);line-height:.98;letter-spacing:-.055em;max-width:900px;margin:18px 0}.hero p{max-width:760px;font-size:1.15rem;color:#e3f2e9}.hero .meta{font-size:.88rem;color:#c7dfd1}
+    .wrap{max-width:1160px;margin:auto;padding:0 24px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:-22px auto 28px;position:relative}.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:17px 19px;box-shadow:var(--shadow)}.stat b{display:block;font-size:1.35rem;color:var(--green)}.stat span{font-size:.84rem;color:var(--muted)}
+    .layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:28px;align-items:start}.nav{position:sticky;top:18px;padding:18px;background:var(--card);border:1px solid var(--line);border-radius:12px}.nav strong{display:block;margin:0 0 8px}.nav a{display:block;padding:5px 0;color:var(--muted);font-size:.9rem;text-decoration:none}.nav a:hover{color:var(--green)}
+    main{min-width:0}.section{scroll-margin-top:22px;margin:0 0 24px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px 30px;box-shadow:var(--shadow)}h2{font-size:1.7rem;line-height:1.2;letter-spacing:-.025em;margin:0 0 14px}h3{font-size:1.08rem;margin:22px 0 8px}p{margin:8px 0 14px}.lead{font-size:1.08rem;color:#35443e}.muted{color:var(--muted)}.small{font-size:.88rem;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.card{padding:17px;border:1px solid var(--line);border-radius:10px;background:#fbfcfa}.card h3{margin:0 0 7px}.callout{padding:15px 17px;border-radius:9px;margin:14px 0}.good{background:var(--mint)}.note{background:var(--blue)}.caution{background:var(--amber)}.boundary{background:var(--red)}
+    table{width:100%;border-collapse:collapse;margin:12px 0 16px;font-size:.93rem}th,td{text-align:left;vertical-align:top;padding:10px 11px;border-bottom:1px solid var(--line)}th{background:#f0f4ef;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:#40544a}td:first-child{font-weight:650}ul,ol{padding-left:22px}li{margin:5px 0}.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:18px 0}.step{background:var(--mint);border:1px solid #c8e5d5;padding:9px 12px;border-radius:8px;font-weight:650}.arrow{color:var(--green);font-weight:900}
+    details{border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:10px 0}summary{font-weight:700;cursor:pointer}.foot{padding:24px 0 48px;color:var(--muted);font-size:.88rem}
+    @media(max-width:820px){.layout{grid-template-columns:1fr}.nav{position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 12px}.nav strong{grid-column:1/-1}.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.hero{padding-top:45px}.wrap{padding:0 14px}.section{padding:21px 18px}.grid{grid-template-columns:1fr}.stats{gap:8px}.stat{padding:13px}.nav{grid-template-columns:1fr 1fr}table{font-size:.85rem}th,td{padding:8px 6px}}
+    @media print{body{background:#fff}.hero{padding:26px;background:#173d30!important;print-color-adjust:exact}.layout{display:block}.nav{display:none}.section,.stat{box-shadow:none;break-inside:avoid}.stats{margin-top:12px}}
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="eyebrow">Current implementation guide · PH</div>
+    <h1>What PH does<br>and how to use it</h1>
+    <p>PH captures AI coding work, keeps the interaction archive on your machine by default, and gives you plain-text tools to find earlier prompts, responses, and durable project knowledge.</p>
+    <p class="meta">Source checked against the current PH working tree · 6 November 2026 · Public documentation contains no private host configuration.</p>
+  </header>
+  <div class="wrap">
+    <div class="stats" aria-label="Product summary">
+      <div class="stat"><b>5 integrations</b><span>Claude, Codex, Gemini, OpenCode, Antigravity</span></div>
+      <div class="stat"><b>Local by default</b><span>SQLite history and full-text search</span></div>
+      <div class="stat"><b>5 MCP tools</b><span>History, interaction detail, context, memory</span></div>
+      <div class="stat"><b>No TUI</b><span>Normal use stays in the shell and coding tools</span></div>
+    </div>
+    <div class="layout">
+      <nav class="nav" aria-label="Page sections">
+        <strong>On this page</strong>
+        <a href="#scope">Product scope</a><a href="#workflow">Everyday workflow</a>
+        <a href="#capture">Capture and import</a><a href="#history">History and search</a>
+        <a href="#context">Project context</a><a href="#memory">Durable memories</a>
+        <a href="#analysis">Analysis and embeddings</a><a href="#commands">Command catalog</a>
+        <a href="#mcp">MCP</a><a href="#service">HTTP service and sync</a>
+        <a href="#config">Configuration</a><a href="#operations">Operations and limits</a>
+        <a href="#evidence">Evidence and related docs</a>
+      </nav>
+      <main>
+        <section class="section" id="scope">
+          <h2>1. Product scope</h2>
+          <p class="lead">PH is a local-first history and recall CLI for work with AI coding tools. It records completed exchanges, indexes prompt/response text, supports source-linked durable memories, and optionally connects clients to shared memory or raw-history services.</p>
+          <div class="flow" aria-label="PH data flow">
+            <span class="step">Coding tool</span><span class="arrow">→</span><span class="step">Local PH capture</span><span class="arrow">→</span><span class="step">SQLite + FTS5</span><span class="arrow">→</span><span class="step">Search / show / context</span>
+          </div>
+          <div class="grid">
+            <article class="card"><h3>History</h3><p>Prompt, captured response, tool, timestamp, working directory, exit status, and available metadata are stored in SQLite, normally <code>~/.prompt_history.db</code>.</p></article>
+            <article class="card"><h3>Durable memories</h3><p>Small source-attributed facts or decisions are separate from full interactions. They can remain local or use the optional shared memory API.</p></article>
+            <article class="card"><h3>Plain-text use</h3><p>A bare <code>ph</code> prints a short guide. There is no interactive history browser or terminal UI.</p></article>
+            <article class="card"><h3>Retrieval is explicit</h3><p>PH does not inject project context into an agent automatically. Use <code>ph context</code> yourself or configure an agent to call PH's MCP tools.</p></article>
+          </div>
+        </section>
+
+        <section class="section" id="workflow">
+          <h2>2. Everyday workflow</h2>
+          <pre><code>npm install -g @gi4nks/ph
+ph setup
+# Restart the connected coding tools.
+ph status
+
+# Later, from a project directory:
+ph search "sqlite migration"
+ph show 42
+ph context "add a memory search command"
+ph memory search "migration"</code></pre>
+          <p><code>ph setup</code> is usually a one-time operation. Run the coding tools normally after their hooks or plugin are installed. Search is scoped to the current project when PH can identify it; use <code>--all</code> to search across projects.</p>
+        </section>
+
+        <section class="section" id="capture">
+          <h2>3. Capture integrations and import</h2>
+          <table>
+            <thead><tr><th>Tool</th><th>Integration</th><th>Capture behavior</th></tr></thead>
+            <tbody>
+              <tr><td>Claude Code</td><td>Native Stop hook</td><td>Captures the completed assistant turn.</td></tr>
+              <tr><td>Codex CLI</td><td>Native Stop hook</td><td>Reads the supplied rollout transcript, pairs user prompts with final responses, and deduplicates turns.</td></tr>
+              <tr><td>Gemini CLI</td><td>Native AfterAgent hook</td><td>Captures the completed agent turn.</td></tr>
+              <tr><td>OpenCode</td><td>PH plugin in the user plugin directory</td><td>Pairs user and assistant text; writes the previous pair when the next user message arrives.</td></tr>
+              <tr><td>Google Antigravity (AGY)</td><td>Native Stop command hook</td><td>Imports the completed transcript through the AGY importer.</td></tr>
+            </tbody>
+          </table>
+          <p><code>ph setup</code> detects installed supported executables, installs or updates integration files, and preserves unrelated settings. Select tools explicitly with <code>ph setup claude codex</code> or <code>ph setup agy</code>; restart tools after setup reports a change. Hook scripts are copied beneath <code>~/.ph/hooks</code>; the OpenCode plugin is installed beneath <code>~/.config/opencode/plugins</code>.</p>
+          <h3>Wrapper and manual capture</h3>
+          <pre><code>ph claude
+ph codex --help
+ph --ph-role review --ph-tag release claude
+ph log --tool codex --prompt "Question" --response "Answer"
+printf '%s' '{"tool":"codex","prompt":"Question","response":"Answer"}' | ph log</code></pre>
+          <p>The wrapper forwards arguments to a tool on <code>PATH</code>. Interactive runs use a PTY; non-interactive runs infer the prompt from arguments and capture stdout as the response, so structured capture integrations are preferable when available. <code>ph log</code> accepts command flags or JSON on stdin.</p>
+          <p class="small">OpenCode keeps the current pair in plugin memory until the next user message. If the session ends immediately after an answer, import the local OpenCode history later with <code>ph import opencode --dry-run</code> and backfill it without dry-run.</p>
+          <h3>Import old local histories</h3>
+          <p><code>ph import claude|codex|gemini|opencode|agy</code> reads local tool data. Use <code>--dry-run</code> first; optional flags include <code>--analyze</code>, <code>--filter</code>, <code>--file</code> where supported, <code>--workdir</code>, and <code>--live</code>. Only <code>--live</code> runs configured post-capture processing for imported records.</p>
+          <div class="callout note">Hooks, wrappers, explicit logging, and import all write local interaction history first. Remote transfer and LLM processing are separate, optional follow-up paths.</div>
+        </section>
+
+        <section class="section" id="history">
+          <h2>4. History, search, inspection, and export</h2>
+          <div class="grid">
+            <article class="card"><h3>Full-text search</h3><p>SQLite FTS5 indexes prompts, responses, tool, and analysis text. Default search returns up to five results for the detected project; <code>--all</code> searches across projects.</p></article>
+            <article class="card"><h3>Semantic search</h3><p><code>ph search --semantic</code> embeds the query with the configured Ollama embedding model and uses the vector index. Missing vectors, model mismatch, or provider failure falls back to text search.</p></article>
+            <article class="card"><h3>Filters</h3><p>Filter by tool, project, language, role, tag, starred state, quality, relevance, or date. <code>--top</code> means quality 8 or higher. <code>--full</code> prints complete prompt/response output.</p></article>
+            <article class="card"><h3>Inspect and export</h3><p><code>ph show &lt;id&gt;</code> prints the interaction and analysis metadata. <code>ph export</code> writes text, JSON, or Markdown; add <code>--archive</code> for archived rows.</p></article>
+          </div>
+          <pre><code>ph search --project ph --tool codex "memory schema"
+ph search --semantic "How did we fix database locking?"
+ph show 42 --json
+ph search --starred --since 2026-10-01 "release"
+ph export 42 --format md</code></pre>
+          <p>Other views include <code>ph last</code>, <code>ph sessions</code>, <code>ph timeline</code>, and <code>ph stats</code>. <code>ph search --archive</code> currently lists archived records by date and limit; it does not perform full-text query or normal metadata filtering on the archive.</p>
+        </section>
+
+        <section class="section" id="context">
+          <h2>5. Project context retrieval</h2>
+          <p><code>ph context</code> combines local project/work memories with relevant interactions for one project. If a hub is configured, it adds non-sensitive project/work memories from the hub. It never includes personal or sensitive memories in ordinary context.</p>
+          <pre><code>ph context "how do database migrations work?"
+ph context --project ph --memories-only
+ph context --project ph --prompts-only
+ph context --verbose --budget 6000 "search indexing"</code></pre>
+          <p>Without a query, PH returns recent project memories and interactions. With a query, it uses FTS5 and fuses in semantic matches when an embedding index is available. If no interaction matches, it falls back to recent project interactions and notes that in the output. FTS5 retrieval works without an inference service. <code>--limit</code> controls result count; <code>--budget</code> bounds the formatted local context from 500 to 12,000 characters (default 3,500). Shared hub memories are appended outside that budget.</p>
+          <div class="callout caution"><code>--verbose</code> includes up to 1,000 characters from each selected prompt. It does not print the full prompt. Use <code>ph show</code> for the complete interaction.</div>
+        </section>
+
+        <section class="section" id="memory">
+          <h2>6. Durable memories and shared hub</h2>
+          <p>Memories are structured records with content, scope, kind, sensitivity, source/provenance, optional prompt references, status, and version history. They complement the transcript archive rather than replacing it.</p>
+          <table><thead><tr><th>Dimension</th><th>Values</th><th>Use</th></tr></thead><tbody>
+            <tr><td>Scope</td><td><code>project</code>, <code>work</code>, <code>personal</code></td><td>Project decisions, reusable work preferences, or personal facts.</td></tr>
+            <tr><td>Kind</td><td><code>decision</code>, <code>insight</code>, <code>preference</code>, <code>fact</code></td><td>Labels the type of durable knowledge.</td></tr>
+            <tr><td>Sensitivity</td><td><code>normal</code>, <code>sensitive</code></td><td>Sensitive writes require an explicit user flag or API consent field.</td></tr>
+            <tr><td>Status</td><td>Active or reversibly forgotten</td><td>Forget/restore retains prior state in memory version history.</td></tr>
+          </tbody></table>
+          <pre><code>ph memory add --project ph --kind decision "Keep transcript history local by default"
+ph memory add --scope work --kind preference "Write user documentation in English"
+ph memory search "migration" --project ph
+ph memory forget 12
+ph memory restore 12</code></pre>
+          <p>Inside a detected project, new memories default to project scope; outside a project they default to work scope. When <code>--prompts</code> is supplied, PH validates each source against the local history before saving; project-scoped sources must belong to that project. Shared source references include the originating database identity and prompt ID. A shared hub routes new saves and memory list/search to the hub; context and MCP combine local and eligible shared records. For show/forget/restore, UUIDs address shared records and numeric IDs address local records. Local interaction history remains local unless raw-history sync is configured.</p>
+          <p>CLI, context, and MCP use the same <code>MemoryService</code> to select local or shared operations, validate source provenance, and fall back to local context when the hub is unavailable. Automatic extraction remains a separate hub-only worker.</p>
+          <h3>Automatic extraction</h3>
+          <p>When the shared hub URL/key are configured and <code>memory-auto-capture</code> is not false, supported completed coding-agent captures can schedule extraction. A configured inference provider is also required. PH asks for at most two work/project candidates, requires an exact quote from the user's prompt, rejects personal-scope and detected sensitive candidates, and stores provenance. It sends up to 4,000 prompt characters and 4,000 response characters to the configured inference provider; the hub receives derived memories and source references, not the transcript through this pathway.</p>
+          <pre><code>ph status
+ph memory retry 42
+ph memory undo 42
+ph config set memory-auto-capture false</code></pre>
+          <div class="callout boundary">Sensitive-data screening is imperfect. Configure extraction only when the selected inference service is appropriate for bounded prompt and response excerpts. Automatic extraction is separate from an agent's decision to call MCP.</div>
+        </section>
+
+        <section class="section" id="analysis">
+          <h2>7. LLM analysis and embeddings</h2>
+          <table><thead><tr><th>Capability</th><th>Provider</th><th>Default / behavior</th></tr></thead><tbody>
+            <tr><td>Interaction analysis</td><td>Ollama, Gemini, OpenRouter, MLX-Serve</td><td>Background analysis is off by default. Manual <code>ph analyze</code> analyzes untagged rows (up to 50 by default).</td></tr>
+            <tr><td>Prompt embeddings</td><td>Ollama</td><td>Default model is <code>nomic-embed-text-v2-moe</code>; <code>ph embed-all</code> fills the semantic index.</td></tr>
+            <tr><td>Shared memory extraction</td><td>Selected PH analysis provider</td><td>Runs only when hub configuration and automatic extraction are enabled.</td></tr>
+          </tbody></table>
+          <pre><code>ph config set analyze-provider ollama
+ph config set ollama-url http://localhost:11434
+ph config set ollama-model llama3.1:latest
+ph analyze --limit 30
+ph embed-all</code></pre>
+          <p>Analysis may send prompt/response content to the selected provider. Current caveat: <code>ph analyze --dry-run</code> still calls the provider and persists successful analysis metadata. With <code>--prune</code>, it prevents deletions but is not a no-write preview. Model listing is available for Ollama, OpenRouter, and MLX-Serve via <code>ph models</code>.</p>
+        </section>
+
+        <section class="section" id="commands">
+          <h2>8. Complete command catalog</h2>
+          <p class="muted">The regular CLI is deliberately plain-text. <code>ph help --all</code> is the executable command summary; this table explains each public command family.</p>
+          <table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody>
+            <tr><td><code>ph</code>, <code>ph help --all</code></td><td>Show the everyday guide or the advanced usage and option summary.</td></tr>
+            <tr><td><code>ph setup [tools...]</code></td><td>Install capture hooks/plugins for Claude, Codex, Gemini, OpenCode, or AGY.</td></tr>
+            <tr><td><code>ph &lt;tool&gt; [args...]</code></td><td>Run an installed executable through PH and capture the exchange. Wrapper metadata flags: <code>--ph-tag</code>, <code>--ph-role</code>, <code>--ph-debug</code>.</td></tr>
+            <tr><td><code>ph log</code></td><td>Manually record one prompt and response using flags or JSON stdin.</td></tr>
+            <tr><td><code>ph search</code>, <code>ph show</code></td><td>Find interactions, then inspect one full record. Search supports project/tool/date/metadata filters, semantic search, and archived listing.</td></tr>
+            <tr><td><code>ph context</code></td><td>Retrieve relevant project interactions and eligible local/shared memories.</td></tr>
+            <tr><td><code>ph memory add|list|search|show|forget|restore</code></td><td>Create and manage durable local or shared memories. <code>retry</code> and <code>undo</code> target automatic extraction for an interaction ID.</td></tr>
+            <tr><td><code>ph status</code></td><td>Review capture totals and recent analysis, memory, and raw-sync status without printing content.</td></tr>
+            <tr><td><code>ph last</code>, <code>ph timeline</code>, <code>ph sessions</code>, <code>ph stats</code></td><td>Review recent, chronological, time-grouped, or aggregate history. Sessions can export one session as Markdown.</td></tr>
+            <tr><td><code>ph star</code>, <code>ph export</code></td><td>Mark useful interactions and export one interaction as text, JSON, or Markdown.</td></tr>
+            <tr><td><code>ph import</code></td><td>Backfill local Claude, Codex, Gemini, OpenCode, or AGY history with dry-run/filter/analyze/live options.</td></tr>
+            <tr><td><code>ph analyze</code>, <code>ph models</code>, <code>ph embed-all</code></td><td>Run metadata analysis, discover supported provider models, and build Ollama embeddings.</td></tr>
+            <tr><td><code>ph config show|get|set</code></td><td>Inspect settings/providers, read values, and save configuration; secret values are redacted and hidden on interactive entry.</td></tr>
+            <tr><td><code>ph mcp</code></td><td>Start the local stdio MCP server.</td></tr>
+            <tr><td><code>ph server</code></td><td>Start the authenticated HTTP API for memory and raw-history endpoints.</td></tr>
+            <tr><td><code>ph remote push|pull|status</code></td><td>Resumable raw interaction history synchronization.</td></tr>
+            <tr><td><code>ph cleanup</code>, <code>ph vacuum</code></td><td>Delete matching noise/old interactions, archive old history under retention rules, and compact SQLite.</td></tr>
+          </tbody></table>
+        </section>
+
+        <section class="section" id="mcp">
+          <h2>9. MCP interface for coding agents</h2>
+          <p><code>ph mcp</code> starts a local stdio MCP server. Register it in an agent client, then reload the client and inspect its MCP status. These tools are available:</p>
+          <table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody>
+            <tr><td><code>search_history</code></td><td>Search interaction history with query and project/tool/date filters.</td></tr>
+            <tr><td><code>get_interaction</code></td><td>Return a complete interaction, including prompt, response, workdir, and analysis metadata.</td></tr>
+            <tr><td><code>get_project_context</code></td><td>Retrieve project interactions and eligible local/shared knowledge.</td></tr>
+            <tr><td><code>search_memories</code></td><td>Search project/work memories locally and at a configured hub.</td></tr>
+            <tr><td><code>save_memory</code></td><td>Save project/work knowledge locally or at the configured hub, with optional prompt source validation.</td></tr>
+          </tbody></table>
+          <pre><code># Claude Code
+claude mcp add --transport stdio ph -- ph mcp
+
+# Codex CLI
+codex mcp add ph -- ph mcp
+
+# Gemini CLI
+gemini mcp add --scope user ph ph mcp
+
+# OpenCode
+opencode mcp add ph --global -- ph mcp</code></pre>
+          <p>These registration examples follow the clients' documented CLI syntax; consult each client’s current MCP guide when its command changes. MCP does not itself extract memories from a conversation. PH capture-triggered extraction is a distinct background path. MCP currently does not expose personal/sensitive memory operations.</p>
+        </section>
+
+        <section class="section" id="service">
+          <h2>10. HTTP service and the two sync paths</h2>
+          <div class="grid">
+            <article class="card"><h3>Shared memory API</h3><p>Configured PH clients can create, search, read, forget, and restore shared memory records. Memory records are stored in the service's SQLite database.</p></article>
+            <article class="card"><h3>Raw history sync</h3><p>Push/pull transfers prompt and response interactions between PH databases. Configuring the memory hub does not enable transcript sync.</p></article>
+          </div>
+          <pre><code>ph config set memory-hub-url https://&lt;private-host&gt;
+ph config set memory-hub-api-key
+
+ph config set remote-url https://&lt;private-sync-host&gt;
+ph config set remote-api-key
+ph remote push
+ph remote pull</code></pre>
+          <p><code>PH_REMOTE_URL</code> or <code>remote-url</code> enables automatic push after completed captures. Explicit <code>ph remote push|pull</code> uses resumable pages and per-database/per-target checkpoints. It can transfer full prompts and responses.</p>
+          <p>The HTTP service binds to <code>127.0.0.1:3001</code> by default. Direct <code>ph server</code> startup requires at least one credential: a history-service key or memory-hub key. A memory-only server needs only the memory key; prompt-history routes require the history-service key. When both keys are configured, they must differ. The included Docker Compose configuration currently also requires the history-service key. Only <code>/health</code> is public.</p>
+          <table><thead><tr><th>Routes</th><th>Auth / role</th></tr></thead><tbody>
+            <tr><td><code>GET /health</code></td><td>Public status-only check.</td></tr>
+            <tr><td><code>/api/memories...</code></td><td>Memory-hub bearer key; CRUD/search and reversible forget/restore.</td></tr>
+            <tr><td><code>/api/prompts...</code>, <code>/api/sync...</code>, <code>/api/stats</code></td><td>Server bearer key; prompt search/detail/semantic, raw sync, aggregate stats.</td></tr>
+          </tbody></table>
+          <p>For generic self-hosted deployment, persistence, reverse-proxy guidance, environment files, and the memory API contract, use the <a href="memory-hub.md">Memory Hub operations guide</a>.</p>
+        </section>
+
+        <section class="section" id="config">
+          <h2>11. Configuration and storage</h2>
+          <table><thead><tr><th>Setting</th><th>Meaning</th></tr></thead><tbody>
+            <tr><td><code>PH_DB</code> / <code>db-path</code></td><td>History and local memory SQLite path; default <code>~/.prompt_history.db</code>.</td></tr>
+            <tr><td><code>~/.ph_config.json</code></td><td>PH user configuration, written with mode 0600.</td></tr>
+            <tr><td><code>PH_MEMORY_HUB_URL</code> + <code>PH_MEMORY_HUB_API_KEY</code></td><td>Client connection to shared memory API.</td></tr>
+            <tr><td><code>PH_REMOTE_URL</code> + <code>remote-api-key</code></td><td>Client connection for raw prompt/response synchronization.</td></tr>
+            <tr><td><code>PH_SERVER_API_KEY</code>, <code>PH_SERVER_HOST</code>, <code>PH_SERVER_PORT</code></td><td>HTTP service-side auth and bind settings.</td></tr>
+            <tr><td>Provider settings</td><td>Ollama URL/model; Gemini API key; OpenRouter URL/model/key; MLX-Serve URL/model/key.</td></tr>
+            <tr><td><code>ollama-embed-model</code></td><td>Ollama embedding model; default <code>nomic-embed-text-v2-moe</code>.</td></tr>
+          </tbody></table>
+          <p>Use <code>ph config show</code> to inspect provider readiness and <code>ph config get &lt;key&gt;</code> to read one setting. Secret values are redacted. Environment variables override corresponding client/server configuration as described in the <a href="ph-manual.md#11-configuration-reference">manual</a>.</p>
+        </section>
+
+        <section class="section" id="operations">
+          <h2>12. Maintenance, safety, and current limits</h2>
+          <h3>History retention and deletion</h3>
+          <ul>
+            <li><code>ph cleanup --dry-run</code> previews rule-based deletions; applying it without dry-run deletes matching active rows.</li>
+            <li><code>ph cleanup --days N</code> deletes interactions older than N days and still runs rule-based cleanup.</li>
+            <li><code>ph cleanup --retention --dry-run</code> previews archive candidates. Applying retention archives old rows and may purge archived rows older than twice the configured retention age.</li>
+            <li><code>ph vacuum</code> compacts SQLite after substantial deletions. Back up the database before destructive maintenance.</li>
+          </ul>
+          <h3>Not implemented in the current product</h3>
+          <ul>
+            <li>No TUI or interactive history browser.</li>
+            <li>No automatic context injection into coding-agent prompts.</li>
+            <li>No email, calendar, browser, or personal-assistant connectors.</li>
+            <li>No per-client identity or connector-level authorization in the memory hub; clients share one memory bearer key.</li>
+            <li>No offline memory write queue or conflict-resolution workflow.</li>
+            <li>Memory hub search is SQLite FTS5; memory embeddings/indexing are not provided by the hub.</li>
+          </ul>
+          <div class="callout boundary">Inference and raw sync have different trust boundaries: analysis/extraction sends bounded content to a configured model provider; raw sync sends interaction records to the configured PH server. The shared-memory path sends derived records and provenance.</div>
+        </section>
+
+        <section class="section" id="evidence">
+          <h2>13. Evidence and related documentation</h2>
+          <p>This catalog summarizes observable behavior in the current source tree. For exact flags and command-specific details, use the executable <code>ph help --all</code> and the linked user manual.</p>
+          <ul>
+            <li>CLI dispatch and built-in help: <code>src/cli.ts</code></li>
+            <li>Capture lifecycle and supported hook integration: <code>src/commands/setup.ts</code>, <code>src/capture/lifecycle.ts</code>, <code>src/capture/*-followup.ts</code>, <code>hooks/</code></li>
+            <li>History and memory storage: <code>src/db/index.ts</code>, <code>src/db/memory-repository.ts</code>, schema migrations v1–v4</li>
+            <li>Context retrieval: <code>src/context/index.ts</code>; automatic extraction: <code>src/analyzer/automatic-memory.ts</code></li>
+            <li>MCP tools: <code>src/mcp/tools/definitions.ts</code>; HTTP transport: <code>src/server/request-handler.ts</code>; capabilities: <code>src/server/routes/</code>; raw sync: <code>src/sync/</code></li>
+          </ul>
+          <p><a href="ph-manual.md">PH user manual</a> · <a href="hooks.md">Capture integrations</a> · <a href="memory-hub.md">Memory Hub operations</a> · <a href="specs/SPEC-INDEX.md">Behavior specifications</a></p>
+        </section>
+      </main>
+    </div>
+    <footer class="foot">PH · Current implementation reference · 6 November 2026</footer>
+  </div>
+</body>
+</html>

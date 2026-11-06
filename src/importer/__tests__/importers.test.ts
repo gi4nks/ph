@@ -8,6 +8,7 @@ import { importClaudeHistory } from '../claude.js';
 import { importGeminiHistory } from '../gemini.js';
 import { importOpenCodeHistory } from '../opencode.js';
 import { importCodexHistory } from '../codex.js';
+import { importAgyHistory } from '../agy.js';
 
 describe('history import formats', () => {
   let dir: string;
@@ -143,5 +144,45 @@ describe('history import formats', () => {
     const [entry] = db.getAllPrompts();
     expect(entry.workdir).toBe(projectDir);
     expect(JSON.parse(entry.metadata).project).toBe('real-project');
+  });
+
+  it('imports Antigravity transcript steps with full transcript fallback and project extraction', async () => {
+    const agyDir = path.join(dir, 'agy-home');
+    const projectDir = path.join(dir, 'my-app');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'package.json'), '{}');
+    const convDir = path.join(agyDir, 'brain', 'conv-123', '.system_generated', 'logs');
+    fs.mkdirSync(convDir, { recursive: true });
+
+    const compact = [
+      JSON.stringify({ step_index: 0, type: 'USER_INPUT', content: 'What is Antigravity?', created_at: '2026-11-04T12:00:00.000Z' }),
+      JSON.stringify({ step_index: 1, type: 'PLANNER_RESPONSE', content: 'Truncated...', truncated_fields: ['content'], created_at: '2026-11-04T12:00:05.000Z' }),
+    ].join('\n');
+
+    const full = [
+      JSON.stringify({ step_index: 0, type: 'USER_INPUT', content: 'What is Antigravity?', created_at: '2026-11-04T12:00:00.000Z' }),
+      JSON.stringify({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        content: 'Antigravity is an agentic AI coding environment.',
+        created_at: '2026-11-04T12:00:05.000Z',
+        tool_calls: [{ toolSummary: 'Workspace inspection' }],
+      }),
+    ].join('\n');
+
+    fs.writeFileSync(path.join(convDir, 'transcript.jsonl'), compact);
+    fs.writeFileSync(path.join(convDir, 'transcript_full.jsonl'), full);
+
+    const result = await importAgyHistory(db, agyDir, false, undefined, undefined, undefined, undefined, projectDir);
+    expect(result).toMatchObject({ filesScanned: 1, promptsFound: 1, promptsImported: 1, skipped: 0 });
+
+    const prompts = db.getAllPrompts().filter((p) => p.tool === 'agy');
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].prompt).toBe('What is Antigravity?');
+    expect(prompts[0].response).toBe('Antigravity is an agentic AI coding environment.');
+    expect(prompts[0].workdir).toBe(projectDir);
+    const meta = JSON.parse(prompts[0].metadata);
+    expect(meta.project).toBe('my-app');
+    expect(meta.tool_calls).toEqual(['Workspace inspection']);
   });
 });
