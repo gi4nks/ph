@@ -2,364 +2,143 @@
 
 ## Session Progress
 
+> The current-state summary in this section is authoritative. Older dated phase notes below are historical records and may describe workflows that have since changed.
+
 ### Goal
 Keep PH simple to use: capture AI CLI work, find it with plain-text search, retrieve project context through one command, and review durable knowledge only when useful. The default invocation must never start an interactive UI.
 
-### Completed
-- **Phase 0**: `cli.ts` ~1500→~80 lines; 19 command handlers → `src/commands/*.ts`
-- **Phase 1 (original)**: `sqlite-vec` integrated, `vec_embeddings` + `memories` tables, auto-migration from old BLOB embeddings
-- **Phase 2.1–2.3**: `ANALYSIS_PROMPT` requests `summary`/`key_insights`/`technical_decisions`; analysis persists derived interaction metadata and does not write project memories. Shared `ph context` returns relevant project knowledge and prompts as Markdown.
-- **Phase 3.2**: MCP tools `search_project_memory`, `get_project_context`, `get_project_summary`
-- **Context integration**: `ph chat <tool> <prompt>` injects project context; the legacy TUI shortcut was retired in 2026-10-22
-- **Legacy UI (retired 2026-10-22)**: the Ink/React history browser and its keybindings were removed; use the plain-text CLI.
-- **Memory**: `upsertProjectMemory` is append-only → full timeline per project
-- **Memory merging**: `upsertProjectSummary()` merges explicitly promoted knowledge into the project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
-- **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
-- **Docs**: `AGENTS.md` fully rewritten; `ROADMAP_RAG.md` updated with completed phases checked
-- **OpenCode importer**: `src/importer/opencode.ts` reads from SQLite DB (`~/.local/share/opencode/opencode.db`), paired 186 user messages with responses, imported 151 prompts into ph after dedup
-- **OpenCode plugin**: `hooks/opencode/ph-plugin.ts` — real-time capture via OpenCode plugin hooks (`chat.message` + `experimental.text.complete`). Pairs user prompts with streamed assistant responses, calls `ph log` in background. Install script at `hooks/opencode/install.sh`.
-- **MCP prompt history tools**: `search_prompts`, `get_prompt`, `search_prompts_semantic` added to `src/mcp/server.ts` — full-text search, by-ID lookup, and vector search over raw prompt history
-- **Shared project context**: `src/context/index.ts` centralizes summary, memory, and prompt retrieval plus Markdown rendering for `ph context`, `ph chat`, and MCP `get_project_context`; semantic queries are scoped in the database before the result limit. Focused context and nearest-neighbor scope tests added.
-- **Capture seam**: `src/capture/index.ts` normalizes records from direct log, wrappers, and history importers.
-- **HTTP server (`ph server`)**: `src/server/index.ts` — lightweight REST API using Node `http` (no deps). Data routes require a configured Bearer key; startup fails without one. Default bind is loopback, health returns status only, and request bodies are capped at 32 MiB.
-- **Personal memory hub**: separate `personal_memories` and `personal_memory_versions` tables; authenticated create/search/show/forget/restore routes; explicit sensitive-write flag; dedicated `memory-hub-url` and key that never enable transcript sync. `ph context` retrieves only non-sensitive work/project results; `ph close` can share reviewed proposals with prompt-ID provenance. One shared key; no connector authorization or offline outbox yet.
-- **Remote sync (`ph remote`)**: `src/commands/remote.ts` — resumable row-ID pages (500 entries) for push and pull. Cursors are scoped to the normalized target and local database UUID; cursor advancement waits for full acknowledgement/insertion; `sync_hash` makes retries idempotent. Legacy timestamp cursors trigger a replay from row zero. Current limitations: only one cursor per direction is retained (switching back to another DB replays it), the server database generation is not part of cursor identity, and last-push/pull timestamps are global.
-- **Live capture lifecycle**: `src/capture/lifecycle.ts` initializes and completes configured analysis and remote-push work for `ph log`, inline wrapper, and interactive PTY wrapper. Per-interaction network push has a five-second timeout.
-- **Env/config remote URL**: `PH_REMOTE_URL` env var takes precedence over `ph config set remoteUrl`. Config comment uses generic placeholder — no hardcoded server names.
-- **Memory hub configuration**: `PH_MEMORY_HUB_URL` and `PH_MEMORY_HUB_API_KEY` override dedicated client settings and remain separate from `PH_REMOTE_URL` and prompt-history synchronization.
-- **Shared memory MCP tools**: `search_shared_memory` retrieves only non-sensitive `work` and `project` records; `save_shared_memory` writes source-referenced non-sensitive records in those scopes. Personal or sensitive memory requires the explicit CLI workflow. The MCP server was registered in the local Codex client; restart Codex to load the tools in a new session.
-- **Automatic coding-agent memories**: when hub credentials are configured, completed Claude/Codex/Gemini/OpenCode captures start a background, evidence-bound extraction by default (`memory-auto-capture=false` disables it). Candidates require exact user-prompt evidence and are limited to work/project scope; source IDs and extraction state are recorded locally. `ph memory undo <interaction-id>` reversibly forgets items saved from one capture. Only derived records reach the hub; the configured inference provider sees the bounded interaction.
-- **semantic-release**: Replaced `standard-version` with `semantic-release` for automated CI/CD. Release workflow runs on push to `main`, bumps version via conventional commits, publishes to npm with OIDC provenance.
-- **OIDC trusted publishing**: Package published with provenance attestation via GitHub Actions (`id-token: write`). Publisher identity: `GitHub Actions <npm-oidc-no-reply@github.com>`.
-- **Ubuntu server setup**: Added systemd service template for `ph server` as a remote sync daemon.
+### Current product and implementation
 
-### Completed
-- **Timeline CLI**: `ph timeline <project>` — full chronological project history with prompts, analysis, memories interleaved in markdown. Added `getAllPromptsByProject()` and `getAllMemoriesByProject()` to PhDB with ascending order queries.
-- **MCP `get_project_timeline`**: Returns full project timeline (prompts + memories in chronological order) via stdio. Auto-discovered by any MCP client.
-- **MCP `check_project_knowledge`**: AI agents call this before implementing a feature. Searches memories (keyword match) + semantic prompt search for previous implementations, discussions, and technical decisions. Returns "found" or "new work" recommendation.
-- **Operational memory workflow (2026-10-10; simplified 2026-10-22)**: task-aware `ph context` builds a read-only brief through shared retrieval with provenance and bounded excerpts (`ph prepare` is a compatibility alias); `ph close` reviews selected prompts, proposes durable knowledge, and requires interactive approval before saving memories and updating summaries. MCP uses the same context boundary and validates prompt provenance on `save_decision`.
-- **Product simplification (2026-10-22)**: `ph` prints a short command guide; task-aware retrieval is unified under `ph context`; `ph close` defaults to the last three hours. The Ink/React browser was removed. Advanced maintenance and integration commands remain available through `ph help --all`.
-- **Setup-first workflow (2026-10-22)**: `ph setup` installs native Claude Code, Codex, Gemini, and OpenCode capture integrations while preserving existing settings, and distinguishes new from existing integrations. `ph search` defaults to five relevant matches in the current project; Codex hook capture associates the active CLI working directory with imported turns. Daily use does not require wrappers, manual context injection, or `ph close`.
+- **Everyday CLI**: plain-text commands for setup, history search, interaction inspection, project context, memory search, and capture status. A bare `ph` prints a short guide; there is no interactive history browser or TUI.
+- **Capture**: `ph setup` configures Claude Code, Codex CLI, Gemini CLI, OpenCode, and Google Antigravity (AGY). `ph <tool>` is an optional wrapper. Importers can backfill local histories from those tools.
+- **History**: interactions are stored in SQLite, normally `~/.prompt_history.db`. Search is full-text by default; `ph show <id>` displays capture details, the complete prompt and response, and any analysis in grouped sections. It uses restrained terminal colors and plain text for redirected output.
+- **Context**: `ph context` combines local project/work memories and relevant project interactions. It can include non-sensitive shared project/work memories when a hub is configured. Text retrieval works without embeddings; Ollama-backed vectors improve matching when available.
+- **Memories**: the unified `memories` repository stores scope, kind, sensitivity, provenance, external IDs, and reversible forgotten state. Schema v4 preserves legacy memory tables and versions during migration.
+- **Shared memory**: the optional authenticated HTTP memory API uses `PH_MEMORY_HUB_API_KEY`, separate from raw prompt sync. It currently has one shared key, without per-client identities, connector permissions, or an offline write queue.
+- **Automatic extraction**: supported coding-agent captures can schedule bounded background extraction when a hub URL/key and inference provider are configured, unless `memory-auto-capture=false`. Candidates require exact prompt evidence and are limited to non-sensitive work/project records. The inference provider sees bounded prompt/response text; the hub gets derived records and provenance.
+- **Raw history sync**: `PH_REMOTE_URL` / `remote-url` enables automatic push after completed captures. `ph remote push|pull` also supports resumable bulk sync. This transfers raw prompts/responses and is separate from the memory hub.
+- **MCP**: the stdio server exposes `search_history`, `get_interaction`, `get_project_context`, `search_memories`, and `save_memory`.
+- **Verification (6 November 2026)**: 143 tests across 26 files, lint, TypeScript check, and production build passed for the current working tree.
 
-### Evolution Plan (`docs/superpowers/specs/2026-06-12-ph-evolution-design.md`)
-- **Phase 1 (complete)**: `project_summaries`, summary merge and deduplication, `ph memory-migrate`, explicit knowledge promotion writes memories and summaries, MCP summary access, and `save_decision` persistence.
-- **Phase 2 (complete)**: `prompts_archive`, `ph cleanup --retention`, configurable retention rules, and automatic purging of entries older than twice the retention period.
-- **Phase 3 (complete)**: MCP memory search falls back to project summaries when semantic search has no results; `check_project_knowledge` and `save_decision` are available.
-- **Phase 4 (complete)**: TUI archive count, archived prompt search, and retention cleanup.
-- Task 2.4 (Git state tracking) remains deferred.
+The command surface and examples in [README.md](README.md), [the user manual](docs/ph-manual.md), and [the feature catalog](docs/ph-feature-catalog.html) are the current user-facing reference. This current-state summary must be updated with code and docs when behavior changes.
 
-### Known Issues
-- Removed the unused interactive browser and React/Ink dependencies on 2026-10-22; the command-line path is now plain text.
-- Verification after retrieval, TUI, capture, importer, MCP, PTY, and SemanticIndex changes: 85 Vitest tests across 15 files; ESLint, TypeScript check, and build pass (2026-10-09).
-  - Additional verification: maintainer-judged retrieval dataset and model-backed runner; MCP protocol smoke test; Claude/Gemini/OpenCode/Codex importer fixtures; PTY response cleanup tests. Run `npm run eval:retrieval` when configured Ollama returns 768-dimensional embeddings.
+### Historical design notes
+
+[`docs/superpowers/specs/2026-06-12-ph-evolution-design.md`](docs/superpowers/specs/2026-06-12-ph-evolution-design.md) and the plans beside it record earlier proposals and implementation phases. They are historical artifacts, not a reference for today's command names or available MCP tools. Use the current README, user manual, and `ph help --all` for supported behavior.
+
+### Current boundaries
+
+- PH's default CLI is non-interactive and has no TUI/browser. The current workflow is `ph setup`, `ph search`, `ph show`, `ph context`, and `ph memory`.
+- The memory hub has a shared bearer key, no per-client identity, no email/calendar/browser connectors, and no offline write queue.
+- Automatic extraction sends bounded prompt/response excerpts to the configured inference provider. It is optional and its sensitive-data classification cannot be perfect.
+- Raw-history sync can transfer full prompt/response content; configuring `PH_REMOTE_URL` enables push after new completed captures.
 
 ## Project Overview
 
-**`ph`** (Prompt History & Analysis) is a local history and project-context tool for AI CLI work (Claude Code, Codex CLI, Gemini CLI, OpenCode, etc.). It captures interactions through native hooks or wrapper mode, stores them in SQLite, and provides plain-text search and project-context retrieval.
+PH is a local-first plain-text CLI for capturing, searching, and retrieving AI coding work. Its daily workflow is `ph setup`, then ordinary use of the connected coding CLIs, followed by `ph search`, `ph show`, `ph context`, or `ph memory search`. The normal `ph` command prints concise guidance; PH has no TUI or interactive history browser.
 
-Three modes of capture:
-- **Wrapper mode**: `ph claude "explain goroutines"` — wraps a CLI tool transparently
-- **Hook mode**: AI CLI tools invoke `ph-hook.sh` scripts post-session (zero friction)
-- **Direct**: `ph log --tool claude --prompt "..." --response "..."` or via stdin JSON
+## Runtime and package
 
-## Directory Layout
+- Package: `@gi4nks/ph`; executable: `ph` (`dist/cli.js`).
+- Runtime: Node.js 22 or newer; TypeScript ESM.
+- Build: `tsup`; database: `better-sqlite3` and `sqlite-vec`; full-text search: SQLite FTS5.
+- MCP: `@modelcontextprotocol/sdk` over local stdio.
+- Quality tools: Vitest, ESLint, TypeScript.
 
+Common development commands:
+
+```sh
+npm ci
+npm run dev -- help --all
+npm test
+npm run lint
+npx tsc --noEmit
+npm run build
 ```
+
+## Current source layout
+
+```text
 src/
-  cli.ts              # Entry point — concise help and manual command dispatch
-  types.ts            # Core interfaces (PromptEntry, PromptMetadata, SearchOptions, MemoryEntry)
-  commands/
-    _utils.ts         # Shared helpers: parseFlags(), parseDate()
-    search.ts         # ph search — full-text & semantic search
-    context.ts        # ph context — RAG context for current project
-    last.ts           # ph last — show recent prompts
-    sessions.ts       # ph sessions — session grouping
-    stats.ts          # ph stats — statistics
-    cluster.ts        # ph cluster — K-means clustering
-    analyze.ts        # ph analyze — LLM analysis
-    analyze-reusability.ts  # ph analyze-reusability
-    cleanup.ts        # ph cleanup — rule-based cleanup
-    cleanup-reusability.ts  # ph cleanup-reusability
-    star.ts           # ph star — toggle bookmark
-    export.ts         # ph export — prompt export
-    import.ts         # ph import — Gemini/Claude/OpenCode/Codex import
-    log.ts            # ph log — direct logging (hook target)
-    models.ts         # ph models — discover OpenRouter and MLX-Serve model IDs
-    embed-all.ts      # ph embed-all — batch embedding
-    config.ts         # ph config — get/set config
-    vacuum.ts         # ph vacuum — DB compaction
-    background-analyze.ts  # internal _bg-analyze worker
-    chat.ts           # ph chat — context-injected tool wrapper
-    wrap.ts           # ph <tool> — wrapper mode entry
-  ai/
-    provider.ts       # LLMProvider interface + factory
-    wise.ts           # Wise/AI SDK adapter for OpenRouter and MLX-Serve
-    ollama.ts         # Ollama provider
-    gemini.ts         # Gemini API provider
-  analyzer/
-    index.ts          # Prompt analysis (role/tag/relevance extraction via LLM)
-    reusability.ts    # Reusability scoring engine
-  background/
-    analyzer.ts       # Spawns detached child process for async analysis
-  cluster/
-    index.ts          # K-means clustering on embeddings
-  config/
-    index.ts          # ~/.ph_config.json loader/saver
-  db/
-    index.ts          # PhDB class — SQLite operations (~470 lines incl. memory methods)
-  display/
-    print.ts          # Terminal output formatting
-  embedding/
-    index.ts          # Ollama embedding generation (768-dim)
-  filter/
-    index.ts          # FilterPipeline — dedup, trivial prompt filtering
-  importer/
-    claude.ts         # Import from Claude Code history
-    gemini.ts         # Import from Gemini CLI history
-    opencode.ts       # Import from OpenCode history
-    codex.ts          # Import Codex rollout JSONL history
-   mcp/
-     server.ts         # MCP stdio server (tools: search_project_memory, search_prompts, get_prompt, search_prompts_semantic, etc.)
-   server/
-     index.ts          # HTTP REST server for remote sync (zero deps, Node http module)
-   pty/
-    wrapper.ts        # PTY process wrapper for interactive mode
-  runner/
-    git-context.ts    # Git branch/diff capture
-    inline.ts         # Non-interactive wrapper mode
-    project.ts        # Project/language auto-detection
-  sessions/
-    index.ts          # Session grouping + cohesion scoring
-  stats/
-    index.ts          # Statistics computation
-  utils/
-    extractTopic.ts   # Title extraction from prompt text
-hooks/
-  claude/ph-hook.sh   # Claude Code Stop hook (shell script)
-  codex/ph-hook.sh    # Codex CLI Stop hook (shell script)
-  gemini/ph-hook.sh   # Gemini CLI AfterAgent hook (shell script)
-docs/                 # Documentation files
-  ph-manual.md        # Comprehensive architecture guide
-dist/                 # Build output (gitignored)
+  cli.ts                 CLI entry and dispatch
+  commands/              Plain-text command handlers
+  capture/               Normalized records, narrow lifecycle coordinator, and follow-up policies
+  importer/              Claude, Codex, Gemini, OpenCode, and AGY history readers
+  runner/                Project detection, Git context, inline wrapper
+  pty/                   Interactive terminal wrapper
+  db/                    SQLite facade, schema migrations, FTS, memories, archive, vectors
+  context/               Local project-context retrieval and rendering
+  memory/                Shared memory policy service and hub client
+  analyzer/              LLM analysis and evidence-bound memory extraction
+  background/            Detached analysis and memory workers
+  ai/                    Ollama, Gemini, OpenRouter, and MLX-Serve adapters
+  embedding/             Ollama embeddings
+  mcp/                   Five-tool MCP stdio server
+  server/                HTTP adapter and separately authorized memory/history APIs
+  sync/                  Resumable raw-history push/pull protocol
+  config/                ~/.ph_config.json load/save, runtime resolution, and provider status
+hooks/                   Native tool hooks and the OpenCode plugin
+ deploy/                 Generic Docker Compose memory-hub deployment
+ docs/                   User manual, operations guide, specs, evaluations
 ```
 
-## Tech Stack
+## Current command surface
 
-| Layer | Technology |
-|-------|-----------|
-| Language | TypeScript 6.0 ESM (`"type": "module"`) |
-| Runtime | Node.js 20+ |
-| Build | `tsup` 8.5 — `src/cli.ts` → `dist/cli.js` |
-| DB | SQLite via `better-sqlite3` 12.8 (WAL mode, FTS5) |
-| Vector | `sqlite-vec` 0.1 (native `vec0`, 768-dim) |
-| PTY | `@lydell/node-pty` 1.2 (local typings shim, `src/pty/node-pty.d.ts`) |
-| MCP | `@modelcontextprotocol/sdk` 1.29 |
-| Validation | `zod` 4.3 |
-| Linting | ESLint 9 + TypeScript (`@eslint/js` in devDeps) |
-| Testing | `vitest` 4.1 — 85 tests / 15 files |
-| Release | `semantic-release` 25 (conventional commits) |
-| Dev Runner | `tsx` 4.21 |
+| User goal | Command |
+|---|---|
+| Connect capture integrations | `ph setup [claude|codex|gemini|opencode|agy...]` |
+| Search current project / all projects | `ph search [options] [query]` / `ph search --all <query>` |
+| Inspect a full exchange | `ph show <id> [--json] [--archive]` |
+| Retrieve project knowledge | `ph context [options] [query]` |
+| Search and manage durable memories | `ph memory add|list|search|show|forget|restore|retry|undo` |
+| Review capture and background status | `ph status` |
+| Import existing tool history | `ph import <claude|codex|gemini|opencode|agy> [options]` |
+| Configure optional LLM analysis | `ph analyze`, `ph models`, `ph config` |
+| Run or configure MCP | `ph mcp` |
+| Run the HTTP service | `ph server [--port <port>]` |
+| Sync raw interaction history | `ph remote push|pull|status` |
+| Review/maintain the archive | `ph last`, `ph sessions`, `ph timeline`, `ph stats`, `ph cleanup`, `ph vacuum`, `ph export`, `ph star` |
 
-## Everyday Commands
+`ph help --all` is the authoritative full command/flag listing. User-facing examples and detailed behavior belong in [README.md](README.md), [docs/ph-manual.md](docs/ph-manual.md), [docs/hooks.md](docs/hooks.md), and [docs/memory-hub.md](docs/memory-hub.md).
 
-| Command | Function |
-|---------|----------|
-| `<tool>` | Run an AI CLI tool and capture the interaction |
-| `search` | Find earlier work with plain-text or semantic search |
-| `context [task]` | Retrieve project knowledge and relevant interactions |
-| `close [--since 3h]` | Review recent work and approve durable knowledge |
+## Data and privacy boundaries
 
-`prepare` remains a compatibility alias for task-aware `context`. Maintenance,
-import, MCP, and sync commands are available with `ph help --all` and are not
-part of the everyday workflow.
+- The default history database is `~/.prompt_history.db`; `PH_DB` or `db-path` can change it. PH configuration is `~/.ph_config.json`, saved with mode `0600`.
+- Native hooks, wrappers, and importers write prompt/response history locally first. `ph status` does not print prompt/response content.
+- `PH_REMOTE_URL` or `remote-url` enables automatic push of new completed captures. `ph remote push|pull` performs resumable bulk sync. This transfers raw prompts and responses.
+- Shared memory uses `PH_MEMORY_HUB_URL` and `PH_MEMORY_HUB_API_KEY`, separate from `PH_REMOTE_URL` and the prompt-sync key. If configured, `ph memory` reads/writes shared records; the local context pipeline can combine local and shared records.
+- Analysis and automatic memory extraction send bounded interaction text to the configured inference provider. The hub receives derived memory records, not the raw transcript through the automatic-extraction path.
+- Default search/context/MCP excludes personal and sensitive memories. Sensitive writes require explicit consent; automated extraction is constrained to work/project scope and evidence from the user prompt.
 
-## Database Schema (SQLite at `~/.prompt_history.db`)
+## Architecture boundaries
 
-```sql
--- Main table
-CREATE TABLE prompts (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT    NOT NULL,            -- ISO-8601
-    tool      TEXT    NOT NULL,            -- 'claude', 'gemini', etc.
-    prompt    TEXT    NOT NULL,            -- user prompt text
-    response  TEXT    NOT NULL DEFAULT '',
-    args      TEXT    NOT NULL DEFAULT '',
-    workdir   TEXT    NOT NULL DEFAULT '',
-    hostname  TEXT    NOT NULL DEFAULT '',
-    exit_code INTEGER NOT NULL DEFAULT 0,
-    metadata  TEXT    NOT NULL DEFAULT '{}'  -- JSON PromptMetadata
-);
+- `src/capture/index.ts` normalizes records. `src/capture/lifecycle.ts` is a narrow coordinator; `memory-followup.ts` and `remote-followup.ts` own extraction scheduling and raw-history delivery/status respectively.
+- `src/cli.ts` keeps entry dispatch small; command behavior belongs in `src/commands/`. Unknown command names are passed through as AI-tool wrappers.
+- `src/db/index.ts` exposes the `PhDB` facade and coordinates schema versioning (`SCHEMA_VERSION = 4`). `PromptRepository` owns prompt/FTS persistence and search; focused repositories own memories, archive rows, and semantic-index behavior. Migration preserves legacy memory sources and history.
+- `src/memory/service.ts` owns local-versus-hub memory routing, cited-prompt validation, and shared context retrieval for CLI and MCP. The automatic extraction worker remains a separate hub-only workflow.
+- `src/context/index.ts` combines project/work memory retrieval with project interactions. FTS5 always works; when embeddings exist, Ollama vectors are fused with text results using reciprocal rank fusion. Retrieval falls back to text when vectors or the provider are unavailable.
+- `src/mcp/server.ts` exposes `search_history`, `get_interaction`, `get_project_context`, `search_memories`, and `save_memory`. MCP is an optional agent interface; automatic extraction does not depend on an agent calling MCP.
+- `src/server/index.ts` starts the HTTP service. `request-handler.ts` owns transport parsing/bounds/errors and delegates to `routes/history.ts` or `routes/shared-memory.ts`, which retain separate auth keys. `/health` is public and returns status only. The default listener is loopback.
+- `src/sync/` uses resumable row-ID pages and database-scoped cursors. Memory hub configuration does not enable raw-history sync.
+- `src/config/runtime.ts` resolves environment-over-file precedence for memory hub, raw-history sync, and server authorization settings.
 
--- FTS5 full-text search
-CREATE VIRTUAL TABLE prompts_fts USING fts5(prompt, response, tool UNINDEXED, content='prompts', content_rowid='id');
+## Providers and configuration
 
--- Vector search (sqlite-vec)
-CREATE VIRTUAL TABLE vec_embeddings USING vec0(embedding float[768]);
+- Analysis providers: Ollama (default), Gemini, OpenRouter, and MLX-Serve. Keys and model IDs use PH config or the provider environment variables documented in [the user manual](docs/ph-manual.md).
+- Embeddings use Ollama. The default embedding model is `nomic-embed-text-v2-moe`; change it with `ollama-embed-model`.
+- Background analysis is off by default. Automatic memory extraction schedules when hub URL/key exist and `memory-auto-capture` is not false; provider absence/failure is reported as background failure.
+- Environment overrides with product-level meaning: `PH_DB`, `PH_REMOTE_URL`, `PH_MEMORY_HUB_URL`, `PH_MEMORY_HUB_API_KEY`, `PH_SERVER_API_KEY`, `PH_SERVER_HOST`, and `PH_SERVER_PORT`, plus documented inference-provider variables.
 
--- Legacy embeddings table
-CREATE TABLE embeddings (prompt_id INTEGER PRIMARY KEY, vector BLOB NOT NULL);
+## Specifications and documentation maintenance
 
--- Project memory / semantic knowledge store (Phase 0+)
-CREATE TABLE IF NOT EXISTS memories (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    project     TEXT    NOT NULL,
-    prompt_ids  TEXT    NOT NULL DEFAULT '[]',
-    summary     TEXT    NOT NULL,
-    key_insights    TEXT NOT NULL DEFAULT '[]',
-    technical_decisions TEXT NOT NULL DEFAULT '[]',
-    git_context_snapshot TEXT,
-    created_at  TEXT    NOT NULL,
-    updated_at  TEXT    NOT NULL,
-    access_count INTEGER DEFAULT 0,
-    last_accessed TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
-```
+`docs/specs/SPEC-INDEX.md` distinguishes current specifications from historical behavior snapshots. Before changing a user workflow, read the relevant current spec and source. Update README/manual/integration documentation and the affected spec whenever observable behavior changes. Historical plans under `docs/superpowers/` and dated entries in the change log are chronology, not a current command reference.
 
-### `metadata` JSON structure
+## Current product boundaries
 
-```typescript
-interface PromptMetadata {
-  title?: string;
-  project?: string;
-  language?: string;
-  role?: 'debug' | 'refactor' | 'explain' | 'review' | 'architect' | 'test' | 'docs' | 'generate' | 'research';
-  tags?: string[];
-  starred?: boolean;
-  relevance?: number;      // 0-10
-  quality?: number;        // 0-10
-  summary?: string;
-  key_insights?: string[];
-  git_context?: { branch: string; files: string[]; diff: string };
-  $schema_version?: number;  // for forward-compatible schema evolution
-}
-```
-
-### `MemoryEntry` interface
-
-```typescript
-interface MemoryEntry {
-  id: number;
-  project: string;
-  prompt_ids: number[];
-  summary: string;
-  key_insights: string[];
-  technical_decisions: string[];
-  git_context_snapshot?: string;
-  created_at: string;
-  updated_at: string;
-  access_count: number;
-  last_accessed?: string;
-}
-```
-
-## Configuration (`~/.ph_config.json`)
-
-```typescript
-interface PhConfig {
-  geminiApiKey?: string;
-  dbPath?: string;                    // default: ~/.prompt_history.db
-  analyzeProvider?: 'ollama' | 'gemini' | 'openrouter' | 'mlx-serve'; // default: ollama
-  ollamaUrl?: string;                 // default: http://localhost:11434
-  ollamaModel?: string;               // default: llama3.1:latest
-  openrouterModel?: string;           // exact provider/model ID
-  openrouterUrl?: string;             // default: https://openrouter.ai/api/v1
-  openrouterApiKey?: string;           // local config; overridden by OPENROUTER_API_KEY
-  mlxServeModel?: string;             // exact model ID from MLX-Serve
-  mlxServeUrl?: string;               // default: http://127.0.0.1:11234/v1 via SSH tunnel
-  mlxServeApiKey?: string;            // local config; overridden by MLX_SERVE_API_KEY / GLB_OMLX_API_KEY
-  ollamaEmbedModel?: string;          // default: nomic-embed-text-v2-moe
-  filterMinLength?: number;           // default: 15
-  filterMinRelevance?: number;        // default: 3
-  backgroundAnalysis?: boolean;       // default: false — runs after each completed live capture
-  retentionDays?: number;             // default: 90 — auto-archive prompts older than N days
-  retentionMinStarred?: boolean;      // default: true — starred prompts never auto-archived
-  retentionMinAnalyzed?: boolean;     // default: true — analyzed prompts never auto-archived
-  retentionMinRelevance?: number;     // default: 3 — prompts with relevance below threshold pruned first
-  remoteUrl?: string;                 // HTTP URL of remote ph server (or set PH_REMOTE_URL env)
-  remoteApiKey?: string;              // required to start HTTP server; client Bearer key
-  memoryHubUrl?: string;              // canonical memory service; separate from prompt-history sync
-  memoryHubApiKey?: string;           // client key for the memory hub; redacted by config commands
-  remoteLastPush?: string;            // global timestamp of last successful push
-  remoteLastPull?: string;            // ISO timestamp of last successful pull
-  remotePushCursor?: { target: string; databaseId: string; id: number }; // target + local DB scoped cursor
-  remotePullCursor?: { target: string; databaseId: string; id: number }; // target + local DB scoped cursor
-}
-```
-
-### Enabling Auto-Analysis
-
-```bash
-ph config set background-analysis true
-```
-
-After each `ph log ...` command or hook invocation, optional background analysis enriches captured interaction metadata. It does not append project memory entries; only reviewed `ph close` proposals and MCP `save_decision` promote durable knowledge.
-
-## Key Architecture Patterns
-
-- **ESM only**: all imports use `.js` extension
-- **Manual arg parsing**: `cli.ts``s `main()` uses `parseFlags()` — no commander/yargs
-- **Commands in `src/commands/`**: each command (`search`, `context`, `analyze`, etc.) has its own file exporting `cmdXxx(db, cfg?, args?)`, dispatched via switch in `cli.ts`
-- **`ph chat`**: wrapper that auto-injects project context (memories + recent prompts) before forwarding to the tool
-- **Background analysis**: spawns detached child process via `spawnBackgroundAnalysis()` — never blocks
-- **Auto-analysis**: enabled via `ph config set background-analysis true` — runs `_bg-analyze` after each `ph log` capture
-- **Multiple memories**: explicitly promoted decisions create append-only entries in `memories`; analysis output stays on its source interaction
-- **Memory pipeline**: analysis enriches the source interaction metadata; `ph close` approval or MCP `save_decision` explicitly promotes source-backed knowledge through `upsertProjectMemory()`
-- **`ph context`**: outputs both project-level knowledge (from `memories`) + recent prompt interactions (markdown, pipe-ready)
-- **Import with analysis**: `ph import gemini --analyze` runs inline LLM analysis on imported prompts (supports `gemini`, `claude`, `opencode`, `codex`)
-- **Memory merging**: `upsertProjectSummary()` merges explicitly promoted knowledge into the project summary (dedup by insight/decision content) — `project_summaries` table has 1 row per project
-- **Retention**: `ph cleanup --retention` archives old/unqualified prompts to `prompts_archive` table based on configurable rules (age, starred, analyzed, relevance)
-- **MCP summary fallback**: `search_project_memory` returns `project_summaries` content when semantic search yields no results
-- **Search archive**: `ph search --archive` queries the `prompts_archive` table
-- **MCP server**: exposes `search_project_memory`, `get_project_context` (with memories), `get_project_summary` tools
-- **Hooks**: shell scripts in `hooks/<tool>/ph-hook.sh`, invoked by AI CLI tools, pipe JSON to `ph log`
-- **OpenCode importer**: reads from the SQLite DB at `~/.local/share/opencode/opencode.db` — queries `session`, `message`, and `part` tables; assistant messages link to user via `parentID` in `message.data` JSON
-- **Metadata merging**: `mergeMetadata()` in `analyzer/index.ts` merges new analysis with existing metadata (preserves manual fields unless force=true)
-- **Filter pipeline**: 4 checks (too short, non-printable, trivial pattern, exact duplicate) + optional relevance filter
-- **Project detection**: walks up directory tree checking `.git`, `go.mod`, `package.json`, `Cargo.toml`, etc.
-- **Remote sync**: HTTP server requires a Bearer key and binds loopback by default. Push/pull use target- and local-database-scoped row-ID pages, byte-bounded push subpages, full acknowledgement before cursor advancement, and idempotent `sync_hash` deduplication. Only the most recently used database cursor is retained; switching back causes a full replay. Remote database replacement at the same URL is not detected; last-success timestamps are global.
-- **Live follow-up**: `completeLiveCapture` dispatches configured analysis and a bounded per-interaction remote push consistently for direct log and both wrapper modes.
-- **Env overrides**: `PH_REMOTE_URL` env var takes precedence over config file `remoteUrl`. No server names hardcoded in code.
-
-## Important Files for Quick Reference
-
-- `src/cli.ts` — main entry, short help and manual command dispatch
-- `src/commands/` — all command modules
-- `src/commands/chat.ts` — context-injected tool wrapper
-- `src/db/index.ts` — PhDB class, all SQL + memory operations
-- `src/types.ts` — PromptEntry, PromptMetadata, MemoryEntry, SearchOptions
-- `src/analyzer/index.ts` — analysis prompt + mergeMetadata + analyzeAll
-- `src/ai/provider.ts` — LLM provider abstraction
-- `src/background/analyzer.ts` — background analysis spawner
-- `src/mcp/server.ts` — MCP server with memory + prompt history tools
-- `src/server/index.ts` — HTTP REST server for remote sync (zero deps)
-- `src/db/personal-memory-repository.ts` — source-backed canonical user memories and reversible forget lifecycle
-- `src/commands/memory-hub.ts` — memory hub CLI client and shared-context lookup
-- `deploy/compose.yaml` — generic container deployment for the PH hub
-- `src/commands/remote.ts` — `ph remote push|pull|status`
-- `src/commands/log.ts` — `ph log` with bounded remote push after capture
-- `src/importer/opencode.ts` — OpenCode history importer
-- `src/importer/codex.ts` — Codex rollout history importer
-- `hooks/claude/ph-hook.sh` — Claude Code hook
-- `hooks/codex/ph-hook.sh` — Codex CLI hook
-- `hooks/gemini/ph-hook.sh` — Gemini CLI hook
-- `docs/ph-manual.md` — comprehensive architecture guide
-
-## Spec-Driven Development (2026-08-08)
-
-- Baseline specs in `docs/specs/` — `SPEC-INDEX.md` (registry + cluster map),
-  `SPEC-ISSUES.md` (cross-cutting discrepancies), `_TEMPLATE.md`.
-- **SPEC-001…015** = baseline reverse-engineered from code (ph as it is today;
-  regression targets). Same format as lens/harness (`path:line` evidence, ≥3 GWT
-  per spec, §9 open questions — never invent behavior).
-- `ph` specifications document current behavior; integrations such as MCP,
-  the HTTP server, and sync are existing features rather than proposed targets.
-- When behavior changes, update the relevant specification (status and GWT)
-  and SPEC-ISSUES. Mark an issue fixed with the date when its fix is complete.
-- GWT criteria → Vitest: tests in `src/**/__tests__/` (DB/search/memory/
-  archive/sync dedup, analyzer parse/merge, sessions, config, context,
-  normalized capture, import formats, MCP tool
-  call, PTY response cleanup, deterministic retrieval regression).
+- No TUI/browser, email/calendar/browser connectors, per-client hub identity, offline memory-write queue, or memory conflict resolution.
+- One shared memory bearer key currently authorizes hub clients.
+- Automatic extraction's sensitive-data screening cannot guarantee perfect classification. The user must choose whether the configured inference service may receive bounded prompt/response excerpts.
+- Raw-history sync can transmit full captured prompts and responses; users should verify the remote URL and credentials before enabling it.
 
 ## Change Log
 
@@ -378,7 +157,7 @@ After each `ph log ...` command or hook invocation, optional background analysis
 | 2026-10-10 | Added operational memory loop: read-only task `prepare`, human-approved/editable `close` proposals with prompt provenance, shared MCP retrieval and validated `save_decision` sources; expanded offline golden retrieval contract across five projects | TypeScript, SQLite, MCP, Vitest | `src/{commands/{prepare,close}.ts,context/index.ts,mcp/server.ts,cli.ts}`, `docs/{evals,plans}/`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-22 | Hardened memory promotion: approved batches and summary updates now commit atomically; `ph close` checks TTY before provider calls | TypeScript, SQLite, Vitest | `src/db/index.ts`, `src/commands/close.ts`, `src/mcp/server.ts`, `src/db/__tests__/phdb.test.ts`, `docs/specs/SPEC-016-operational-memory.md` |
 | 2026-10-22 | Consolidated PH architecture: scoped feature growth pending three real workflow uses; MCP composition reduced to protocol wiring with domain-grouped handlers and shared task-context/promotion use cases; memory and archive SQL extracted behind the source-compatible PhDB facade | TypeScript, SQLite, MCP, Vitest | `src/knowledge/`, `src/mcp/`, `src/db/{memory,archive}-repository.ts`, `docs/specs/SPEC-017-architecture-consolidation.md`, `ROADMAP.md` |
-| 2026-10-22 | Initial workspace experiment; superseded later the same day by a plain-text CLI and removal of the TUI | TypeScript, Ink, SQLite, Vitest | `src/ui/WorkHome.tsx` (removed), `src/cli.ts`, `README.md`, `CLAUDE.md`, `docs/ph-architecture-review.html` |
+| 2026-10-22 | Initial workspace experiment; superseded later the same day by a plain-text CLI and removal of the TUI | TypeScript, Ink, SQLite, Vitest | `src/ui/WorkHome.tsx` (removed), `src/cli.ts`, `README.md`, `CLAUDE.md` |
 | 2026-10-22 | Simplified PH to a plain-text daily workflow; removed the Ink/React browser and dependencies, unified task retrieval under `context`, and made `close` default to three hours | TypeScript, SQLite | `src/cli.ts`, `src/commands/{context,close,search}.ts`, `src/ui/`, `package.json`, `README.md`, `docs/` |
 | 2026-10-22 | Simplified daily use: added idempotent `ph setup` for native Claude/Codex/Gemini/OpenCode capture integrations; default guidance now makes capture automatic and keeps search as the primary recall command | TypeScript, Node.js, Vitest | `src/commands/setup.ts`, `src/cli.ts`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-22 | Improved actual search use: five current-project results by default, FTS relevance ordering, explicit `--all` scope, truthful setup status, and current-directory attribution for Codex hook imports | TypeScript, SQLite FTS5, Vitest | `src/commands/search.ts`, `src/db/index.ts`, `src/importer/codex.ts`, `hooks/codex/`, `src/commands/setup.ts` |
@@ -386,3 +165,4 @@ After each `ph log ...` command or hook invocation, optional background analysis
 | 2026-10-24 | Reassessed PH after network fixes; recorded remaining remote database identity, semantic vector provenance, and startup migration findings; aligned product and operational docs with source | TypeScript, Vitest, Markdown | `docs/specs/SPEC-ISSUES.md`, `docs/specs/{SPEC-002,SPEC-005,SPEC-010}`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-25 | Added a generic governed-memory hub API and CLI, sensitive-save gate, reversible forget, source references, shared work/project recall in `ph context` and MCP, agent-facing shared-memory search/save tools, approved `ph close` publishing, dedicated hub credentials, and generic Docker Compose deployment | TypeScript, SQLite, Node HTTP, Docker, MCP, Vitest | `src/{db,server,commands,config,mcp}`, `deploy/`, `docs/{memory-hub.md,specs/SPEC-020*}`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-25 | Added automatic background memory extraction for captured coding-agent turns, exact user-prompt evidence checks, sensitive-content rejection, source-linked undo, status reporting, and an opt-out config | TypeScript, SQLite, MCP, Vitest | `src/{analyzer,background,capture,commands,config}`, `docs/{memory-hub.md,ph-manual.md,specs/SPEC-020*}`, `README.md` |
+| 2026-11-06 | Deepened prompt persistence and shared-memory policy; separated capture follow-ups and HTTP memory/history routes; centralized runtime endpoint/key resolution; refreshed user documentation | TypeScript, SQLite, HTTP, MCP, Vitest | `src/{db,memory,capture,server,config,commands,mcp}`, `README.md`, `docs/{ph-manual.md,ph-feature-catalog.html}` |

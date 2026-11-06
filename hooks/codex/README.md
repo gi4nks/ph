@@ -1,54 +1,18 @@
-# Codex CLI hook for ph
+# Codex CLI capture for PH
 
-The hook imports the active Codex rollout after each completed turn. Codex supplies the transcript path to the `Stop` hook; `ph` pairs user messages with the assistant response and deduplicates turns already captured. The hook supplies the active CLI working directory to the importer so captures are associated with the project where Codex was launched, even when the transcript records a synthetic directory.
-
-## Install
-
-From the ph repository, make the hook executable and link it into your Codex configuration directory:
+Install or update the integration with:
 
 ```sh
-chmod +x hooks/codex/ph-hook.sh
-mkdir -p ~/.codex
-ln -sf "$(pwd)/hooks/codex/ph-hook.sh" ~/.codex/ph-hook.sh
+ph setup codex
 ```
 
-Add this to `~/.codex/hooks.json` (merge it with any existing hooks):
+Restart Codex and approve/trust the hook if prompted. PH reads the rollout transcript supplied to its stop hook, associates imported turns with the active CLI working directory, and deduplicates turns already stored.
 
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.codex/ph-hook.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Restart Codex and approve/trust the hook when prompted. If hooks are disabled
-in your Codex configuration, enable them in `~/.codex/config.toml`:
-
-```toml
-[features]
-hooks = true
-```
-
-The hook only reads the
-transcript path supplied by Codex and writes through `ph import`; it does not
-modify Codex session files. Codex describes the transcript path as a convenience
-field and does not guarantee the transcript format as a stable hook interface.
-
-## Import existing sessions
+To import existing sessions, preview first:
 
 ```sh
 ph import codex --dry-run
 ph import codex
 ```
 
-Codex rollouts are read from `~/.codex/sessions/`. To import one transcript, the hook uses the same importer with `--file <path>`.
+See [the PH Capture Integrations guide](../../docs/hooks.md) and [the user manual](../../docs/ph-manual.md) for the supported workflow, other integrations, options, and data handling.

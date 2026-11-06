@@ -20,5 +20,11 @@ export async function cmdShow(db: PhDB, args: string[]): Promise<void> {
 
   process.stdout.write(flags.json
     ? `${formatInteractionJson(entry)}\n`
-    : `${formatInteractionDetail(entry)}\n`);
+    : `${formatInteractionDetail(entry, { color: useColorOutput() })}\n`);
+}
+
+function useColorOutput(): boolean {
+  if (process.env.NO_COLOR !== undefined) return false;
+  if (process.env.FORCE_COLOR !== undefined) return process.env.FORCE_COLOR !== '0';
+  return Boolean(process.stdout.isTTY && process.env.TERM !== 'dumb');
 }

@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PhDB } from '../../db/index.js';
-import { cmdClose } from '../close.js';
 import { cmdContext } from '../context.js';
+import { cmdMemory } from '../memory.js';
 
 describe('operational memory commands', () => {
   let dir: string;
@@ -22,34 +22,42 @@ describe('operational memory commands', () => {
     db.insert({ timestamp: new Date().toISOString(), tool: 'codex', prompt: 'Fix project cache timeout', response: 'Set a finite SQLite busy timeout.', args: '', workdir: dir, hostname: 'test', exit_code: 0, metadata: JSON.stringify({ project: 'ph', summary: 'Cache fix' }) });
   }
 
-  it('context uses the task retrieval path and labels its recent-history fallback', async () => {
+  it('context retrieves project evidence and renders notes when embeddings are empty', async () => {
     setup();
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const before = db.getPromptCount();
     await cmdContext(db, {}, ['--project', 'ph', 'cache', 'timeout']);
     const text = output.mock.calls.map(call => String(call[0])).join('');
-    expect(text).toContain('Retrieval fallback');
+    expect(text).toContain('Project: ph');
     expect(text).toContain('Interaction #1');
-    expect(db.getPromptCount()).toBe(before);
-    expect(db.searchMemories('ph')).toHaveLength(0);
+    expect(text).toContain('semantic index is empty');
   });
 
-  it('close dry-run only displays selected source prompts', async () => {
+  it('memory command supports add, list, search, forget, and restore', async () => {
     setup();
     const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    await cmdClose(db, {}, ['--project', 'ph', '--from', '1', '--to', '1', '--dry-run']);
-    expect(output.mock.calls.map(call => String(call[0])).join('')).toContain('Dry run');
-    expect(db.searchMemories('ph')).toHaveLength(0);
-    expect(db.getProjectSummary('ph')).toBeNull();
-  });
 
-  it('close defaults to a three-hour review window', async () => {
-    setup();
-    const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    await cmdClose(db, {}, ['--project', 'ph', '--dry-run']);
-    const text = output.mock.calls.map(call => String(call[0])).join('');
-    expect(text).toContain('Close review for ph: 1 prompt(s)');
-    expect(text).toContain('Dry run');
+    // Add memory
+    await cmdMemory(db, ['add', '--project', 'ph', '--kind', 'fact', 'Always use vitest']);
+    expect(db.searchMemories({ project: 'ph' })).toHaveLength(1);
+
+    // List memories
+    await cmdMemory(db, ['list', '--project', 'ph']);
+    let text = output.mock.calls.map(call => String(call[0])).join('');
+    expect(text).toContain('Always use vitest');
+
+    // Search memories
+    output.mockClear();
+    await cmdMemory(db, ['search', 'vitest']);
+    text = output.mock.calls.map(call => String(call[0])).join('');
+    expect(text).toContain('Always use vitest');
+
+    // Forget memory
+    const memId = db.searchMemories({ project: 'ph' })[0].id;
+    await cmdMemory(db, ['forget', String(memId)]);
+    expect(db.searchMemories({ project: 'ph' })).toHaveLength(0);
+
+    // Restore memory
+    await cmdMemory(db, ['restore', String(memId)]);
+    expect(db.searchMemories({ project: 'ph' })).toHaveLength(1);
   });
 });

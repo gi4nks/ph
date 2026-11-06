@@ -10,6 +10,6 @@ if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   exit 0
 fi
 
-ph import codex --file "$TRANSCRIPT_PATH" --workdir "$WORKDIR" >/dev/null 2>&1 || true
+ph import codex --file "$TRANSCRIPT_PATH" --workdir "$WORKDIR" --live >/dev/null 2>&1 || true
 printf '{}\n'
 exit 0

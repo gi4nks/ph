@@ -140,16 +140,85 @@ describe('PhDB basics (SPEC-002)', () => {
     }
   });
 
-  it('promotes approved memories and summaries atomically', () => {
-    const now = new Date().toISOString();
-    const valid = {
-      project: 'atomic-project', prompt_ids: [], summary: 'First proposal', key_insights: ['One'],
-      technical_decisions: [], created_at: now, updated_at: now, access_count: 0,
-    };
+  it('migrates legacy memories without discarding personal provenance, versions, or summaries (v4)', () => {
+    const legacyPath = path.join(dir, 'legacy-v2.db');
+    const legacy = new Database(legacyPath);
+    legacy.exec(`
+      CREATE TABLE ph_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO ph_meta VALUES ('schema_version', '2');
+      CREATE TABLE memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT NOT NULL,
+        prompt_id INTEGER,
+        summary TEXT NOT NULL,
+        key_insights TEXT NOT NULL,
+        technical_decisions TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        access_count INTEGER NOT NULL DEFAULT 0,
+        last_accessed TEXT
+      );
+      INSERT INTO memories (project, prompt_id, summary, key_insights, technical_decisions, created_at)
+      VALUES ('legacy-proj', 10, 'Legacy summary', '["insight 1"]', '["decision 1"]', '2026-08-08T10:00:00.000Z');
 
-    expect(() => db.promoteMemories([valid, { ...valid, summary: null as unknown as string }])).toThrow();
-    expect(db.getAllMemoriesByProject('atomic-project')).toEqual([]);
-    expect(db.getProjectSummary('atomic-project')).toBeNull();
+      CREATE TABLE personal_memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        sensitivity TEXT NOT NULL,
+        source TEXT NOT NULL,
+        source_ref TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        forgotten_at TEXT
+      );
+      INSERT INTO personal_memories (id, content, scope, kind, sensitivity, source, source_ref, status, created_at, updated_at)
+      VALUES ('pm-1', 'Always use vitest', 'work', 'preference', 'normal', 'ph-auto-capture', 'prompt:10:1', 'active', '2026-08-08T10:00:00.000Z', '2026-08-08T10:00:00.000Z');
+      CREATE TABLE personal_memory_versions (
+        memory_id TEXT NOT NULL, content TEXT NOT NULL, scope TEXT NOT NULL, kind TEXT NOT NULL,
+        sensitivity TEXT NOT NULL, source TEXT NOT NULL, source_ref TEXT, status TEXT NOT NULL,
+        changed_at TEXT NOT NULL
+      );
+      INSERT INTO personal_memory_versions VALUES
+        ('pm-1', 'Earlier preference', 'work', 'preference', 'normal', 'manual', 'prompt:9:1', 'active', '2026-08-08T09:00:00.000Z');
+      CREATE TABLE project_summaries (
+        project TEXT PRIMARY KEY, summary TEXT NOT NULL, key_insights TEXT NOT NULL,
+        technical_decisions TEXT NOT NULL, prompt_count INTEGER NOT NULL,
+        first_analyzed TEXT NOT NULL, last_analyzed TEXT NOT NULL, git_context_snapshot TEXT NOT NULL
+      );
+      INSERT INTO project_summaries VALUES
+        ('legacy-proj', 'Curated summary', '["curated insight"]', '["curated decision"]', 7,
+         '2026-01-01', '2026-08-01', '{"branch":"main"}');
+    `);
+    legacy.close();
+
+    const migrated = new PhDB(legacyPath);
+    try {
+      const all = migrated.getAllMemories();
+      expect(all.length).toBeGreaterThanOrEqual(2);
+      const projMem = all.find(m => m.project === 'legacy-proj');
+      expect(projMem).toBeDefined();
+      expect(projMem?.content).toContain('Legacy summary');
+      expect(projMem?.scope).toBe('project');
+
+      const personalMem = all.find(m => m.content === 'Always use vitest');
+      expect(personalMem).toBeDefined();
+      expect(personalMem?.scope).toBe('work');
+      expect(personalMem?.kind).toBe('preference');
+      expect(personalMem?.source).toBe('ph-auto-capture');
+      expect(personalMem?.source_ref).toBe('prompt:10:1');
+      expect(personalMem?.external_id).toBe('pm-1');
+      expect(migrated['db'].prepare('SELECT count(*) AS c FROM memory_versions').get()).toEqual({ c: 1 });
+      expect(migrated['db'].prepare('SELECT count(*) AS c FROM project_summaries').get()).toEqual({ c: 1 });
+
+      // Verify FTS search works on migrated memories
+      const searchRes = migrated.searchMemories({ query: 'vitest', includePersonal: true });
+      expect(searchRes).toHaveLength(1);
+      expect(searchRes[0].content).toBe('Always use vitest');
+    } finally {
+      migrated.close();
+    }
   });
 });
 
@@ -406,7 +475,7 @@ describe('PhDB archive (SPEC-009)', () => {
   });
 });
 
-describe('PhDB memories & summaries (SPEC-007)', () => {
+describe('PhDB memories (SPEC-007 unified schema v3)', () => {
   let dir: string;
   let db: PhDB;
 
@@ -420,36 +489,86 @@ describe('PhDB memories & summaries (SPEC-007)', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('upsertProjectMemory is append-only (G1)', () => {
-    const base = { project: 'proj-x', prompt_id: 1, summary: 's', key_insights: ['i1'], technical_decisions: ['d1'] };
-    db.upsertProjectMemory(base);
-    db.upsertProjectMemory({ ...base, prompt_id: 2, summary: 's2', key_insights: ['i2'], technical_decisions: [] });
-    expect(db.searchMemories('proj-x', 10)).toHaveLength(2);
+  it('addMemory inserts a project memory and searches by text and project', () => {
+    const mem = db.addMemory({
+      content: 'Always use ESM imports with .js extension in TypeScript',
+      scope: 'project',
+      project: 'ph',
+      kind: 'fact',
+    });
+
+    expect(mem.id).toBeDefined();
+    expect(mem.scope).toBe('project');
+    expect(mem.project).toBe('ph');
+    expect(mem.status).toBe('active');
+
+    const byProj = db.searchMemories({ project: 'ph' });
+    expect(byProj).toHaveLength(1);
+    expect(byProj[0].id).toBe(mem.id);
+
+    const byFts = db.searchMemories({ query: 'extension' });
+    expect(byFts).toHaveLength(1);
+    expect(byFts[0].id).toBe(mem.id);
+
+    const otherProj = db.searchMemories({ project: 'other' });
+    expect(otherProj).toHaveLength(0);
   });
 
-  it('upsertProjectSummary merges and dedups to a single row (G2/G3)', () => {
-    db.upsertProjectSummary({ project: 'proj-x', summary: 'first', key_insights: ['same-insight'], technical_decisions: ['dec-a'] });
-    db.upsertProjectSummary({ project: 'proj-x', summary: 'second', key_insights: ['same-insight', 'new-insight'], technical_decisions: ['dec-a', 'dec-b'] });
-    const s = db.getProjectSummary('proj-x');
-    expect(s).not.toBeNull();
-    expect(s?.key_insights).toEqual(expect.arrayContaining(['same-insight', 'new-insight']));
-    expect(s?.key_insights).toHaveLength(2);
-    expect(s?.technical_decisions).toHaveLength(2);
-    expect(s?.prompt_count).toBe(2);
-    expect(db.getAllProjectsWithSummaries()).toContain('proj-x');
+  it('rejects a project memory sourced from a different project interaction', () => {
+    const sourceId = db.insert({
+      timestamp: '2026-08-08T10:00:00.000Z', tool: 'codex', prompt: 'decision', response: '',
+      args: '', workdir: '/tmp/other', hostname: 'test', exit_code: 0,
+      metadata: JSON.stringify({ project: 'other' }),
+    });
+    expect(() => db.addMemory({ content: 'A sourced decision for ph', scope: 'project', project: 'ph', prompt_ids: [sourceId] }))
+      .toThrow('belongs to project "other", not "ph"');
+    expect(db.searchMemories({ project: 'ph' })).toHaveLength(0);
   });
 
-  it('recordMemoryAccess increments access_count (G4)', () => {
-    db.upsertProjectMemory({ project: 'p', prompt_id: 1, summary: 's', key_insights: [], technical_decisions: [] });
-    const mem = db.getLastMemoryForProject('p');
-    expect(mem).toBeDefined();
-    db.recordMemoryAccess(mem!.id);
-    const after = db.getMemoryById(mem!.id);
-    expect(after?.access_count).toBe(1);
-    expect(after?.last_accessed).toBeDefined();
+  it('accepts a project memory sourced from an interaction in the same project', () => {
+    const sourceId = db.insert({
+      timestamp: '2026-08-08T10:00:00.000Z', tool: 'codex', prompt: 'decision', response: '',
+      args: '', workdir: '/tmp/ph', hostname: 'test', exit_code: 0,
+      metadata: JSON.stringify({ project: 'ph' }),
+    });
+    const saved = db.addMemory({ content: 'A sourced decision for ph', scope: 'project', project: 'ph', prompt_ids: [sourceId] });
+    expect(saved.prompt_ids).toEqual([sourceId]);
   });
 
-  it('getProjectSummary returns null for unknown project', () => {
-    expect(db.getProjectSummary('nope')).toBeNull();
+  it('forgets and restores a memory', () => {
+    const mem = db.addMemory({
+      content: 'Temporary experimental flag',
+      scope: 'project',
+      project: 'ph',
+      kind: 'fact',
+    });
+
+    expect(db.searchMemories({ query: 'experimental' })).toHaveLength(1);
+
+    const forgotten = db.forgetMemory(mem.id);
+    expect(forgotten).toBe(true);
+
+    // Active searches ignore archived
+    expect(db.searchMemories({ query: 'experimental' })).toHaveLength(0);
+    // Explicit archived status retrieves it
+    expect(db.searchMemories({ query: 'experimental', includeForgotten: true })).toHaveLength(1);
+
+    const restored = db.restoreMemory(mem.id);
+    expect(restored).toBe(true);
+    expect(db.searchMemories({ query: 'experimental' })).toHaveLength(1);
+  });
+
+  it('permanently deletes a memory', () => {
+    const mem = db.addMemory({
+      content: 'Sensitive token to remove',
+      scope: 'project',
+      project: 'ph',
+      kind: 'fact',
+    });
+
+    expect(db.getMemoryById(mem.id)).toBeDefined();
+    db.deleteMemory(mem.id);
+    expect(db.getMemoryById(mem.id)).toBeUndefined();
+    expect(db.searchMemories({ query: 'token' })).toHaveLength(0);
   });
 });

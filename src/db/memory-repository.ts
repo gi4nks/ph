@@ -1,234 +1,277 @@
 import type Database from 'better-sqlite3';
-import type { MemoryEntry, ProjectSummary } from '../types.js';
+import type { MemoryEntry, MemoryKind, MemoryScope, MemoryStatus } from '../types.js';
+import { buildFtsTermsQuery } from './fts.js';
+
+export interface AddMemoryInput {
+  content: string;
+  scope?: MemoryScope;
+  project?: string;
+  kind?: MemoryKind;
+  prompt_ids?: number[];
+  status?: MemoryStatus;
+  created_at?: string;
+  updated_at?: string;
+  sensitivity?: 'normal' | 'sensitive';
+  source?: string;
+  source_ref?: string;
+  external_id?: string;
+  forgotten_at?: string;
+}
+
+export interface SearchMemoriesOptions {
+  query?: string;
+  project?: string;
+  scope?: MemoryScope;
+  includePersonal?: boolean;
+  includeSensitive?: boolean;
+  includeForgotten?: boolean;
+  limit?: number;
+}
 
 export class MemoryRepository {
+  static readonly SCHEMA = `
+    CREATE TABLE IF NOT EXISTS memories (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      content     TEXT    NOT NULL,
+      scope       TEXT    NOT NULL DEFAULT 'project' CHECK (scope IN ('project', 'work', 'personal')),
+      project     TEXT    NOT NULL DEFAULT '',
+      kind        TEXT    NOT NULL DEFAULT 'decision' CHECK (kind IN ('decision', 'insight', 'preference', 'fact')),
+      prompt_ids  TEXT    NOT NULL DEFAULT '[]',
+      status      TEXT    NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'forgotten')),
+      created_at  TEXT    NOT NULL,
+      updated_at  TEXT    NOT NULL
+      ,sensitivity TEXT NOT NULL DEFAULT 'normal' CHECK (sensitivity IN ('normal', 'sensitive'))
+      ,source      TEXT NOT NULL DEFAULT 'manual'
+      ,source_ref  TEXT
+      ,external_id TEXT
+      ,forgotten_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memories_project_status ON memories(project, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_memories_scope_status   ON memories(scope, status, updated_at DESC);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+      content,
+      project,
+      kind,
+      content='memories',
+      content_rowid='id'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+      INSERT INTO memories_fts(rowid, content, project, kind)
+        VALUES (new.id, new.content, new.project, new.kind);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+      INSERT INTO memories_fts(memories_fts, rowid, content, project, kind)
+        VALUES('delete', old.id, old.content, old.project, old.kind);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF content, project, kind ON memories BEGIN
+      INSERT INTO memories_fts(memories_fts, rowid, content, project, kind)
+        VALUES('delete', old.id, old.content, old.project, old.kind);
+      INSERT INTO memories_fts(rowid, content, project, kind)
+        VALUES (new.id, new.content, new.project, new.kind);
+    END;
+  `;
+
   constructor(private readonly db: Database.Database) {}
 
-  insertMemory(mem: Omit<MemoryEntry, 'id'>): number {
-    const info = this.db
-      .prepare(`
-        INSERT INTO memories (project, prompt_ids, summary, key_insights, technical_decisions,
-                              git_context_snapshot, created_at, updated_at, access_count, last_accessed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        mem.project,
-        JSON.stringify(mem.prompt_ids),
-        mem.summary,
-        JSON.stringify(mem.key_insights),
-        JSON.stringify(mem.technical_decisions),
-        mem.git_context_snapshot ?? null,
-        mem.created_at,
-        mem.updated_at,
-        mem.access_count,
-        mem.last_accessed ?? null,
-      );
-    return info.lastInsertRowid as number;
-  }
+  add(input: AddMemoryInput): MemoryEntry {
+    const content = input.content.trim();
+    if (!content) throw new Error('Memory content cannot be empty.');
+    if (content.length > 8000) throw new Error('Memory content must be 8000 characters or fewer.');
 
-  /** Persist an approved knowledge batch and its aggregate summaries atomically. */
-  promoteMemories(memories: Omit<MemoryEntry, 'id'>[]): number[] {
-    return this.db.transaction(() => memories.map(memory => {
-      const id = this.insertMemory(memory);
-      this.upsertProjectSummary({
-        project: memory.project,
-        summary: memory.summary,
-        key_insights: memory.key_insights,
-        technical_decisions: memory.technical_decisions,
-        git_context_snapshot: memory.git_context_snapshot,
-      });
-      return id;
-    }))();
-  }
+    const scope: MemoryScope = input.scope ?? (input.project ? 'project' : 'work');
+    const project = (input.project ?? '').trim();
+    if (scope === 'project' && !project) {
+      throw new Error('Project-scoped memories require a project name.');
+    }
+    const kind: MemoryKind = input.kind ?? 'decision';
+    const status: MemoryStatus = input.status ?? 'active';
+    const promptIds = [...new Set((input.prompt_ids ?? []).filter(id => Number.isInteger(id) && id > 0))];
 
-  updateMemory(id: number, updates: Partial<Omit<MemoryEntry, 'id' | 'project' | 'created_at'>>): void {
-    const setClauses: string[] = [];
-    const params: unknown[] = [];
-
-    if (updates.prompt_ids !== undefined) {
-      setClauses.push('prompt_ids = ?');
-      params.push(JSON.stringify(updates.prompt_ids));
-    }
-    if (updates.summary !== undefined) {
-      setClauses.push('summary = ?');
-      params.push(updates.summary);
-    }
-    if (updates.key_insights !== undefined) {
-      setClauses.push('key_insights = ?');
-      params.push(JSON.stringify(updates.key_insights));
-    }
-    if (updates.technical_decisions !== undefined) {
-      setClauses.push('technical_decisions = ?');
-      params.push(JSON.stringify(updates.technical_decisions));
-    }
-    if (updates.git_context_snapshot !== undefined) {
-      setClauses.push('git_context_snapshot = ?');
-      params.push(updates.git_context_snapshot);
-    }
-    if (updates.access_count !== undefined) {
-      setClauses.push('access_count = ?');
-      params.push(updates.access_count);
-    }
-    if (updates.last_accessed !== undefined) {
-      setClauses.push('last_accessed = ?');
-      params.push(updates.last_accessed);
+    if (input.external_id) {
+      const external = this.db.prepare('SELECT * FROM memories WHERE external_id = ? LIMIT 1').get(input.external_id) as Record<string, unknown> | undefined;
+      if (external) {
+        const existing = this.hydrate(external);
+        if (existing.content !== content || existing.scope !== scope || existing.project !== project) {
+          throw new Error('memory id already exists with different content');
+        }
+        return existing;
+      }
     }
 
-    setClauses.push('updated_at = ?');
-    params.push(new Date().toISOString());
-    params.push(id);
+    const duplicate = this.db.prepare(`
+      SELECT * FROM memories
+      WHERE content = ? AND scope = ? AND project = ? AND kind = ? AND status = 'active'
+      LIMIT 1
+    `).get(content, scope, project, kind) as Record<string, unknown> | undefined;
 
-    this.db
-      .prepare(`UPDATE memories SET ${setClauses.join(', ')} WHERE id = ?`)
-      .run(...params);
-  }
+    if (duplicate) {
+      const existing = this.hydrate(duplicate);
+      const mergedIds = [...new Set([...existing.prompt_ids, ...promptIds])];
+      if (mergedIds.length !== existing.prompt_ids.length) {
+        const now = input.updated_at ?? new Date().toISOString();
+        this.db.prepare('UPDATE memories SET prompt_ids = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(mergedIds), now, existing.id);
+        return this.getById(existing.id)!;
+      }
+      return existing;
+    }
 
-  getMemoryById(id: number): MemoryEntry | undefined {
-    const row = this.db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as Record<string, unknown> | undefined;
-    if (!row) return undefined;
-    return this.hydrateMemory(row);
-  }
-
-  searchMemories(project: string, limit: number = 10): MemoryEntry[] {
-    const rows = this.db
-      .prepare('SELECT * FROM memories WHERE project = ? ORDER BY updated_at DESC LIMIT ?')
-      .all(project, limit) as Record<string, unknown>[];
-    return rows.map(r => this.hydrateMemory(r));
-  }
-
-  upsertProjectMemory(entry: { project: string; prompt_id: number; summary: string; key_insights: string[]; technical_decisions: string[]; git_context_snapshot?: string }): number {
-    // Append-only: create a new memory entry each time, preserving full history
-    return this.insertMemory({
-      project: entry.project,
-      prompt_ids: [entry.prompt_id],
-      summary: entry.summary,
-      key_insights: entry.key_insights,
-      technical_decisions: entry.technical_decisions,
-      git_context_snapshot: entry.git_context_snapshot,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      access_count: 0,
-      last_accessed: undefined,
-    });
-  }
-
-  getLastMemoryForProject(project: string): MemoryEntry | undefined {
-    const row = this.db
-      .prepare('SELECT * FROM memories WHERE project = ? ORDER BY updated_at DESC LIMIT 1')
-      .get(project) as Record<string, unknown> | undefined;
-    if (!row) return undefined;
-    return this.hydrateMemory(row);
-  }
-
-  getAllProjectsWithMemories(): string[] {
-    const rows = this.db
-      .prepare('SELECT DISTINCT project FROM memories ORDER BY project')
-      .all() as { project: string }[];
-    return rows.map(r => r.project);
-  }
-
-  upsertProjectSummary(params: {
-    project: string;
-    summary: string;
-    key_insights: string[];
-    technical_decisions: string[];
-    git_context_snapshot?: string;
-  }): void {
-    const existing = this.getProjectSummary(params.project);
     const now = new Date().toISOString();
+    const createdAt = input.created_at ?? now;
+    const updatedAt = input.updated_at ?? createdAt;
 
-    if (existing) {
-      const allInsights = new Set([...existing.key_insights, ...params.key_insights]);
-      const allDecisions = new Set([...existing.technical_decisions, ...params.technical_decisions]);
+    const info = this.db.prepare(`
+      INSERT INTO memories (content, scope, project, kind, prompt_ids, status, created_at, updated_at, sensitivity, source, source_ref, external_id, forgotten_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(content, scope, project, kind, JSON.stringify(promptIds), status, createdAt, updatedAt,
+      input.sensitivity ?? 'normal', input.source ?? 'manual', input.source_ref ?? null,
+      input.external_id ?? null, input.forgotten_at ?? null);
 
-      this.db.prepare(`
-        UPDATE project_summaries
-        SET summary = ?,
-            key_insights = ?,
-            technical_decisions = ?,
-            prompt_count = prompt_count + 1,
-            last_analyzed = ?,
-            git_context_snapshot = COALESCE(?, git_context_snapshot)
-        WHERE project = ?
-      `).run(
-        params.summary,
-        JSON.stringify([...allInsights]),
-        JSON.stringify([...allDecisions]),
-        now,
-        params.git_context_snapshot || null,
-        params.project
-      );
-    } else {
-      this.db.prepare(`
-        INSERT INTO project_summaries (project, summary, key_insights, technical_decisions, prompt_count, first_analyzed, last_analyzed, git_context_snapshot)
-        VALUES (?, ?, ?, ?, 1, ?, ?, ?)
-      `).run(
-        params.project,
-        params.summary,
-        JSON.stringify(params.key_insights),
-        JSON.stringify(params.technical_decisions),
-        now,
-        now,
-        params.git_context_snapshot || null
-      );
+    return this.getById(Number(info.lastInsertRowid))!;
+  }
+
+  getById(id: number): MemoryEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return row ? this.hydrate(row) : undefined;
+  }
+
+  getByExternalId(id: string): MemoryEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM memories WHERE external_id = ?').get(id) as Record<string, unknown> | undefined;
+    return row ? this.hydrate(row) : undefined;
+  }
+
+  search(options: SearchMemoriesOptions = {}): MemoryEntry[] {
+    const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 10), 100));
+    const clauses: string[] = [];
+    const filterParams: unknown[] = [];
+
+    if (!options.includeForgotten) {
+      clauses.push("m.status = 'active'");
     }
+    if (!options.includePersonal && options.scope !== 'personal') {
+      clauses.push("m.scope != 'personal'");
+    }
+    if (!options.includeSensitive) clauses.push("m.sensitivity != 'sensitive'");
+    if (options.scope) {
+      clauses.push('m.scope = ?');
+      filterParams.push(options.scope);
+    }
+    if (options.project !== undefined) {
+      clauses.push('m.project = ?');
+      filterParams.push(options.project);
+    }
+
+    const whereSql = clauses.length > 0 ? `AND ${clauses.join(' AND ')}` : '';
+    const query = options.query?.trim();
+
+    if (query) {
+      const andExpr = buildFtsTermsQuery(query, 'AND');
+      if (andExpr) {
+        const strictRows = this.runFtsSearch(andExpr, whereSql, filterParams, limit);
+        if (strictRows.length > 0) return strictRows;
+        const orExpr = buildFtsTermsQuery(query, 'OR');
+        if (orExpr && orExpr !== andExpr) {
+          return this.runFtsSearch(orExpr, whereSql, filterParams, limit);
+        }
+      }
+      return [];
+    }
+
+    const scanWhere = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.db.prepare(`
+      SELECT m.* FROM memories m
+      ${scanWhere}
+      ORDER BY m.updated_at DESC, m.id DESC
+      LIMIT ?
+    `).all(...filterParams, limit) as Record<string, unknown>[];
+    return rows.map(row => this.hydrate(row));
   }
 
-  getProjectSummary(project: string): ProjectSummary | null {
-    const row = this.db.prepare('SELECT * FROM project_summaries WHERE project = ?').get(project) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return this.hydrateProjectSummary(row);
+  getAllByProject(project: string): MemoryEntry[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM memories
+      WHERE project = ? AND status = 'active'
+      ORDER BY created_at ASC, id ASC
+    `).all(project) as Record<string, unknown>[];
+    return rows.map(row => this.hydrate(row));
   }
 
-  getAllProjectsWithSummaries(): string[] {
-    const rows = this.db.prepare('SELECT project FROM project_summaries ORDER BY project').all() as { project: string }[];
-    return rows.map(r => r.project);
+  forget(id: number): boolean {
+    return this.setStatus(id, 'forgotten');
   }
 
-  recordMemoryAccess(id: number): void {
-    this.db
-      .prepare('UPDATE memories SET access_count = access_count + 1, last_accessed = ? WHERE id = ?')
-      .run(new Date().toISOString(), id);
+  restore(id: number): boolean {
+    return this.setStatus(id, 'active');
   }
 
-  deleteMemory(id: number): void {
-    this.db.prepare('DELETE FROM memories WHERE id = ?').run(id);
+  delete(id: number): boolean {
+    const info = this.db.prepare('DELETE FROM memories WHERE id = ?').run(id);
+    return info.changes > 0;
   }
 
-  private hydrateMemory(row: Record<string, unknown>): MemoryEntry {
+  countActive(): number {
+    return (this.db.prepare("SELECT count(*) AS c FROM memories WHERE status = 'active'").get() as { c: number }).c;
+  }
+
+  private setStatus(id: number, status: MemoryStatus): boolean {
+    const current = this.getById(id);
+    if (!current || current.status === status) return false;
+    const now = new Date().toISOString();
+    const update = this.db.transaction(() => {
+      this.db.prepare(`INSERT INTO memory_versions
+        (memory_id, content, scope, kind, sensitivity, source, source_ref, status, changed_at, legacy_memory_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(current.id, current.content, current.scope, current.kind, current.sensitivity, current.source,
+          current.source_ref ?? null, current.status, now, current.external_id ?? null);
+      this.db.prepare('UPDATE memories SET status = ?, updated_at = ?, forgotten_at = ? WHERE id = ?')
+        .run(status, now, status === 'forgotten' ? now : null, id);
+    });
+    update();
+    return true;
+  }
+
+  private runFtsSearch(matchExpr: string, whereSql: string, filterParams: unknown[], limit: number): MemoryEntry[] {
+    const rows = this.db.prepare(`
+      SELECT m.*, bm25(memories_fts) AS rank
+      FROM memories_fts f
+      JOIN memories m ON m.id = f.rowid
+      WHERE memories_fts MATCH ?
+      ${whereSql}
+      ORDER BY rank ASC, m.updated_at DESC, m.id DESC
+      LIMIT ?
+    `).all(matchExpr, ...filterParams, limit) as Record<string, unknown>[];
+    return rows.map(row => this.hydrate(row));
+  }
+
+  private hydrate(row: Record<string, unknown>): MemoryEntry {
+    let promptIds: number[] = [];
+    try {
+      const parsed: unknown = JSON.parse(String(row.prompt_ids ?? '[]'));
+      if (Array.isArray(parsed)) {
+        promptIds = parsed.filter((id): id is number => Number.isInteger(id) && id > 0);
+      }
+    } catch { /* ignore malformed prompt_ids */ }
+
     return {
-      id: row.id as number,
-      project: row.project as string,
-      prompt_ids: JSON.parse(row.prompt_ids as string),
-      summary: row.summary as string,
-      key_insights: JSON.parse(row.key_insights as string),
-      technical_decisions: JSON.parse(row.technical_decisions as string),
-      git_context_snapshot: row.git_context_snapshot as string | undefined,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
-      access_count: row.access_count as number,
-      last_accessed: row.last_accessed as string | undefined,
+      id: Number(row.id),
+      content: String(row.content),
+      scope: row.scope as MemoryScope,
+      project: String(row.project ?? ''),
+      kind: row.kind as MemoryKind,
+      prompt_ids: promptIds,
+      status: row.status as MemoryStatus,
+      created_at: String(row.created_at),
+      updated_at: String(row.updated_at),
+      sensitivity: row.sensitivity === 'sensitive' ? 'sensitive' : 'normal',
+      source: String(row.source ?? 'manual'),
+      ...(row.source_ref ? { source_ref: String(row.source_ref) } : {}),
+      ...(row.external_id ? { external_id: String(row.external_id) } : {}),
+      ...(row.forgotten_at ? { forgotten_at: String(row.forgotten_at) } : {}),
     };
   }
-
-  private hydrateProjectSummary(row: Record<string, unknown>): ProjectSummary {
-    return {
-      project: row.project as string,
-      summary: row.summary as string,
-      key_insights: JSON.parse(row.key_insights as string),
-      technical_decisions: JSON.parse(row.technical_decisions as string),
-      prompt_count: row.prompt_count as number,
-      first_analyzed: row.first_analyzed as string,
-      last_analyzed: row.last_analyzed as string,
-      git_context_snapshot: row.git_context_snapshot as string | undefined,
-    };
-  }
-
-  getAllMemoriesByProject(project: string): MemoryEntry[] {
-    const rows = this.db
-      .prepare('SELECT * FROM memories WHERE project = ? ORDER BY created_at ASC')
-      .all(project) as Record<string, unknown>[];
-    return rows.map(r => this.hydrateMemory(r));
-  }
-
 }

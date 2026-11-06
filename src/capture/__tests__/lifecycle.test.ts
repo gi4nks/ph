@@ -19,25 +19,25 @@ describe('shared live capture lifecycle', () => {
     dirs = [];
   });
 
-  it('schedules automatic memory only when the hub is configured for a supported coding CLI', () => {
+  it('recognizes supported coding tools for live capture', () => {
     const record = {
-      timestamp: new Date().toISOString(), tool: 'codex', prompt: 'Use concise technical answers.',
+      timestamp: new Date().toISOString(), tool: 'agy', prompt: 'Use concise technical answers.',
       response: '', args: '', workdir: '/project', hostname: 'local', exit_code: 0, metadata: '{}',
     };
-    const enabled = prepareLiveCapture(record, {
-      memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'key',
-    });
-    expect(JSON.parse(enabled.metadata).automatic_memory_status).toBe('pending');
+    const prepared = prepareLiveCapture(record, {});
+    expect(prepared.tool).toBe('agy');
+  });
 
-    const disabled = prepareLiveCapture(record, {
-      memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'key', memoryAutoCapture: false,
-    });
-    expect(JSON.parse(disabled.metadata).automatic_memory_status).toBeUndefined();
-
-    const manual = prepareLiveCapture({ ...record, tool: 'manual' }, {
-      memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'key',
-    });
-    expect(JSON.parse(manual.metadata).automatic_memory_status).toBeUndefined();
+  it('schedules automatic memory only for supported coding tools with hub credentials', () => {
+    const base = {
+      timestamp: new Date().toISOString(), prompt: 'Always use English in PH docs.', response: 'Understood.',
+      args: '', workdir: '/project', hostname: 'local', exit_code: 0, metadata: '{}',
+    };
+    const cfg: PhConfig = { memoryHubUrl: 'https://memory.example', memoryHubApiKey: 'test-key' };
+    const codingCapture = prepareLiveCapture({ ...base, tool: 'codex' }, cfg);
+    const otherCapture = prepareLiveCapture({ ...base, tool: 'fixture' }, cfg);
+    expect(JSON.parse(codingCapture.metadata).automatic_memory_status).toBe('pending');
+    expect(JSON.parse(otherCapture.metadata).automatic_memory_status).toBeUndefined();
   });
 
   it('marks pending before capture and records remote acknowledgement on completion', async () => {

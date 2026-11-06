@@ -1,7 +1,7 @@
-import { PhDB, cosineSimilarity } from '../db/index.js';
+import { PhDB, EmbeddingModelMismatchError } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
 import type { SearchOptions } from '../types.js';
-import { getEmbeddings } from '../embedding/index.js';
+import { configuredEmbedder } from '../context/index.js';
 import { printResults } from '../display/print.js';
 import { decodePromptMetadata } from '../interaction/detail.js';
 import { parseFlags, parseDate } from './_utils.js';
@@ -93,32 +93,25 @@ export async function cmdSearch(db: PhDB, cfg: PhConfig, args: string[]): Promis
 }
 
 export async function cmdSearchSemantic(db: PhDB, cfg: PhConfig, query: string, limit: number, showFull: boolean, project?: string): Promise<void> {
-  const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
-  const model = cfg.ollamaEmbedModel ?? 'nomic-embed-text-v2-moe';
+  const { embed, embedModel } = configuredEmbedder(cfg);
 
-  process.stdout.write(`Searching semantically for: "${query}" (model: ${model})...\n`);
-
-  const [queryVec] = await getEmbeddings([query], ollamaUrl, model, 1);
-  if (!queryVec) {
-    process.stderr.write('ph: failed to get embedding for query\n');
-    process.exit(1);
+  if (db.getEmbeddingCount() === 0) {
+    process.stderr.write('ph: the semantic index is empty; run `ph embed-all` first. Showing text matches instead.\n');
+    printResults(db.search({ query, project, limit }), showFull);
+    return;
   }
 
-  const embeddings = project ? db.getEmbeddingsForProject(project) : db.getAllEmbeddings();
-  const scores: Array<{ id: number; sim: number }> = [];
-
-  for (const [id, vec] of embeddings) {
-    const sim = cosineSimilarity(queryVec, vec);
-    if (sim > 0.3) scores.push({ id, sim });
+  process.stdout.write(`Searching semantically for: "${query}" (model: ${embedModel})...\n`);
+  let results;
+  try {
+    const queryVec = await embed(query);
+    if (!queryVec) throw new Error('the embedding provider returned no vector');
+    results = db.searchSemantic(queryVec, limit, project, embedModel);
+  } catch (error) {
+    const reason = error instanceof EmbeddingModelMismatchError ? error.message : `semantic search unavailable: ${(error as Error).message}`;
+    process.stderr.write(`ph: ${reason}. Showing text matches instead.\n`);
+    results = db.search({ query, project, limit });
   }
-
-  scores.sort((a, b) => b.sim - a.sim);
-  const topScores = scores.slice(0, limit);
-
-  const results = topScores
-    .map(({ id }) => db.getById(id))
-    .filter((e): e is NonNullable<typeof e> => e !== undefined);
-
   printResults(results, showFull);
 }
 

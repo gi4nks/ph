@@ -69,9 +69,8 @@ describe('config load/save (SPEC-015)', () => {
       await cmdConfig(['set', 'backgroundAnalysis', 'true']);
       await cmdConfig(['set', 'retention-days', '45']);
       await cmdConfig(['set', 'remote-url', 'https://remote.example']);
-      await cmdConfig(['set', 'memory-hub-url', 'https://memory.example']);
-      await cmdConfig(['set', 'memory-hub-api-key', 'memory-secret']);
-      await cmdConfig(['set', 'memory-auto-capture', 'false']);
+      await cmdConfig(['set', 'remote-api-key', 'remote-secret']);
+      await cmdConfig(['set', 'ollama-url', 'http://localhost:11434']);
       await cmdConfig(['set', 'gemini-api-key', 'super-secret-key']);
 
       await expect(cmdConfig(['set', 'remote-url', 'not a URL'])).rejects.toThrow(/absolute HTTP or HTTPS/i);
@@ -80,9 +79,8 @@ describe('config load/save (SPEC-015)', () => {
         backgroundAnalysis: true,
         retentionDays: 45,
         remoteUrl: 'https://remote.example',
-        memoryHubUrl: 'https://memory.example',
-        memoryHubApiKey: 'memory-secret',
-        memoryAutoCapture: false,
+        remoteApiKey: 'remote-secret',
+        ollamaUrl: 'http://localhost:11434',
         geminiApiKey: 'super-secret-key',
       });
 
@@ -90,11 +88,11 @@ describe('config load/save (SPEC-015)', () => {
       await cmdConfig(['get', 'background-analysis']);
       await cmdConfig(['get', 'retentionDays']);
       await cmdConfig(['get', 'geminiApiKey']);
-      await cmdConfig(['get', 'memory-hub-api-key']);
-      await cmdConfig(['get', 'memory-auto-capture']);
+      await cmdConfig(['get', 'remote-api-key']);
+      await cmdConfig(['get', 'ollama-url']);
       await cmdConfig(['get', 'ollama-model']);
 
-      expect(logs).toEqual(['true', '45', '[redacted]', '[redacted]', 'false', '(not set)']);
+      expect(logs).toEqual(['true', '45', '[redacted]', '[redacted]', 'http://localhost:11434', '(not set)']);
     } finally {
       spy.mockRestore();
     }

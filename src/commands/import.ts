@@ -6,16 +6,16 @@ import { importGeminiHistory } from '../importer/gemini.js';
 import { importClaudeHistory } from '../importer/claude.js';
 import { importOpenCodeHistory } from '../importer/opencode.js';
 import { importCodexHistory } from '../importer/codex.js';
+import { importAgyHistory } from '../importer/agy.js';
 import { getProvider, getProviderSetupError } from '../ai/provider.js';
 import { FilterPipeline } from '../filter/index.js';
 import { parseFlags } from './_utils.js';
-import { automaticMemoryEnabled } from '../capture/lifecycle.js';
-import { spawnAutomaticMemoryExtraction } from '../background/automatic-memory.js';
+import { completeLiveCapture } from '../capture/lifecycle.js';
 
 export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   if (args.length === 0) {
-    process.stderr.write('Usage: ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>] [--workdir <path>]\n');
-    process.stderr.write('Supported sources: gemini, claude, opencode, codex\n');
+    process.stderr.write('Usage: ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>] [--workdir <path>] [--live]\n');
+    process.stderr.write('Supported sources: gemini, claude, opencode, codex, agy\n');
     process.exit(1);
   }
 
@@ -24,6 +24,7 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
   const dryRun = Boolean(flags['dry-run']);
   const analyze = Boolean(flags['analyze']);
   const useFilter = Boolean(flags['filter']);
+  const isLive = Boolean(flags['live']);
   const transcriptFile = typeof flags.file === 'string' ? flags.file : undefined;
   const workdirOverride = typeof flags.workdir === 'string' ? flags.workdir : undefined;
   const homeDir = os.homedir();
@@ -79,18 +80,23 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
     case 'codex':
       result = await importCodexHistory(db, path.join(homeDir, '.codex'), dryRun, analyzer, onProgress, filter, transcriptFile, workdirOverride);
       break;
+    case 'agy':
+    case 'antigravity':
+      result = await importAgyHistory(db, path.join(homeDir, '.gemini'), dryRun, analyzer, onProgress, filter, transcriptFile, workdirOverride);
+      break;
     default:
-      process.stderr.write(`ph: unknown import source "${source}". Supported: gemini, claude, opencode, codex\n`);
+      process.stderr.write(`ph: unknown import source "${source}". Supported: gemini, claude, opencode, codex, agy\n`);
       process.exit(1);
   }
 
   if (analyze) process.stdout.write('\n');
-  if (source === 'codex' && transcriptFile && automaticMemoryEnabled(cfg)) {
-    for (const id of result.importedIds ?? []) {
-      db.updateMetadataFields(id, { automatic_memory_status: 'pending', automatic_memory_error: null });
-      spawnAutomaticMemoryExtraction(id, db.dbPath);
+
+  if (isLive && (result.importedIds?.length ?? 0) > 0) {
+    for (const id of result.importedIds!) {
+      await completeLiveCapture(db.dbPath, cfg, id);
     }
   }
+
   console.log(`Files scanned:    ${result.filesScanned}`);
   console.log(`Prompts found:    ${result.promptsFound}`);
   console.log(`Prompts imported: ${result.promptsImported}`);

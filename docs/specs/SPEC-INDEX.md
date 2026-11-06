@@ -1,41 +1,40 @@
-# SPEC INDEX — ph
+# PH Behavior Specifications
 
-Spec-driven baseline for **ph** (Prompt History & Analysis — transparent
-observability layer for AI CLI tools). Reverse-engineered from code on
-2026-08-08 with `path:line` evidence. Published as `@gi4nks/ph` (npm,
-semantic-release + OIDC provenance).
+This index separates current implementation references from historical specifications. For user workflows, the current authorities are [README](../../README.md), the [user manual](../ph-manual.md), and the [feature and operations catalog](../ph-feature-catalog.html). Historical specs preserve decisions and earlier behavior; they are not a current command reference.
 
-Cluster map: Core (CLI/architecture) · Capture (wrapper/hooks/log) · DB (PhDB)
-· Search (FTS/semantic) · AI (analysis/embeddings) · Memory (memories/summaries)
-· Sync (server/remote) · MCP · Import · Analytics · Config. The history TUI was
-retired on 2026-10-22; SPEC-012 is retained as a decision record.
+## Current implementation specifications
 
-## Registry
+| ID | Area | Current status | Primary evidence |
+|---|---|---|---|
+| SPEC-019 | Network, capture, and retrieval integrity | Implemented; later sync/database identity and embedding provenance fixes are recorded in [SPEC-ISSUES](SPEC-ISSUES.md) and must be checked against source. | src/capture/, src/sync/, src/server/, src/db/semantic-index.ts |
+| SPEC-020 | Shared memory hub and automatic capture | Implemented with the unified memory model; client setup and operational behavior are documented in the manual and Memory Hub guide. | src/memory/, src/server/, src/analyzer/automatic-memory.ts, src/capture/lifecycle.ts |
+| SPEC-021 | Lossless unified memory migration | Implemented in schema v4; legacy memory data and provenance are retained during migration. | src/db/index.ts, src/db/memory-repository.ts, src/db/__tests__/phdb.test.ts |
 
-| ID | Feature | Cluster | Status | Tests |
-|----|---------|---------|--------|-------|
-| SPEC-001 | Architecture & CLI dispatch | Core | **Implemented (plain-text daily workflow)** | `src/commands/__tests__/operational-memory.test.ts` |
-| SPEC-002 | Database layer (PhDB) | DB | **Implemented; stable DB identity and one-time metadata migration (SPEC-019)** | `src/db/__tests__/phdb.test.ts` |
-| SPEC-003 | Capture modes (pty/inline/hooks/log) | Capture | **Implemented; shared live lifecycle (SPEC-019)** | `src/runner/inline.test.ts`, `src/capture/lifecycle.ts` |
-| SPEC-004 | Filter pipeline & metadata | Core | **Implemented (baseline)** | — |
-| SPEC-005 | Search (FTS + filters + semantic) | Search | **Implemented; cross-index RRF and scoped CLI vector loading (SPEC-019)** | `src/db/__tests__/phdb.test.ts`, `src/commands/__tests__/search.test.ts` |
-| SPEC-006 | Analysis pipeline (LLM) | AI | **Implemented (baseline)** | — |
-| SPEC-007 | Memory & project summaries | Memory | **Implemented (baseline)** | — |
-| SPEC-008 | Embeddings (sqlite-vec) | AI | **Implemented (baseline)** | — |
-| SPEC-009 | Retention & archive | DB | **Implemented (baseline)** | — |
-| SPEC-010 | Remote sync (server + push/pull) | Sync | **Implemented; database-scoped cursors, active-capture barrier, byte-bounded pages (SPEC-019)** | `src/server/__tests__/server.test.ts`, `src/commands/__tests__/remote.test.ts`, `src/sync/__tests__/client.test.ts` |
-| SPEC-011 | MCP server | MCP | **Implemented (baseline)** | — |
-| SPEC-012 | Interactive history browser | Retired UI | **Retired 2026-10-22** | — |
-| SPEC-013 | Importers (claude/gemini/opencode/codex) | Import | **Implemented** | import fixtures |
-| SPEC-014 | Analytics commands (sessions/stats/cluster/timeline) | Analytics | **Implemented (baseline)** | — |
-| SPEC-015 | Config & env overrides | Config | **Implemented (baseline)** | — |
-| SPEC-016 | Operational memory workflow (context/close/MCP provenance) | Memory, CLI, MCP | **Implemented** | `src/commands/__tests__/operational-memory.test.ts`, `src/mcp/__tests__/server.test.ts` |
-| SPEC-017 | Internal architecture consolidation (CLI surface gate, MCP modules, DB repositories) | Core, DB, MCP | **Implemented** | `src/knowledge/`, `src/mcp/tools/`, `src/db/{memory,archive}-repository.ts` |
-| SPEC-018 | Interaction inspection and recall integrity | Core, Capture, Search, Memory, MCP | **Implemented** | `src/commands/__tests__/`, `src/db/__tests__/phdb.test.ts`, `src/context/__tests__/context.test.ts`, `src/mcp/__tests__/server.test.ts` |
-| SPEC-019 | Network, capture, and retrieval integrity | Capture, Sync, Search, CLI | **Implemented; follow-up edge cases closed** | `src/server/__tests__/server.test.ts`, `src/capture/__tests__/lifecycle.test.ts`, `src/commands/__tests__/remote.test.ts`, `src/sync/__tests__/client.test.ts`, `src/commands/__tests__/search.test.ts`, `src/db/__tests__/phdb.test.ts` |
-| SPEC-020 | Governed personal memory hub | Memory, Server, CLI, MCP | **Implemented; automatic evidence-bound coding-agent capture** | `src/server/__tests__/server.test.ts`, `src/commands/__tests__/memory-hub.test.ts`, `src/commands/__tests__/background-memory.test.ts`, `src/analyzer/__tests__/automatic-memory.test.ts`, `src/mcp/__tests__/server.test.ts` |
+## Historical and superseded specifications
 
-## Cross-cutting findings (SPEC-ISSUES.md)
+These documents remain useful for the original requirements and the evolution of PH. Some describe retired commands, the former TUI, earlier schemas, or modules removed by later refactoring. Do not use them to infer today's command surface.
 
-See SPEC-ISSUES.md for code-vs-doc discrepancies and open questions collected
-while reverse-engineering the baseline.
+| ID | Original subject | Current note |
+|---|---|---|
+| SPEC-001 | Architecture and CLI dispatch | The old command/workflow description is superseded by the current CLI help and manual. |
+| SPEC-002 | Database layer | Baseline schema notes; current version is schema v4 and migration behavior is in SPEC-021. |
+| SPEC-003 | Capture modes | Baseline wrapper/hooks/log model; supported integrations are in docs/hooks.md. |
+| SPEC-004 | Filter pipeline and metadata | Historical baseline behavior. |
+| SPEC-005 | Search | Historical baseline behavior; use the current manual for supported filters and archive semantics. |
+| SPEC-006 | LLM analysis | Historical baseline provider and analysis behavior. |
+| SPEC-007 | Memory and project summaries | Earlier memory model; unified local/shared memory is described in SPEC-020/021 and the user manual. |
+| SPEC-008 | Embeddings | Earlier vector implementation details; verify present behavior in source. |
+| SPEC-009 | Retention and archive | Baseline behavior; current cleanup effects are described in the user manual. |
+| SPEC-010 | Remote sync | Baseline protocol; current database identity/checkpoint behavior is in source and SPEC-ISSUES. |
+| SPEC-011 | MCP server | Earlier tool list is retired; current MCP exposes five tools, listed in the manual and feature catalog. |
+| SPEC-012 | Interactive history browser | Retired on 2026-10-22. |
+| SPEC-013 | Importers | Original list predates the AGY importer; current sources are Claude, Codex, Gemini, OpenCode, and AGY. |
+| SPEC-014 | Analytics commands | The original ph cluster command is retired; current views include sessions, stats, and timeline. |
+| SPEC-015 | Config and environment | Historical baseline; consult current ph config help and manual. |
+| SPEC-016 | Operational memory workflow | ph prepare, ph close, and save_decision were retired; the current command is ph context, with ph memory and the current MCP tools. |
+| SPEC-017 | Internal architecture consolidation | Historical refactoring decision; its former module paths may no longer exist. |
+| SPEC-018 | Interaction inspection and recall integrity | Historical specification; use current source and user documentation for present details. |
+
+## Cross-cutting findings
+
+See [SPEC-ISSUES.md](SPEC-ISSUES.md) for the dated finding ledger. Resolved entries are historical evidence, not open work. The current schema version, command names, and source paths in that ledger are updated where they affect present operation.

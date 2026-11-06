@@ -1,6 +1,7 @@
 import { PhDB } from '../db/index.js';
-import { load as loadConfig, save as saveConfig } from '../config/index.js';
+import { load as loadConfig, save as saveConfig, getRemoteTargetState, setRemoteTargetState } from '../config/index.js';
 import type { PhConfig } from '../config/index.js';
+import { resolveRemoteSyncConfig } from '../config/runtime.js';
 import { syncHash } from '../utils/syncHash.js';
 import { parseSyncPullResponse, SYNC_PAGE_SIZE, syncTarget } from '../sync/protocol.js';
 import { sendSyncPushPage } from '../sync/client.js';
@@ -8,7 +9,7 @@ import { decodePromptMetadata } from '../interaction/detail.js';
 import type { PromptEntry } from '../types.js';
 
 function remoteUrl(cfg: PhConfig): string {
-  return process.env.PH_REMOTE_URL || cfg.remoteUrl || '';
+  return resolveRemoteSyncConfig(cfg).url || '';
 }
 
 export async function cmdRemote(dbPath: string, args: string[]): Promise<void> {
@@ -44,9 +45,8 @@ async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const target = syncTarget(url);
   const db = new PhDB(dbPath);
   const databaseId = db.databaseId;
-  let cursor = cfg.remotePushCursor?.target === target && cfg.remotePushCursor.databaseId === databaseId
-    ? cfg.remotePushCursor.id
-    : 0;
+  const state = getRemoteTargetState(cfg, target, databaseId);
+  let cursor = state.pushCursor ?? 0;
   let imported = 0;
   let skipped = 0;
 
@@ -85,11 +85,27 @@ async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
         throw new Error(`Remote rejected part of the page after local record #${cursor}; this page was not checkpointed and can be retried.`);
       }
 
+      // Detect remote database replacement
+      if (response.databaseId && state.remoteDatabaseId && response.databaseId !== state.remoteDatabaseId) {
+        process.stderr.write(`ph: remote database was replaced (${state.remoteDatabaseId} -> ${response.databaseId}); resetting sync checkpoints.\n`);
+        setRemoteTargetState(cfg, target, databaseId, {
+          remoteDatabaseId: response.databaseId,
+          pushCursor: 0,
+          pullCursor: 0,
+        });
+        saveConfig(cfg);
+        cursor = 0;
+        continue;
+      }
+
       imported += response.imported;
       skipped += response.skipped;
       cursor = prompts[prompts.length - 1].id;
-      cfg.remotePushCursor = { target, databaseId, id: cursor };
-      cfg.remoteLastPush = new Date().toISOString();
+      setRemoteTargetState(cfg, target, databaseId, {
+        ...(response.databaseId ? { remoteDatabaseId: response.databaseId } : {}),
+        pushCursor: cursor,
+        lastPush: new Date().toISOString(),
+      });
       saveConfig(cfg);
       process.stdout.write(`Checkpointed through local record #${cursor}.\n`);
       if (activeCaptureId !== undefined) {
@@ -112,11 +128,8 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const target = syncTarget(url);
   const db = new PhDB(dbPath);
   const databaseId = db.databaseId;
-  // A legacy timestamp cursor cannot express a stable page boundary. Replay from
-  // row zero and rely on sync_hash so existing records remain idempotent.
-  let cursor = cfg.remotePullCursor?.target === target && cfg.remotePullCursor.databaseId === databaseId
-    ? cfg.remotePullCursor.id
-    : 0;
+  const state = getRemoteTargetState(cfg, target, databaseId);
+  let cursor = state.pullCursor ?? 0;
 
   try {
     process.stdout.write(`Pulling remote history from ${url} in pages of ${SYNC_PAGE_SIZE}...\n`);
@@ -134,6 +147,20 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
       });
       if (!res.ok) throw new Error(`Remote error ${res.status}: ${await res.text()}`);
       const page = parseSyncPullResponse(await res.json());
+
+      // Detect remote database replacement
+      if (page.databaseId && state.remoteDatabaseId && page.databaseId !== state.remoteDatabaseId) {
+        process.stderr.write(`ph: remote database was replaced (${state.remoteDatabaseId} -> ${page.databaseId}); resetting sync checkpoints.\n`);
+        setRemoteTargetState(cfg, target, databaseId, {
+          remoteDatabaseId: page.databaseId,
+          pushCursor: 0,
+          pullCursor: 0,
+        });
+        saveConfig(cfg);
+        cursor = 0;
+        continue;
+      }
+
       if (page.prompts.length > SYNC_PAGE_SIZE) throw new Error('Remote server returned an oversized sync page.');
       if (page.prompts.length === 0 && page.hasMore) throw new Error('Remote server returned an empty page with more records pending.');
       if (page.prompts.length > 0) {
@@ -164,8 +191,11 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
       }
 
       if (page.prompts.length > 0) cursor = page.nextCursor;
-      cfg.remotePullCursor = { target, databaseId, id: cursor };
-      cfg.remoteLastPull = new Date().toISOString();
+      setRemoteTargetState(cfg, target, databaseId, {
+        ...(page.databaseId ? { remoteDatabaseId: page.databaseId } : {}),
+        pullCursor: cursor,
+        lastPull: new Date().toISOString(),
+      });
       saveConfig(cfg);
       process.stdout.write(`Checkpointed through remote record #${cursor}.\n`);
       if (!page.hasMore) break;
@@ -185,17 +215,21 @@ async function status(dbPath: string, cfg: PhConfig, url: string): Promise<void>
   const db = new PhDB(dbPath);
   try {
     const localTotal = db.getPromptCount();
-    const cursor = cfg.remotePushCursor?.target === target && cfg.remotePushCursor.databaseId === db.databaseId
-      ? cfg.remotePushCursor.id
-      : 0;
-    const lastPush = cfg.remoteLastPush || 'never';
-    const lastPull = cfg.remoteLastPull || 'never';
+    const state = getRemoteTargetState(cfg, target, db.databaseId);
+    const cursor = state.pushCursor ?? 0;
+    const lastPush = state.lastPush || 'never';
+    const lastPull = state.lastPull || 'never';
+    const remoteDbId = state.remoteDatabaseId || '(unknown until first sync)';
     const pending = db.getPromptCountAfterId(cursor);
 
-    process.stdout.write(`Remote:      ${url}\n`);
-    process.stdout.write(`Local total: ${localTotal} prompts\n`);
-    process.stdout.write(`Last push:   ${lastPush}\n`);
-    process.stdout.write(`Last pull:   ${lastPull}\n`);
+    process.stdout.write(`Remote:            ${url}\n`);
+    process.stdout.write(`Local database ID: ${db.databaseId}\n`);
+    process.stdout.write(`Remote DB ID:      ${remoteDbId}\n`);
+    process.stdout.write(`Local total:       ${localTotal} prompts\n`);
+    process.stdout.write(`Push checkpoint:   #${cursor}\n`);
+    process.stdout.write(`Pull checkpoint:   #${state.pullCursor ?? 0}\n`);
+    process.stdout.write(`Last push:         ${lastPush}\n`);
+    process.stdout.write(`Last pull:         ${lastPull}\n`);
     process.stdout.write(`Pending bulk push: ${pending} prompts\n`);
   } finally {
     db.close();

@@ -3,8 +3,29 @@ import { discoverModels, MLX_SERVE_DEFAULT_URL, OPENROUTER_DEFAULT_URL } from '.
 
 export async function cmdModels(cfg: PhConfig, args: string[]): Promise<void> {
   const provider = args[0] ?? cfg.analyzeProvider;
+
+  if (provider === 'ollama') {
+    const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
+    try {
+      const res = await fetch(`${ollamaUrl}/api/tags`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { models?: Array<{ name: string }> };
+      const models = (data.models ?? []).map(m => m.name).filter(Boolean);
+      if (models.length === 0) {
+        console.log('No models found on Ollama.');
+      } else {
+        console.log(`Available Ollama models at ${ollamaUrl}:`);
+        for (const m of models) console.log(`  ${m}`);
+      }
+    } catch (err: unknown) {
+      process.stderr.write(`ph: cannot reach Ollama at ${ollamaUrl}: ${(err as Error).message}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+
   if (provider !== 'openrouter' && provider !== 'mlx-serve') {
-    throw new Error('Choose a provider: `ph models openrouter` or `ph models mlx-serve`.');
+    throw new Error('Choose a provider: `ph models ollama`, `ph models openrouter`, or `ph models mlx-serve`.');
   }
 
   const cfgKey = provider === 'openrouter' ? cfg.openrouterApiKey : cfg.mlxServeApiKey;

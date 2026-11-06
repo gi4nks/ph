@@ -1,33 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { parseAutomaticMemories } from '../automatic-memory.js';
 
-describe('automatic memory extraction policy', () => {
-  it('keeps only directly supported normal work preferences and project decisions', () => {
-    const prompt = 'Please keep technical answers concise. For this project, use SQLite as the canonical local store.';
-    const candidates = parseAutomaticMemories(JSON.stringify({ memories: [
-      { scope: 'work', kind: 'work-preference', content: 'Keep technical explanations concise and direct.', evidence: 'keep technical answers concise', sensitive: false },
-      { scope: 'personal', kind: 'work-preference', content: 'Lives in Zurich and prefers quiet evenings.', evidence: 'keep technical answers concise', sensitive: false },
-      { scope: 'project', kind: 'project-decision', content: 'Use SQLite as the canonical local store.', evidence: 'use SQLite as the canonical local store', sensitive: false },
-    ] }), prompt);
-    expect(candidates).toEqual([
-      { scope: 'work', kind: 'work-preference', content: 'Keep technical explanations concise and direct.' },
-      { scope: 'project', kind: 'project-decision', content: 'Use SQLite as the canonical local store.' },
-    ]);
+describe('automatic memory candidate validation', () => {
+  it('keeps only durable items with an exact user-prompt quote', () => {
+    const prompt = 'Please always use English in PH user-facing documentation.';
+    const raw = JSON.stringify({ memories: [
+      { scope: 'work', kind: 'work-preference', content: 'Write PH user-facing documentation in English.', evidence: 'Please always use English in PH user-facing documentation.', sensitive: false },
+      { scope: 'project', kind: 'project-decision', content: 'PH uses a separate memory hub key.', evidence: 'The hub uses a separate key.', sensitive: false },
+    ] });
+    expect(parseAutomaticMemories(raw, prompt)).toEqual([{
+      scope: 'work', kind: 'work-preference', content: 'Write PH user-facing documentation in English.',
+    }]);
   });
 
-  it('rejects anything labeled sensitive, credential-like, malformed, or generic', () => {
-    const prompt = 'Save no secrets, health facts, or generic facts in memory.';
-    expect(parseAutomaticMemories(JSON.stringify({ memories: [
-      { scope: 'work', kind: 'work-preference', content: 'The API key is sk-12345678901234567890', evidence: 'Save no secrets, health facts', sensitive: false },
-      { scope: 'work', kind: 'work-preference', content: 'User has a medical diagnosis of migraine.', evidence: 'Save no secrets, health facts', sensitive: true },
-      { scope: 'project', kind: 'project-decision', content: 'This is a generic fact with enough length.', evidence: 'Save no secrets, health facts', sensitive: false },
-    ] }), prompt)).toEqual([]);
-    expect(parseAutomaticMemories(JSON.stringify({ memories: [{
-      scope: 'work', kind: 'work-preference', content: 'Use gianluca@example.com as the account contact.', evidence: 'Save no secrets, health facts', sensitive: false,
-    }] }), 'Save no secrets, health facts; use gianluca@example.com for contact.')).toEqual([]);
-    expect(parseAutomaticMemories('not json', prompt)).toEqual([]);
-    expect(parseAutomaticMemories(JSON.stringify({ memories: [{
-      scope: 'project', kind: 'project-decision', content: 'Use SQLite as the canonical local store.', evidence: 'The assistant suggested SQLite.', sensitive: false,
-    }] }), prompt)).toEqual([]);
+  it('rejects sensitive, assistant-only, malformed, and personal candidates', () => {
+    const prompt = 'Always use English in PH documentation.';
+    const raw = JSON.stringify({ memories: [
+      { scope: 'work', kind: 'work-preference', content: 'The user has a medical condition they want remembered.', evidence: 'Always use English in PH documentation.', sensitive: false },
+      { scope: 'project', kind: 'project-decision', content: 'Use a new hosting service for PH.', evidence: 'Assistant proposed a new hosting service.', sensitive: false },
+      { scope: 'personal', kind: 'work-preference', content: 'Always use English in PH documentation.', evidence: prompt, sensitive: false },
+    ] });
+    expect(parseAutomaticMemories(raw, prompt)).toEqual([]);
   });
 });
