@@ -12,7 +12,7 @@ Restart the coding tools whose capture hooks PH installed. Then use them as usua
 ```sh
 ph search "sqlite migration"       # search this project
 ph search --all "provider setup"   # search across projects
-ph show 42                          # inspect the full prompt and response
+ph show 42                          # inspect details, prompt, and response
 ph context "add memory search"     # retrieve project context
 ph memory search "migration"       # search durable memories
 ph status                           # check capture and background work

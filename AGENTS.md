@@ -11,7 +11,7 @@ Keep PH simple to use: capture AI CLI work, find it with plain-text search, retr
 
 - **Everyday CLI**: plain-text commands for setup, history search, interaction inspection, project context, memory search, and capture status. A bare `ph` prints a short guide; there is no interactive history browser or TUI.
 - **Capture**: `ph setup` configures Claude Code, Codex CLI, Gemini CLI, OpenCode, and Google Antigravity (AGY). `ph <tool>` is an optional wrapper. Importers can backfill local histories from those tools.
-- **History**: interactions are stored in SQLite, normally `~/.prompt_history.db`. Search is full-text by default; `ph show <id>` displays the complete captured prompt, response, and available metadata.
+- **History**: interactions are stored in SQLite, normally `~/.prompt_history.db`. Search is full-text by default; `ph show <id>` displays capture details, the complete prompt and response, and any analysis in grouped sections. It uses restrained terminal colors and plain text for redirected output.
 - **Context**: `ph context` combines local project/work memories and relevant project interactions. It can include non-sensitive shared project/work memories when a hub is configured. Text retrieval works without embeddings; Ollama-backed vectors improve matching when available.
 - **Memories**: the unified `memories` repository stores scope, kind, sensitivity, provenance, external IDs, and reversible forgotten state. Schema v4 preserves legacy memory tables and versions during migration.
 - **Shared memory**: the optional authenticated HTTP memory API uses `PH_MEMORY_HUB_API_KEY`, separate from raw prompt sync. It currently has one shared key, without per-client identities, connector permissions, or an offline write queue.
