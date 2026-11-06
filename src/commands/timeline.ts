@@ -96,19 +96,11 @@ function formatPromptEntry(e: PromptEntry): string {
 function formatMemoryEntry(m: MemoryEntry): string {
   const time = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const lines: string[] = [];
-  lines.push(`> 📌 **Memory #${m.id} — ${time}**`);
-  if (m.prompt_ids.length > 0) {
+  lines.push(`> 📌 **Memory #${m.id} [${m.kind}${m.scope !== 'project' ? ` · ${m.scope}` : ''}] — ${time}**`);
+  if (m.prompt_ids && m.prompt_ids.length > 0) {
     lines.push(`> _Derived from prompts: #${m.prompt_ids.join(', #')}_`);
   }
-  if (m.summary) lines.push(`> **Summary**: ${m.summary}`);
-  if (m.key_insights.length > 0) {
-    lines.push(`> **Insights**:`);
-    for (const i of m.key_insights) lines.push(`> - ${i}`);
-  }
-  if (m.technical_decisions.length > 0) {
-    lines.push(`> **Technical Decisions**:`);
-    for (const d of m.technical_decisions) lines.push(`> - ${d}`);
-  }
+  lines.push(`> ${m.content.split('\n').join('\n> ')}`);
   lines.push('---\n');
   return lines.join('\n');
 }

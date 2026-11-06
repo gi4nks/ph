@@ -1,6 +1,15 @@
 # Dependencies
 node_modules/
 deploy/.env
+deploy/memory.env
+
+# Local architecture and decision reports are intentionally not published.
+/docs/ph-analysis.html
+/docs/ph-architecture-review.html
+/docs/ph-operational-memory-analysis.html
+/docs/ph-*-analysis.html
+/docs/ph-personal-memory-system-design.html
+/docs/ph-design-report.docx
 
 # Build output
 dist/

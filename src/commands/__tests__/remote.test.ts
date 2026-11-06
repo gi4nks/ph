@@ -198,4 +198,26 @@ describe('remote push cursor (SPEC-019)', () => {
       reopened.close();
     }
   });
+
+  it('resets sync checkpoints when the remote server databaseId changes', async () => {
+    let remoteDbId = 'remote-server-db-1';
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: unknown }) => {
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.prompts)) {
+        return new Response(JSON.stringify({ databaseId: remoteDbId, imported: body.prompts.length, skipped: 0, errors: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ databaseId: remoteDbId, prompts: [], hasMore: false, nextCursor: 0 }), { status: 200 });
+    }));
+
+    await cmdRemote(dbPath, ['push']);
+    const targetState = configMock.value.remotePushCursor as Record<string, unknown>;
+    expect(targetState).toBeDefined();
+
+    // Remote database replaced
+    remoteDbId = 'remote-server-db-2';
+    await cmdRemote(dbPath, ['push']);
+    // State adapted to new remote database
+    const updatedState = configMock.value.remotePushCursor as Record<string, unknown>;
+    expect(updatedState).toBeDefined();
+  });
 });

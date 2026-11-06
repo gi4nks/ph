@@ -2,6 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+export interface RemoteSyncTargetState {
+  remoteDatabaseId?: string;
+  pushCursor?: number;
+  pullCursor?: number;
+  lastPush?: string;
+  lastPull?: string;
+}
+
 export interface PhConfig {
   geminiApiKey?: string;
   dbPath?: string;
@@ -20,9 +28,10 @@ export interface PhConfig {
   ollamaEmbedModel?: string;             // default: nomic-embed-text-v2-moe
   remoteUrl?: string;                    // HTTP URL of remote ph server (or set PH_REMOTE_URL env)
   remoteApiKey?: string;                 // optional API key for remote server
-  memoryHubUrl?: string;                 // central governed-memory API; separate from prompt-history sync
-  memoryHubApiKey?: string;              // memory-hub credential; overridden by PH_MEMORY_HUB_API_KEY
-  memoryAutoCapture?: boolean;           // extract durable work/project memories after supported coding-agent captures (default true when hub is configured)
+  memoryHubUrl?: string;                 // shared memory service; separate from transcript sync
+  memoryHubApiKey?: string;              // bearer key for shared memory service
+  memoryAutoCapture?: boolean;           // capture durable work memories when hub and inference are configured
+  remoteSyncState?: Record<string, RemoteSyncTargetState>;
   remoteLastPush?: string;               // ISO timestamp of last successful push
   remoteLastPull?: string;               // ISO timestamp of last successful pull
   remotePushCursor?: { target: string; databaseId: string; id: number };
@@ -49,4 +58,48 @@ export function load(): PhConfig {
 export function save(cfg: PhConfig): void {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), { mode: 0o600 });
   fs.chmodSync(CONFIG_PATH, 0o600);
+}
+
+export function getRemoteSyncScopeKey(target: string, localDatabaseId: string): string {
+  return `${target}::${localDatabaseId}`;
+}
+
+export function getRemoteTargetState(cfg: PhConfig, target: string, localDatabaseId: string): RemoteSyncTargetState {
+  const key = getRemoteSyncScopeKey(target, localDatabaseId);
+  if (cfg.remoteSyncState?.[key]) {
+    return cfg.remoteSyncState[key];
+  }
+  const pushMatch = cfg.remotePushCursor?.target === target && cfg.remotePushCursor.databaseId === localDatabaseId;
+  const pullMatch = cfg.remotePullCursor?.target === target && cfg.remotePullCursor.databaseId === localDatabaseId;
+  return {
+    pushCursor: pushMatch ? cfg.remotePushCursor?.id : 0,
+    pullCursor: pullMatch ? cfg.remotePullCursor?.id : 0,
+    lastPush: pushMatch ? cfg.remoteLastPush : undefined,
+    lastPull: pullMatch ? cfg.remoteLastPull : undefined,
+  };
+}
+
+export function setRemoteTargetState(
+  cfg: PhConfig,
+  target: string,
+  localDatabaseId: string,
+  updates: Partial<RemoteSyncTargetState>,
+): void {
+  const key = getRemoteSyncScopeKey(target, localDatabaseId);
+  cfg.remoteSyncState = cfg.remoteSyncState ?? {};
+  const current = getRemoteTargetState(cfg, target, localDatabaseId);
+  const next: RemoteSyncTargetState = {
+    ...current,
+    ...updates,
+  };
+  cfg.remoteSyncState[key] = next;
+
+  if (next.pushCursor !== undefined) {
+    cfg.remotePushCursor = { target, databaseId: localDatabaseId, id: next.pushCursor };
+  }
+  if (next.pullCursor !== undefined) {
+    cfg.remotePullCursor = { target, databaseId: localDatabaseId, id: next.pullCursor };
+  }
+  if (next.lastPush !== undefined) cfg.remoteLastPush = next.lastPush;
+  if (next.lastPull !== undefined) cfg.remoteLastPull = next.lastPull;
 }

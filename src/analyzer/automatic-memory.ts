@@ -1,8 +1,8 @@
 import type { LLMProvider } from '../ai/provider.js';
-import type { PromptEntry, PersonalMemoryScope } from '../types.js';
+import type { PromptEntry, MemoryScope } from '../types.js';
 
 export interface AutomaticMemoryCandidate {
-  scope: Extract<PersonalMemoryScope, 'work' | 'project'>;
+  scope: Extract<MemoryScope, 'work' | 'project'>;
   kind: 'work-preference' | 'project-decision';
   content: string;
 }

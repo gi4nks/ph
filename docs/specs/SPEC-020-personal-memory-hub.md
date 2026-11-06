@@ -1,71 +1,56 @@
-# SPEC-020: Governed Personal Memory Hub
+# SPEC-020: Shared PH Memory Hub
 
-**Status:** Implemented for automatic coding-agent memory capture and governed CLI/MCP access; broader connectors and offline policies remain open.
+**Status:** Implemented on the unified memory schema. Migration details are in SPEC-021.
 
 ## Goal
 
-Store user-governed, source-attributed memories in the PH service and let configured PH clients read and manage them without coupling this API to raw prompt-history synchronization.
+Provide one authenticated API for source-attributed shared memories without coupling it to raw prompt-history synchronization. Keep everyday capture local and make hub use an explicit client configuration.
 
 ## Behavior
 
-### G1 — Create a canonical memory
+### G1 — Create and retrieve shared memories
 
-- `POST /api/memories` accepts a UUID, content, scope, kind, sensitivity, source, and optional source reference.
-- Supported scopes are `work`, `personal`, and `project`.
-- Repeating the same UUID and record is idempotent. Reusing it for different content returns `409`.
-- Content is limited to 8,000 characters; source references to 500 characters.
+- `POST /api/memories` accepts a UUID, content, scope, kind, sensitivity, source, and optional project/source reference.
+- Valid scopes are `work`, `personal`, and `project`; project scope requires a project name.
+- The UUID maps to `memories.external_id`. Repeating the UUID with the same content/scope/project is idempotent; conflicting reuse is rejected.
+- `POST /api/memories/search` supports query, scope, result limit, and explicit personal/sensitive inclusion.
+- `GET /api/memories/{uuid}` returns one record. `DELETE` forgets it and `POST .../restore` restores it; status changes append the previous state to `memory_versions`.
 
-### G2 — Require explicit consent for sensitive writes
+### G2 — Require explicit sensitive consent
 
-- `sensitivity: "sensitive"` without `explicit_sensitive: true` returns `403` and writes nothing.
-- Sensitive records are omitted from search by default.
-- `ph memory search --include-sensitive` explicitly includes them.
-- `ph context` queries only `work` and `project` scope and never requests sensitive records.
+- A sensitive create requires both `sensitivity: "sensitive"` and `explicit_sensitive: true`; otherwise the server returns `403` without writing.
+- Normal search, project context, MCP, and automatic extraction omit sensitive records. A deliberate CLI search can pass `--include-sensitive`.
+- Automatic extraction is restricted to work/project scopes and rejects sensitive or personal candidates.
 
-### G3 — Find and inspect memories
+### G3 — Keep hub writes separate from transcript sync
 
-- `POST /api/memories/search` searches active records by text and optional scope, with a 1–100 result limit.
-- `GET /api/memories/{uuid}` returns one record or `404`.
-- All data routes require the configured Bearer key.
+- Client settings are `memory-hub-url` and `memory-hub-api-key`, with `PH_MEMORY_HUB_URL` and `PH_MEMORY_HUB_API_KEY` overrides.
+- Memory endpoints authenticate with the memory-hub key; transcript sync uses `PH_SERVER_API_KEY` / `remote-api-key`.
+- Configuring the hub does not call `/api/sync/push` and does not upload raw prompts through the memory path.
+- With hub URL/key configured, `ph memory add|search|list|show|forget|restore` uses the shared hub. Without a hub, these commands use the local database.
 
-### G4 — Forget and restore
+### G4 — Automatically capture directly evidenced work memory
 
-- `DELETE /api/memories/{uuid}` changes an active record to forgotten.
-- The previous state is appended to `personal_memory_versions` in the same transaction.
-- `POST /api/memories/{uuid}/restore` reactivates it and records the forgotten state.
-- Forgotten records are excluded from default search.
+- When hub URL/key are configured and `memory-auto-capture` is not false, completed captured coding-agent interactions schedule a detached `_bg-memory` worker.
+- The configured inference provider receives at most 4,000 characters from the prompt and response. The hub receives derived records only.
+- At most two candidates can be saved. Each must include an exact supporting quote from the user prompt and represent a durable work preference or project decision.
+- Stable UUIDs and `prompt:<id>:<ordinal>` source references make retries idempotent. Extraction status and memory IDs are stored with the local interaction.
+- `ph memory undo <interaction-id>` forgets records created from that interaction. `ph memory retry <interaction-id>` retries extraction.
+- A failed provider or hub request does not stop local capture.
 
-### G5 — Keep the memory hub separate from transcript sync
+### G5 — Provide an uncomplicated deployment
 
-- Client configuration uses `memory-hub-url` and `memory-hub-api-key`, with `PH_MEMORY_HUB_URL` and `PH_MEMORY_HUB_API_KEY` overrides.
-- These settings do not trigger `/api/sync/push` and do not transmit raw prompts or responses.
-- An approved `ph close` proposal is copied to the hub with prompt IDs in `source_ref`.
-- Task-aware `ph context` adds non-sensitive `work` and `project` matches when the hub is configured; a hub error leaves local project context available and prints a warning.
-
-### G6 — Give coding agents scoped shared-memory tools
-
-- MCP `search_shared_memory` can search only `work` or `project` scope and requests sensitive records excluded.
-- MCP `save_shared_memory` can write only `work` or `project` scope, always with `normal` sensitivity and a required source reference.
-- MCP has no argument that can override the sensitive-write explicit-consent policy.
-- Both tools use the separate memory-hub URL and API key; an unconfigured hub returns a clear MCP tool error.
-
-### G7 — Automatically capture directly evidenced work memory
-
-- When the hub URL/key are configured, completed Claude Code, Codex CLI, Gemini CLI, and OpenCode captures start background extraction by default; `memory-auto-capture=false` disables it.
-- The client sends the bounded prompt/response to the configured inference provider. The hub receives only derived memory records, never the raw interaction through this path.
-- The extractor may write at most two `work-preference` or `project-decision` records in `work`/`project` scope. Each requires an exact supporting quote in the user prompt; assistant-only proposals are rejected.
-- Personal scope is never written automatically. Model-flagged sensitive items and credential/personal-topic matches are dropped by deterministic validation.
-- Stable IDs and `prompt:<id>:<ordinal>` provenance make retries idempotent. Interaction metadata records extraction status and memory IDs. `ph memory undo <interaction-id>` reversibly forgets those records.
-- `ph status` reports whether extraction is pending, complete, empty, or failed. Extraction failure does not prevent local prompt capture or transcript sync.
+- `deploy/compose.yaml` runs the authenticated PH server with a persistent SQLite volume and loopback binding by default.
+- `PH_SERVER_API_KEY` and `PH_MEMORY_HUB_API_KEY` are distinct deployment secrets. `deploy/.env.example` contains placeholders only.
+- The generic deployment guide contains no private host names or credentials.
 
 ## Verification
 
-Vitest coverage exercises create/search/forget/restore over a real HTTP socket, explicit-sensitive validation, idempotency and ID collision behavior, API authentication, client credential separation, non-sensitive context retrieval, MCP shared-memory scope/write policy, evidence-bound extraction filtering, automatic capture scheduling, and source-attributed background saves.
+Vitest covers migration preservation and idempotent opening in `src/db/__tests__/phdb.test.ts`, memory endpoint authorization/idempotency/sensitivity/forget/restore in `src/server/__tests__/server.test.ts`, and capture lifecycle behavior in `src/capture/__tests__/lifecycle.test.ts`.
 
-## Current boundaries
+## Current limits
 
-- One shared Bearer key; no per-client identity, revocation, or connector policy.
+- One shared memory bearer key; no per-client identities, connector scopes, or offline outbox.
 - No email, calendar, browser, or personal-assistant connector.
-- No offline memory outbox, server-side extraction worker, conflict resolution, semantic memory index, or retention policy.
-- The inference provider used by `ph close` remains client-configured; the hub stores only reviewed results.
-- Raw capture and prompt-history sync remain independent features with their existing behavior.
+- No hub-side inference worker or semantic memory index. Inference runs on the client.
+- Hub search returns records from SQLite FTS5; raw prompt sync remains a separate optional feature.

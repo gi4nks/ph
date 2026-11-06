@@ -177,7 +177,7 @@ Using an isolated temporary database seeded with one sample prompt:
 
 - `ph prepare "project cache path" --project ph --limit 3 --budget 1200` displayed the matching prompt and response with their source ID. Ollama embeddings were unavailable, and the command clearly reported that it was using recent project context instead.
 - `ph close --from 1 --to 1 --project ph --dry-run` displayed the selected prompt and response, then confirmed that it made no model call and no database changes.
-- The configured direct localhost route to MLX-Serve failed. An SSH port forward to Parmenide (`18034 → 127.0.0.1:11234`) restored connectivity. Interactive `ph close` generated a proposal, accepted approval, and saved memory `#1` linked to prompt `#1` in the temporary database.
+- The configured direct localhost route to MLX-Serve failed. An SSH port forward to the configured inference service restored connectivity. Interactive `ph close` generated a proposal, accepted approval, and saved memory `#1` linked to prompt `#1` in the temporary database.
 - `ph context --memories-only --project ph` then returned the saved summary, insights, decisions, and `prompt #1` provenance. The generated proposal added plausible details beyond the sample evidence, reinforcing the need to inspect and edit proposals before approval.
 - The full usage path was exercised on the temporary database only; no user history or project memory was changed.
 

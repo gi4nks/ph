@@ -37,8 +37,7 @@ describe('per-interaction analysis ownership (SPEC-018)', () => {
     expect(result.updated).toBe(1);
     expect(metadata['analysis_status']).toBe('complete');
     expect(metadata['technical_decisions']).toEqual(['Keep one stable key']);
-    expect(db.getAllMemoriesByProject('ph')).toEqual([]);
-    expect(db.getProjectSummary('ph')).toBeNull();
+    expect(db.searchMemories({ project: 'ph' })).toEqual([]);
   });
 
   it('dry-run analysis leaves metadata and lifecycle status untouched', async () => {

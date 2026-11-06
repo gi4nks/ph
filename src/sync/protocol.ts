@@ -14,12 +14,14 @@ export interface SyncPushResponse {
   imported: number;
   skipped: number;
   errors: string[];
+  databaseId?: string;
 }
 
 export interface SyncPullResponse {
   prompts: PromptEntry[];
   hasMore: boolean;
   nextCursor: number;
+  databaseId?: string;
 }
 
 /** Parse only absolute HTTP(S) endpoints accepted by fetch. */

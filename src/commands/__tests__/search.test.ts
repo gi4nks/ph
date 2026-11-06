@@ -62,17 +62,16 @@ describe('ph search defaults', () => {
     expect(output.mock.calls.map(([chunk]) => String(chunk)).join('') + log.mock.calls.flat().join(' ')).toContain('Use ph search --all to search other projects.');
   });
 
-  it('loads project embeddings through the scoped database query', async () => {
+  it('delegates semantic search to sqlite-vec with project scoping', async () => {
     setup();
     vi.mocked(getEmbeddings).mockResolvedValue([new Float32Array([1, 0])]);
-    const scoped = vi.spyOn(db!, 'getEmbeddingsForProject');
-    const all = vi.spyOn(db!, 'getAllEmbeddings');
+    vi.spyOn(db!, 'getEmbeddingCount').mockReturnValue(1);
+    const searchSemanticSpy = vi.spyOn(db!, 'searchSemantic').mockReturnValue([]);
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await cmdSearchSemantic(db!, {}, 'cache', 5, false, path.basename(root));
 
-    expect(scoped).toHaveBeenCalledWith(path.basename(root));
-    expect(all).not.toHaveBeenCalled();
+    expect(searchSemanticSpy).toHaveBeenCalledWith(expect.any(Float32Array), 5, path.basename(root), expect.any(String));
   });
 });
