@@ -17,7 +17,7 @@ This file provides specific context for using Claude within the `ph` project.
 - **HTTP service**: `src/server/request-handler.ts` handles transport and delegates to separate memory and history route capabilities with distinct auth policies.
 - **Runtime config**: `src/config/runtime.ts` owns environment-over-file resolution for hub, remote-sync, and server auth settings.
 - **Hooks**: Scripts in `hooks/` are the entry points for transparent data capture.
-- **User documentation**: Keep README, docs/ph-manual.md, docs/hooks.md, docs/memory-hub.md, and docs/ph-feature-catalog.html aligned with observable behavior. The command output from `ph help --all` is the concise CLI reference; older specs and reports may describe retired workflows.
+- **User documentation**: Keep README, docs/ph-manual.md, docs/hooks.md, and docs/memory-hub.md aligned with observable behavior. The command output from `ph help --all` is the concise CLI reference; older specs and reports may describe retired workflows.
 
 ## Code Style
 

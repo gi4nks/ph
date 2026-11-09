@@ -1,6 +1,6 @@
 # PH Behavior Specifications
 
-This index separates current implementation references from historical specifications. For user workflows, the current authorities are [README](../../README.md), the [user manual](../ph-manual.md), and the [feature and operations catalog](../ph-feature-catalog.html). Historical specs preserve decisions and earlier behavior; they are not a current command reference.
+This index separates current implementation references from historical specifications. For user workflows, the current authorities are [README](../../README.md) and the [user manual](../ph-manual.md). Historical specs preserve decisions and earlier behavior; they are not a current command reference.
 
 ## Current implementation specifications
 

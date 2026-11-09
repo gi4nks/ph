@@ -44,9 +44,6 @@ PH does not upload raw prompt history merely because a memory hub is configured.
 ## Documentation
 
 - [PH user manual](docs/ph-manual.md): install, capture, search, context, memories, inference, MCP, sync, maintenance, and troubleshooting.
-- [Feature and operations catalog](docs/ph-feature-catalog.html): a visual, source-grounded inventory of the current command surface, integrations, data flows, and operational boundaries.
-- [oMLX naming decision](docs/local-ai-provider-naming-analysis.html): rationale for canonical `omlx-*` settings and legacy compatibility.
-- [oMLX inference diagnosis](docs/omlx-authentication-failure-analysis.html): live PH-to-Parmenide capacity failure, memory tradeoffs, and the verification sequence.
 - [Capture hook guide](docs/hooks.md): supported integrations and setup behavior.
 - [Memory hub operations](docs/memory-hub.md): generic self-hosting, API, security, and client configuration.
 - [Feature specifications](docs/specs/SPEC-INDEX.md): implementation-backed behavior and historical decisions.

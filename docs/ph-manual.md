@@ -2,8 +2,6 @@
 
 PH is a local-first history and retrieval tool for AI coding work. It captures completed coding-agent exchanges, lets you search and inspect them later, and can supply relevant project context to a coding agent. Durable memories and raw prompt history are separate data flows.
 
-For a visual inventory of current features, data flows, command families, and product limits, see the [Feature and Operations Catalog](ph-feature-catalog.html).
-
 ## 1. Install and connect your tools
 
 PH requires Node.js 22 or newer. Install the published CLI:
