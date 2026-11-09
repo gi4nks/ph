@@ -1,3 +1,11 @@
+# [1.10.0](https://github.com/gi4nks/ph/compare/v1.9.0...v1.10.0) (2026-11-09)
+
+
+### Features
+
+* improve interaction detail readability ([a8d96c4](https://github.com/gi4nks/ph/commit/a8d96c417c4a30bb9361ee46420980a03da8397b))
+* standardize AI provider config and detail output ([6111323](https://github.com/gi4nks/ph/commit/611132365fc9ec5a930ab0a0d04f7d4f51892447))
+
 # [1.9.0](https://github.com/gi4nks/ph/compare/v1.8.0...v1.9.0) (2026-10-25)
 
 
