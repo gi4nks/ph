@@ -12,11 +12,15 @@ Restart the coding tools whose capture hooks PH installed. Then use them as usua
 ```sh
 ph search "sqlite migration"       # search this project
 ph search --all "provider setup"   # search across projects
-ph show 42                          # inspect details, prompt, and response
+ph show 42                          # inspect capture details and analysis
+ph show 42 --prompt                 # reveal the prompt
+ph show 42 --full                   # reveal prompt and response
 ph context "add memory search"     # retrieve project context
 ph memory search "migration"       # search durable memories
 ph status                           # check capture and background work
 ```
+
+Optional AI analysis can use oMLX on Parmenide. Configure its model, endpoint, and key with `ph config set omlx-model <model-id>`, `ph config set omlx-url http://parmenide:8000/v1`, and `ph config set omlx-api-key` (the key is entered without echo). Alternatively, set `OMLX_MODEL`, `OMLX_BASE_URL`, and `OMLX_API_KEY` in PH's environment. Existing `mlx-serve-*` settings and `mlx-serve` provider values remain accepted as legacy aliases.
 
 `ph` by itself prints a short guide. Use `ph help --all` for the complete command and option list.
 
@@ -41,6 +45,8 @@ PH does not upload raw prompt history merely because a memory hub is configured.
 
 - [PH user manual](docs/ph-manual.md): install, capture, search, context, memories, inference, MCP, sync, maintenance, and troubleshooting.
 - [Feature and operations catalog](docs/ph-feature-catalog.html): a visual, source-grounded inventory of the current command surface, integrations, data flows, and operational boundaries.
+- [oMLX naming decision](docs/local-ai-provider-naming-analysis.html): rationale for canonical `omlx-*` settings and legacy compatibility.
+- [oMLX inference diagnosis](docs/omlx-authentication-failure-analysis.html): live PH-to-Parmenide capacity failure, memory tradeoffs, and the verification sequence.
 - [Capture hook guide](docs/hooks.md): supported integrations and setup behavior.
 - [Memory hub operations](docs/memory-hub.md): generic self-hosting, API, security, and client configuration.
 - [Feature specifications](docs/specs/SPEC-INDEX.md): implementation-backed behavior and historical decisions.

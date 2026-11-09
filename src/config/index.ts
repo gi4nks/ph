@@ -13,15 +13,21 @@ export interface RemoteSyncTargetState {
 export interface PhConfig {
   geminiApiKey?: string;
   dbPath?: string;
-  analyzeProvider?: 'ollama' | 'gemini' | 'openrouter' | 'mlx-serve'; // default: 'ollama'
-  ollamaUrl?: string;                    // default: 'http://localhost:11434'
-  ollamaModel?: string;                  // default: 'llama3.1:latest'
+  analyzeProvider?: 'ollama' | 'gemini' | 'openrouter' | 'omlx' | 'mlx-serve'; // default: 'ollama'; mlx-serve is a legacy alias
+  ollamaUrl?: string;                    // default: 'http://127.0.0.1:8000'
+  ollamaModel?: string;                  // default: 'qwen3.5:9b-mlx'
   openrouterModel?: string;              // OpenRouter model ID, e.g. provider/model
   openrouterUrl?: string;                // default: https://openrouter.ai/api/v1
   openrouterApiKey?: string;             // overridden by OPENROUTER_API_KEY
-  mlxServeModel?: string;                // exact model ID returned by MLX-Serve
-  mlxServeUrl?: string;                  // default: http://127.0.0.1:11234/v1 (SSH tunnel)
-  mlxServeApiKey?: string;               // overridden by MLX_SERVE_API_KEY / GLB_OMLX_API_KEY
+  omlxModel?: string;                    // exact model ID returned by oMLX
+  omlxUrl?: string;                      // default: http://parmenide:8000/v1
+  omlxApiKey?: string;                   // overridden by OMLX_API_KEY / MLX_SERVE_API_KEY / GLB_OMLX_API_KEY
+  /** @deprecated Use omlxModel. Retained for existing config files and callers. */
+  mlxServeModel?: string;
+  /** @deprecated Use omlxUrl. Retained for existing config files and callers. */
+  mlxServeUrl?: string;
+  /** @deprecated Use omlxApiKey. Retained for existing config files and callers. */
+  mlxServeApiKey?: string;
   filterMinLength?: number;              // default: 15
   filterMinRelevance?: number;           // default: 3 (0 = disable)
   backgroundAnalysis?: boolean;          // default: false
@@ -47,7 +53,12 @@ const CONFIG_PATH = path.join(os.homedir(), '.ph_config.json');
 export function load(): PhConfig {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) as PhConfig;
+      const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) as PhConfig;
+      cfg.omlxModel ??= cfg.mlxServeModel;
+      cfg.omlxUrl ??= cfg.mlxServeUrl;
+      cfg.omlxApiKey ??= cfg.mlxServeApiKey;
+      if (cfg.analyzeProvider === 'mlx-serve') cfg.analyzeProvider = 'omlx';
+      return cfg;
     }
   } catch (_) {
     // ignore parse errors, return empty config
@@ -56,7 +67,15 @@ export function load(): PhConfig {
 }
 
 export function save(cfg: PhConfig): void {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  const canonical: PhConfig = { ...cfg };
+  canonical.omlxModel ??= canonical.mlxServeModel;
+  canonical.omlxUrl ??= canonical.mlxServeUrl;
+  canonical.omlxApiKey ??= canonical.mlxServeApiKey;
+  if (canonical.analyzeProvider === 'mlx-serve') canonical.analyzeProvider = 'omlx';
+  delete canonical.mlxServeModel;
+  delete canonical.mlxServeUrl;
+  delete canonical.mlxServeApiKey;
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(canonical, null, 2), { mode: 0o600 });
   fs.chmodSync(CONFIG_PATH, 0o600);
 }
 

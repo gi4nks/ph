@@ -6,7 +6,7 @@ export async function cmdShow(db: PhDB, args: string[]): Promise<void> {
   const { flags, positional } = parseFlags(args);
   const id = Number(positional[0]);
   if (!Number.isInteger(id) || id < 1) {
-    process.stderr.write('Usage: ph show <id> [--json] [--archive]\n');
+    process.stderr.write('Usage: ph show <id> [--full|--prompt] [--json] [--archive]\n');
     process.exitCode = 2;
     return;
   }
@@ -20,7 +20,10 @@ export async function cmdShow(db: PhDB, args: string[]): Promise<void> {
 
   process.stdout.write(flags.json
     ? `${formatInteractionJson(entry)}\n`
-    : `${formatInteractionDetail(entry, { color: useColorOutput() })}\n`);
+    : `${formatInteractionDetail(entry, {
+      color: useColorOutput(),
+      content: flags.full ? 'full' : flags.prompt ? 'prompt' : 'compact',
+    })}\n`);
 }
 
 function useColorOutput(): boolean {

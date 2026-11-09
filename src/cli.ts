@@ -37,7 +37,8 @@ USAGE:
   ph setup [claude|codex|gemini|opencode|agy...] Connect supported AI CLIs for automatic capture
   ph <tool> [tool-args...]              Wrap a CLI tool, save prompt to history
   ph search [options] [query]           Search this project (5 matches; --all searches everything)
-  ph show <id> [--json] [--archive]     Inspect one complete interaction and its analysis
+  ph show <id> [--full|--prompt] [--json] [--archive]
+                                      Inspect analysis first; reveal stored text with --prompt or --full
   ph context [options] [query]          Retrieve prior context for the current project
   ph memory add [options] <text>        Save a project, work, or personal memory
   ph memory list|search [options]       List or search durable memories
@@ -52,7 +53,7 @@ USAGE:
   ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>] [--workdir <path>] [--live]
                                                 Import from Gemini, Claude, OpenCode, Codex, or AGY history
   ph analyze [--limit n] [--force] [--prune] [--min-score n] [--dry-run] Analyze prompts (dry-run still calls provider and saves successful metadata)
-  ph models [openrouter|mlx-serve|ollama] List models from an AI provider
+  ph models [openrouter|omlx|ollama] List models from an AI provider
   ph mcp                                Start MCP server (Stdio)
   ph server [--host <address>] [--port 3001] Start authenticated HTTP service
   ph timeline [project]                 Show full project history with prompts and memories
@@ -132,7 +133,7 @@ EXAMPLES:
   ph config set ollama-model llama3.2:latest
   ph models ollama
   ph models openrouter
-  ph models mlx-serve
+  ph models omlx
 `;
 
 const USAGE = `PH remembers work across your AI coding sessions.
@@ -144,7 +145,9 @@ Then use those tools normally. PH saves completed exchanges in the background.
 
 When you need something back:
   ph search "query"         Search this project; use --all to search everything
-  ph show <id>              Inspect the full prompt, response, and available analysis
+  ph show <id>              Inspect capture details and analysis; text bodies are hidden by default
+  ph show <id> --prompt     Reveal the prompt only
+  ph show <id> --full       Reveal both prompt and response
   ph context "task"         Retrieve relevant project context when needed
   ph memory search "query"  Search saved memories
 

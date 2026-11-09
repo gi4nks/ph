@@ -1,4 +1,5 @@
 import type { PhConfig } from './index.js';
+import { normalizeOmlxBaseUrl } from '../ai/wise.js';
 
 export interface ProviderSummary {
   id: NonNullable<PhConfig['analyzeProvider']>;
@@ -33,11 +34,11 @@ export function getProviderSummaries(cfg: PhConfig): ProviderSummary[] {
       active: active === 'openrouter', ready: Boolean((process.env.OPENROUTER_API_KEY || cfg.openrouterApiKey) && (process.env.OPENROUTER_MODEL || cfg.openrouterModel)),
     },
     {
-      id: 'mlx-serve', label: 'MLX-Serve',
-      model: process.env.MLX_SERVE_MODEL ?? cfg.mlxServeModel ?? '(not set)',
-      url: process.env.MLX_SERVE_BASE_URL ?? cfg.mlxServeUrl ?? 'http://127.0.0.1:11234/v1',
-      credential: process.env.MLX_SERVE_API_KEY || process.env.GLB_OMLX_API_KEY || cfg.mlxServeApiKey ? 'configured' : 'not required',
-      active: active === 'mlx-serve', ready: Boolean(process.env.MLX_SERVE_MODEL || cfg.mlxServeModel),
+      id: 'omlx', label: 'oMLX',
+      model: process.env.OMLX_MODEL ?? process.env.MLX_SERVE_MODEL ?? cfg.omlxModel ?? cfg.mlxServeModel ?? '(not set)',
+      url: normalizeOmlxBaseUrl(process.env.OMLX_BASE_URL ?? process.env.MLX_SERVE_BASE_URL ?? cfg.omlxUrl ?? cfg.mlxServeUrl ?? 'http://parmenide:8000/v1'),
+      credential: process.env.OMLX_API_KEY || process.env.MLX_SERVE_API_KEY || process.env.GLB_OMLX_API_KEY || cfg.omlxApiKey || cfg.mlxServeApiKey ? 'configured' : 'not required',
+      active: active === 'omlx' || active === 'mlx-serve', ready: Boolean(process.env.OMLX_MODEL || process.env.MLX_SERVE_MODEL || cfg.omlxModel || cfg.mlxServeModel),
     },
   ];
 }

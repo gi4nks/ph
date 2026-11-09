@@ -31,7 +31,7 @@ export interface PromptMetadata {
   summary?: string;
   key_insights?: string[];
   analysis_status?: 'pending' | 'complete' | 'failed';
-  analysis_error?: 'worker_launch_failed' | 'provider_unavailable' | 'analysis_failed' | 'analysis_persistence_failed';
+  analysis_error?: 'worker_launch_failed' | 'provider_unavailable' | 'provider_out_of_memory' | 'provider_request_failed' | 'analysis_response_invalid' | 'analysis_failed' | 'analysis_persistence_failed';
   remote_sync_status?: 'pending' | 'complete' | 'failed';
   remote_sync_error?: 'push_failed' | 'invalid_remote_url';
   remote_sync_target?: string;

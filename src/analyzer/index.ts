@@ -113,17 +113,46 @@ export function parseAnalysisResponse(raw: string): AnalysisResult {
   return result;
 }
 
-/**
- * Analyze a single prompt text using the given LLM provider.
- * Returns empty object on any error (never throws).
- */
-export async function analyzePrompt(text: string, provider: LLMProvider): Promise<AnalysisResult> {
-  try {
-    const raw = await provider.generate(ANALYSIS_PROMPT(text));
-    return parseAnalysisResponse(raw);
-  } catch {
-    return {};
+export type AnalysisFailure = 'provider_out_of_memory' | 'provider_request_failed' | 'analysis_response_invalid';
+
+export interface DetailedAnalysisResult {
+  result: AnalysisResult;
+  error?: AnalysisFailure;
+}
+
+function classifyProviderFailure(error: unknown): AnalysisFailure {
+  const message = error instanceof Error ? error.message : String(error);
+  const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
+    ? (error as { statusCode?: unknown }).statusCode
+    : undefined;
+  if (statusCode === 507 || /out[ _-]?of[ _-]?memory|insufficient.{0,40}memory|free memory|warmup headroom|memory.{0,80}(ceiling|limit|available|load)|(?:ceiling|limit).{0,80}memory/i.test(message)) {
+    return 'provider_out_of_memory';
   }
+  return 'provider_request_failed';
+}
+
+/** Analyze one prompt and return only a bounded failure category, never raw provider output. */
+export async function analyzePromptDetailed(text: string, provider: LLMProvider): Promise<DetailedAnalysisResult> {
+  try {
+    const raw = await provider.generate(ANALYSIS_PROMPT(text), {
+      maxOutputTokens: 800,
+      think: false,
+      format: 'json',
+    });
+    const result = parseAnalysisResponse(raw);
+    return Object.keys(result).length > 0
+      ? { result }
+      : { result, error: 'analysis_response_invalid' };
+  } catch (error: unknown) {
+    // The provider error may contain endpoint details or response text. Persist
+    // only a stable, non-sensitive category and keep raw diagnostics out of PH.
+    return { result: {}, error: classifyProviderFailure(error) };
+  }
+}
+
+/** Backward-compatible convenience API for importers that only need analysis fields. */
+export async function analyzePrompt(text: string, provider: LLMProvider): Promise<AnalysisResult> {
+  return (await analyzePromptDetailed(text, provider)).result;
 }
 
 /**
@@ -213,7 +242,8 @@ export async function analyzeAll(
 
     try {
       if (!dryRun) db.updateMetadataFields(entry.id, { analysis_status: 'pending', analysis_error: null });
-      result = await analyzePrompt(entry.prompt, provider);
+      const analysis = await analyzePromptDetailed(entry.prompt, provider);
+      result = analysis.result;
       const existing = parseMeta(entry.metadata);
 
       // Prune if relevance is below threshold
@@ -225,15 +255,18 @@ export async function analyzeAll(
         stats.pruned++;
       } else {
         if (Object.keys(result).length === 0) {
-          if (!dryRun) db.updateMetadataFields(entry.id, { analysis_status: 'failed', analysis_error: 'analysis_failed' });
+          const failure = analysis.error ?? 'analysis_response_invalid';
+          if (!dryRun) db.updateMetadataFields(entry.id, { analysis_status: 'failed', analysis_error: failure });
           stats.failed++;
-          errMsg = 'analysis_failed';
+          errMsg = failure;
         } else {
-          db.updateMetadataFields(entry.id, {
-            ...mergeMetadata(existing, result, force),
-            analysis_status: 'complete',
-            analysis_error: null,
-          });
+          if (!dryRun) {
+            db.updateMetadataFields(entry.id, {
+              ...mergeMetadata(existing, result, force),
+              analysis_status: 'complete',
+              analysis_error: null,
+            });
+          }
           stats.updated++;
         }
       }

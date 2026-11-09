@@ -6,7 +6,7 @@ import { resolveMemoryHubConfig, resolveRemoteSyncConfig } from '../config/runti
 const SECRET_KEYS = new Set([
   'gemini-api-key',
   'openrouter-api-key',
-  'mlx-serve-api-key',
+  'omlx-api-key',
   'remote-api-key',
   'memory-hub-api-key',
 ]);
@@ -28,12 +28,18 @@ const KEY_ALIASES: Record<string, string> = {
   'openrouter-url': 'openrouter-url',
   openrouterApiKey: 'openrouter-api-key',
   'openrouter-api-key': 'openrouter-api-key',
+  omlxModel: 'omlx-model',
+  'omlx-model': 'omlx-model',
+  omlxUrl: 'omlx-url',
+  'omlx-url': 'omlx-url',
+  omlxApiKey: 'omlx-api-key',
+  'omlx-api-key': 'omlx-api-key',
   mlxServeModel: 'mlx-serve-model',
-  'mlx-serve-model': 'mlx-serve-model',
+  'mlx-serve-model': 'omlx-model',
   mlxServeUrl: 'mlx-serve-url',
-  'mlx-serve-url': 'mlx-serve-url',
+  'mlx-serve-url': 'omlx-url',
   mlxServeApiKey: 'mlx-serve-api-key',
-  'mlx-serve-api-key': 'mlx-serve-api-key',
+  'mlx-serve-api-key': 'omlx-api-key',
   ollamaEmbedModel: 'ollama-embed-model',
   'ollama-embed-model': 'ollama-embed-model',
   filterMinLength: 'filter-min-length',
@@ -71,9 +77,9 @@ const CANONICAL_TO_PROP: Record<string, keyof ReturnType<typeof loadConfig>> = {
   'openrouter-model': 'openrouterModel',
   'openrouter-url': 'openrouterUrl',
   'openrouter-api-key': 'openrouterApiKey',
-  'mlx-serve-model': 'mlxServeModel',
-  'mlx-serve-url': 'mlxServeUrl',
-  'mlx-serve-api-key': 'mlxServeApiKey',
+  'omlx-model': 'omlxModel',
+  'omlx-url': 'omlxUrl',
+  'omlx-api-key': 'omlxApiKey',
   'ollama-embed-model': 'ollamaEmbedModel',
   'filter-min-length': 'filterMinLength',
   'filter-min-relevance': 'filterMinRelevance',
@@ -104,7 +110,7 @@ export async function cmdConfig(args: string[]): Promise<void> {
     console.log(`Remote sync URL: ${resolveRemoteSyncConfig(cfg).url || '(not configured)'}`);
     console.log(`Shared memory hub: ${resolveMemoryHubConfig(cfg).url || '(not configured)'}`);
     console.log(`Automatic memory capture: ${cfg.memoryAutoCapture === false ? 'disabled' : 'enabled when the hub is configured'}`);
-    console.log('Configure with: ph config set analyze-provider <ollama|gemini|openrouter|mlx-serve>');
+    console.log('Configure with: ph config set analyze-provider <ollama|gemini|openrouter|omlx>');
     return;
   }
 
@@ -127,7 +133,7 @@ export async function cmdConfig(args: string[]): Promise<void> {
     console.log('Usage: ph config show | ph config get <key> | ph config set <key> [value]');
     console.log('Keys: gemini-api-key, db-path, analyze-provider, ollama-url, ollama-model,');
     console.log('      openrouter-model, openrouter-url, openrouter-api-key,');
-    console.log('      mlx-serve-model, mlx-serve-url, mlx-serve-api-key,');
+    console.log('      omlx-model, omlx-url, omlx-api-key,');
     console.log('      ollama-embed-model, filter-min-length, filter-min-relevance, background-analysis,');
     console.log('      retention-days, retention-min-relevance, retention-min-starred, retention-min-analyzed,');
     console.log('      remote-url, remote-api-key, memory-hub-url, memory-hub-api-key, memory-auto-capture');
@@ -147,17 +153,17 @@ export async function cmdConfig(args: string[]): Promise<void> {
     case 'gemini-api-key': cfg.geminiApiKey = val; break;
     case 'db-path': cfg.dbPath = val; break;
     case 'analyze-provider':
-      if (!['ollama', 'gemini', 'openrouter', 'mlx-serve'].includes(val)) throw new Error('analyze-provider must be ollama, gemini, openrouter, or mlx-serve');
-      cfg.analyzeProvider = val as NonNullable<typeof cfg.analyzeProvider>;
+      if (!['ollama', 'gemini', 'openrouter', 'omlx', 'mlx-serve'].includes(val)) throw new Error('analyze-provider must be ollama, gemini, openrouter, or omlx');
+      cfg.analyzeProvider = val === 'mlx-serve' ? 'omlx' : val as NonNullable<typeof cfg.analyzeProvider>;
       break;
     case 'ollama-url': cfg.ollamaUrl = val; break;
     case 'ollama-model': cfg.ollamaModel = val; break;
     case 'openrouter-model': cfg.openrouterModel = val; break;
     case 'openrouter-url': cfg.openrouterUrl = val; break;
     case 'openrouter-api-key': cfg.openrouterApiKey = val; break;
-    case 'mlx-serve-model': cfg.mlxServeModel = val; break;
-    case 'mlx-serve-url': cfg.mlxServeUrl = val; break;
-    case 'mlx-serve-api-key': cfg.mlxServeApiKey = val; break;
+    case 'omlx-model': cfg.omlxModel = val; break;
+    case 'omlx-url': cfg.omlxUrl = val; break;
+    case 'omlx-api-key': cfg.omlxApiKey = val; break;
     case 'ollama-embed-model': cfg.ollamaEmbedModel = val; break;
     case 'filter-min-length': {
       const n = Number(val);

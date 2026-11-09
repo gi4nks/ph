@@ -35,7 +35,10 @@ export async function cmdAnalyze(db: PhDB, cfg: PhConfig, args: string[]): Promi
       const truncated = entry.prompt.replace(/\n/g, ' ');
       const short = truncated.length > 40 ? truncated.slice(0, 37) + '...' : truncated;
       if (err) {
-        console.log(`  [${done}/${total}] #${entry.id} → error: ${err}`);
+        const hint = err === 'provider_out_of_memory'
+          ? ' — free RAM on the oMLX host, choose a smaller model, or raise its dynamic memory ceiling only if physical headroom allows'
+          : '';
+        console.log(`  [${done}/${total}] #${entry.id} → error: ${err}${hint}`);
       } else if (res) {
         const role = res.role || '-';
         const tags = (res.tags ?? []).join(',') || '-';
