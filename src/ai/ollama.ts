@@ -13,7 +13,7 @@ export class OllamaProvider implements LLMProvider {
     private readonly model: string
   ) {}
 
-  async generate(prompt: string): Promise<string> {
+  async generate(prompt: string, options?: { maxOutputTokens?: number; think?: boolean; format?: 'json' }): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60_000);
 
@@ -22,7 +22,14 @@ export class OllamaProvider implements LLMProvider {
       res = await fetch(`${this.url}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: this.model, prompt, stream: false }),
+        body: JSON.stringify({
+          model: this.model,
+          prompt,
+          stream: false,
+          ...(options?.think !== undefined ? { think: options.think } : {}),
+          ...(options?.format ? { format: options.format } : {}),
+          ...(options?.maxOutputTokens ? { options: { num_predict: options.maxOutputTokens } } : {}),
+        }),
         signal: controller.signal,
       });
     } catch (err: unknown) {

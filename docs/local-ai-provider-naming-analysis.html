@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>PH — Nomi per la configurazione del provider locale</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f3f5f8; --panel:#fff; --ink:#182230; --muted:#586779; --line:#d9e0e8; --accent:#2364aa; --soft:#eaf2fc; }
+    @media (prefers-color-scheme:dark) { :root { --bg:#111821; --panel:#19232f; --ink:#edf3f9; --muted:#b1bfcd; --line:#334253; --accent:#8fc1ff; --soft:#20344b; } }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    main { width:min(980px,calc(100% - 32px)); margin:36px auto 64px; }
+    header, section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; margin:18px 0; }
+    h1 { font-size:clamp(1.8rem,4vw,2.7rem); line-height:1.15; margin:0 0 12px; letter-spacing:-.03em; }
+    h2 { font-size:1.25rem; margin:0 0 12px; }
+    p { margin:8px 0 12px; }
+    .eyebrow { text-transform:uppercase; letter-spacing:.12em; font-size:.75rem; font-weight:750; color:var(--accent); }
+    .muted { color:var(--muted); }
+    .decision { border-left:4px solid var(--accent); background:var(--soft); padding:14px 18px; border-radius:8px; }
+    table { width:100%; border-collapse:collapse; font-size:.94rem; }
+    th,td { text-align:left; vertical-align:top; padding:12px 10px; border-bottom:1px solid var(--line); }
+    th { font-size:.82rem; text-transform:uppercase; letter-spacing:.06em; }
+    code { overflow-wrap:anywhere; background:var(--soft); padding:.08em .32em; border-radius:4px; }
+    ul,ol { padding-left:1.3rem; }
+    li { margin:.35rem 0; }
+    .tag { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:2px 9px; color:var(--muted); font-size:.78rem; }
+    footer { color:var(--muted); font-size:.85rem; padding:8px 4px; }
+    @media(max-width:700px) { header,section { padding:18px; } table { display:block; overflow-x:auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">PH · analisi di naming · decisione 8 novembre 2026</div>
+    <h1>Come chiamare la configurazione AI locale</h1>
+    <p>PH esponeva ancora <code>mlx-serve-model</code>, <code>mlx-serve-url</code> e <code>mlx-serve-api-key</code>, mentre il servizio configurato è oMLX su Parmenide. Questo report confronta i nomi possibili e registra la decisione implementata, compatibile con le configurazioni esistenti.</p>
+    <p class="muted"><span class="tag">Decisione accettata e implementata</span> Il naming canonico è <code>omlx-*</code>; gli alias legacy restano disponibili.</p>
+  </header>
+
+  <section>
+    <h2>Situazione attuale verificata</h2>
+    <ul>
+      <li><code>PhConfig</code> legge sia le proprietà canoniche <code>omlxModel</code>, <code>omlxUrl</code>, <code>omlxApiKey</code> sia le proprietà storiche <code>mlxServe*</code>. Il caricamento non riscrive il file; un successivo salvataggio esplicito scrive solo le proprietà canoniche.</li>
+      <li><code>ph config set</code>, <code>ph models</code>, il valore <code>analyze-provider</code> e i riepiloghi espongono <code>omlx</code>; input legacy <code>mlx-serve</code> resta accettato.</li>
+      <li>Le variabili <code>OMLX_API_KEY</code> e <code>OMLX_BASE_URL</code> sono già riconosciute, con alias legacy per credenziali e URL. Il default URL attuale è <code>http://parmenide:8000/v1</code>.</li>
+      <li>PH usa anche Ollama, un backend locale distinto. Perciò <code>local-ai</code> descriverebbe una categoria che include più provider, mentre queste tre impostazioni riguardano un backend specifico.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Trade-off</h2>
+    <table>
+      <thead><tr><th>Opzione</th><th>Vantaggi</th><th>Svantaggi</th><th>Valutazione</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>omlx-*</code></td>
+          <td>Indica il provider reale; si allinea a <code>OMLX_API_KEY</code>, <code>OMLX_BASE_URL</code> e al valore provider <code>omlx</code>.</td>
+          <td>Rende la configurazione specifica a oMLX; un futuro backend locale richiederebbe le proprie chiavi.</td>
+          <td><strong>Raccomandata.</strong> PH seleziona provider distinti e già ha Ollama separato.</td>
+        </tr>
+        <tr>
+          <td><code>local-ai-*</code></td>
+          <td>Nome indipendente dal runtime, utile se più implementazioni condividono un’unica astrazione locale.</td>
+          <td>È ambiguo in PH perché Ollama è già locale; nasconde la distinzione tra endpoint e credenziali dei backend.</td>
+          <td>Da considerare solo con un’astrazione comune che copra più backend.</td>
+        </tr>
+        <tr>
+          <td><code>mlx-serve-*</code></td>
+          <td>Nessuna migrazione per gli utenti e le configurazioni attuali.</td>
+          <td>Descrive il runtime precedente e diverge dalle variabili e dal provider oMLX già usati.</td>
+          <td>Mantenerlo solo come alias retrocompatibile.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Decision record · DR-001</h2>
+    <div class="decision">
+      <p><strong>Proposta:</strong> adottare <code>omlx-model</code>, <code>omlx-url</code>, <code>omlx-api-key</code> come chiavi canoniche; adottare <code>omlx</code> come valore canonico di <code>analyze-provider</code> e come argomento di <code>ph models</code>.</p>
+      <p><strong>Compatibilità:</strong> leggere le chiavi <code>mlx-serve-*</code>, le proprietà JSON storiche, il valore provider <code>mlx-serve</code> e le variabili <code>MLX_SERVE_*</code> come alias. Se sono presenti entrambi, dare precedenza ai nomi nuovi. Il solo avvio non riscrive il file; un comando di configurazione lo salva in forma canonica.</p>
+      <p><strong>Ambito:</strong> rinominare il linguaggio visibile all’utente, senza creare ora una generica configurazione <code>local-ai</code> né cambiare il contratto HTTP OpenAI-compatible.</p>
+      <p><strong>Stato:</strong> accettata dall’utente e implementata l’8 novembre 2026.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Impatto operativo</h2>
+    <ul>
+      <li><strong>Config esistenti:</strong> la lettura degli alias evita di richiedere una modifica manuale immediata a <code>~/.ph_config.json</code>. La precedenza dei nomi nuovi va documentata.</li>
+      <li><strong>Chiavi:</strong> l’impostazione interattiva resta preferibile ai segreti passati come argomenti shell; le variabili <code>OMLX_API_KEY</code> e gli alias già supportati rimangono validi.</li>
+      <li><strong>Costo e rate limit:</strong> il provider locale non comporta il costo per token tipico di un servizio cloud, ma consuma memoria e risorse di Parmenide. I caricamenti a freddo possono aumentare latenza; la rinomina non modifica questi limiti né introduce rate limiting.</li>
+      <li><strong>Verifica:</strong> i test coprono configurazione legacy e nuova, priorità della forma canonica, normalizzazione in scrittura e redazione delle chiavi; suite PH e check statici eseguiti nella consegna.</li>
+    </ul>
+  </section>
+
+  <footer>Fonti locali: <code>src/config/index.ts</code>, <code>src/commands/config.ts</code>, <code>src/commands/models.ts</code>, <code>src/config/provider-summary.ts</code>, <code>src/ai/provider.ts</code>, <code>docs/ph-manual.md</code>. La decisione resta specifica per provider: non introduce un’astrazione generica local-ai.</footer>
+</main>
+</body>
+</html>

@@ -40,12 +40,14 @@ describe('single interaction inspection (SPEC-018)', () => {
     });
   }
 
-  it('shows full prompt, response, capture metadata, and derived analysis', async () => {
+  it('shows a compact summary by default and hides long text bodies', async () => {
     const id = insert();
     await cmdShow(db, [String(id)]);
     const text = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
-    expect(text).toContain('A complete stored prompt');
-    expect(text).toContain('A complete stored response');
+    expect(text).not.toContain('A complete stored prompt');
+    expect(text).not.toContain('A complete stored response');
+    expect(text).toContain(`Use ph show ${id} --prompt or --full to display`);
+    expect(text).toContain(`Use ph show ${id} --full to display`);
     expect(text).toContain('Fixed a sample bug');
     expect(text).toContain('The cache key was stale');
     expect(text).toContain('Use stable keys');
@@ -53,9 +55,23 @@ describe('single interaction inspection (SPEC-018)', () => {
     expect(text).toContain('complete');
   });
 
+  it('reveals only the requested body with --prompt and both bodies with --full', async () => {
+    const id = insert();
+    await cmdShow(db, [String(id), '--prompt']);
+    let text = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
+    expect(text).toContain('A complete stored prompt');
+    expect(text).not.toContain('A complete stored response');
+
+    output.mockClear();
+    await cmdShow(db, [String(id), '--full']);
+    text = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
+    expect(text).toContain('A complete stored prompt');
+    expect(text).toContain('A complete stored response');
+  });
+
   it('groups capture details, prompt, and response into readable sections', async () => {
     const id = insert();
-    await cmdShow(db, [String(id)]);
+    await cmdShow(db, [String(id), '--full']);
     const text = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
     expect(text.indexOf('CAPTURE DETAILS')).toBeLessThan(text.indexOf('PROMPT'));
     expect(text.indexOf('PROMPT')).toBeLessThan(text.indexOf('RESPONSE'));
@@ -135,7 +151,7 @@ describe('single interaction inspection (SPEC-018)', () => {
   it('shows archived interactions through their original ID', async () => {
     const id = insert();
     db.archivePrompts([id]);
-    await cmdShow(db, [String(id), '--archive']);
+    await cmdShow(db, [String(id), '--archive', '--full']);
     const text = output.mock.calls.map((call: unknown[]) => String(call[0])).join('');
     expect(text).toContain('A complete stored prompt');
     expect(text).toContain('A complete stored response');

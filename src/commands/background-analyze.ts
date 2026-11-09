@@ -1,7 +1,7 @@
 import { PhDB } from '../db/index.js';
 import { load as loadConfig } from '../config/index.js';
 import { getProvider } from '../ai/provider.js';
-import { analyzePrompt, mergeMetadata } from '../analyzer/index.js';
+import { analyzePromptDetailed, mergeMetadata } from '../analyzer/index.js';
 import { decodePromptMetadata } from '../interaction/detail.js';
 
 export async function cmdBackgroundAnalyze(dbPath: string, args: string[]): Promise<void> {
@@ -34,12 +34,13 @@ export async function cmdBackgroundAnalyze(dbPath: string, args: string[]): Prom
 
     let result;
     try {
-      result = await analyzePrompt(entry.prompt, provider);
+      const analysis = await analyzePromptDetailed(entry.prompt, provider);
+      result = analysis.result;
+      if (Object.keys(result).length === 0) {
+        db.updateMetadataFields(id, { analysis_status: 'failed', analysis_error: analysis.error ?? 'analysis_response_invalid' });
+        return;
+      }
     } catch {
-      db.updateMetadataFields(id, { analysis_status: 'failed', analysis_error: 'analysis_failed' });
-      return;
-    }
-    if (Object.keys(result).length === 0) {
       db.updateMetadataFields(id, { analysis_status: 'failed', analysis_error: 'analysis_failed' });
       return;
     }

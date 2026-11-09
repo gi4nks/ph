@@ -14,13 +14,15 @@ interface GenerateResponse {
 export async function generateContent(
   prompt: string,
   model: string,
-  apiKey: string
+  apiKey: string,
+  options?: { maxOutputTokens?: number },
 ): Promise<string> {
   const res = await fetch(`${GENERATE_API}/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
+      ...(options?.maxOutputTokens ? { generationConfig: { maxOutputTokens: options.maxOutputTokens } } : {}),
     }),
   });
 
@@ -41,7 +43,7 @@ export class GeminiProvider implements LLMProvider {
     private readonly apiKey: string
   ) {}
 
-  generate(prompt: string): Promise<string> {
-    return generateContent(prompt, this.model, this.apiKey);
+  generate(prompt: string, options?: { maxOutputTokens?: number }): Promise<string> {
+    return generateContent(prompt, this.model, this.apiKey, options);
   }
 }

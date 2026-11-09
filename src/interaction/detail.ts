@@ -63,6 +63,8 @@ export function toInteractionDetail(entry: PromptEntry): InteractionDetail {
 
 export interface InteractionDetailFormatOptions {
   color?: boolean;
+  /** Body display mode for terminal inspection. Omitted means full output for exports. */
+  content?: 'compact' | 'prompt' | 'full';
 }
 
 const DETAIL_COLORS = {
@@ -104,15 +106,6 @@ export function formatInteractionDetail(entry: PromptEntry, options: Interaction
     field('Analysis status', paint(detail.analysis.status, statusColor)),
   ];
 
-  lines.push(
-    '',
-    ...section('PROMPT'),
-    ...(detail.prompt || '(empty)').split('\n').map(line => `  ${line}`),
-    '',
-    ...section('RESPONSE'),
-    ...(detail.response || '(No response captured)').split('\n').map(line => `  ${line}`),
-  );
-
   const hasAnalysisDetails = Boolean(
     detail.analysis.summary || detail.analysis.error || detail.analysis.key_insights.length ||
     detail.analysis.technical_decisions.length || detail.analysis.relevance !== undefined ||
@@ -131,6 +124,24 @@ export function formatInteractionDetail(entry: PromptEntry, options: Interaction
   if (detail.analysis.technical_decisions.length) {
     lines.push('', paint('Technical decisions', DETAIL_COLORS.cyan), ...detail.analysis.technical_decisions.map(value => `  • ${value}`));
   }
+
+  const showPrompt = options.content === undefined || options.content === 'prompt' || options.content === 'full';
+  const showResponse = options.content === undefined || options.content === 'full';
+  const hiddenBody = (value: string, command: string) =>
+    `  Hidden (${value.length} characters). Use ${command} to display.`;
+  lines.push(
+    '',
+    ...section('PROMPT'),
+    ...(showPrompt
+      ? (detail.prompt || '(empty)').split('\n').map(line => `  ${line}`)
+      : [detail.prompt ? hiddenBody(detail.prompt, `ph show ${detail.id} --prompt or --full`) : '  (empty)']),
+    '',
+    ...section('RESPONSE'),
+    ...(showResponse
+      ? (detail.response || '(No response captured)').split('\n').map(line => `  ${line}`)
+      : [detail.response ? hiddenBody(detail.response, `ph show ${detail.id} --full`) : '  (No response captured)']),
+  );
+
   if (meta.git_context) {
     lines.push('', ...section('GIT CONTEXT'), field('Branch', meta.git_context.branch));
     if (meta.git_context.files.length) lines.push(field('Files', meta.git_context.files.join(', ')));

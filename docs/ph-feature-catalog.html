@@ -108,7 +108,7 @@ printf '%s' '{"tool":"codex","prompt":"Question","response":"Answer"}' | ph log<
             <article class="card"><h3>Full-text search</h3><p>SQLite FTS5 indexes prompts, responses, tool, and analysis text. Default search returns up to five results for the detected project; <code>--all</code> searches across projects.</p></article>
             <article class="card"><h3>Semantic search</h3><p><code>ph search --semantic</code> embeds the query with the configured Ollama embedding model and uses the vector index. Missing vectors, model mismatch, or provider failure falls back to text search.</p></article>
             <article class="card"><h3>Filters</h3><p>Filter by tool, project, language, role, tag, starred state, quality, relevance, or date. <code>--top</code> means quality 8 or higher. <code>--full</code> prints complete prompt/response output.</p></article>
-            <article class="card"><h3>Inspect and export</h3><p><code>ph show &lt;id&gt;</code> prints the interaction and analysis metadata. <code>ph export</code> writes text, JSON, or Markdown; add <code>--archive</code> for archived rows.</p></article>
+            <article class="card"><h3>Inspect and export</h3><p><code>ph show &lt;id&gt;</code> prints capture details and analysis; use <code>--prompt</code> or <code>--full</code> to reveal stored text. JSON and exports remain complete. Add <code>--archive</code> for archived rows.</p></article>
           </div>
           <pre><code>ph search --project ph --tool codex "memory schema"
 ph search --semantic "How did we fix database locking?"
@@ -126,7 +126,7 @@ ph context --project ph --memories-only
 ph context --project ph --prompts-only
 ph context --verbose --budget 6000 "search indexing"</code></pre>
           <p>Without a query, PH returns recent project memories and interactions. With a query, it uses FTS5 and fuses in semantic matches when an embedding index is available. If no interaction matches, it falls back to recent project interactions and notes that in the output. FTS5 retrieval works without an inference service. <code>--limit</code> controls result count; <code>--budget</code> bounds the formatted local context from 500 to 12,000 characters (default 3,500). Shared hub memories are appended outside that budget.</p>
-          <div class="callout caution"><code>--verbose</code> includes up to 1,000 characters from each selected prompt. It does not print the full prompt. Use <code>ph show</code> for the complete interaction.</div>
+          <div class="callout caution"><code>--verbose</code> includes up to 1,000 characters from each selected prompt. It does not print the full prompt. Use <code>ph show &lt;id&gt; --prompt</code> or <code>--full</code> to reveal it.</div>
         </section>
 
         <section class="section" id="memory">
@@ -138,7 +138,7 @@ ph context --verbose --budget 6000 "search indexing"</code></pre>
             <tr><td>Sensitivity</td><td><code>normal</code>, <code>sensitive</code></td><td>Sensitive writes require an explicit user flag or API consent field.</td></tr>
             <tr><td>Status</td><td>Active or reversibly forgotten</td><td>Forget/restore retains prior state in memory version history.</td></tr>
           </tbody></table>
-          <pre><code>ph memory add --project ph --kind decision "Keep transcript history local by default"
+          <pre><code>ph memory add --project ph --kind decision "Keep transcript history on this computer by default"
 ph memory add --scope work --kind preference "Write user documentation in English"
 ph memory search "migration" --project ph
 ph memory forget 12
@@ -157,7 +157,7 @@ ph config set memory-auto-capture false</code></pre>
         <section class="section" id="analysis">
           <h2>7. LLM analysis and embeddings</h2>
           <table><thead><tr><th>Capability</th><th>Provider</th><th>Default / behavior</th></tr></thead><tbody>
-            <tr><td>Interaction analysis</td><td>Ollama, Gemini, OpenRouter, MLX-Serve</td><td>Background analysis is off by default. Manual <code>ph analyze</code> analyzes untagged rows (up to 50 by default).</td></tr>
+            <tr><td>Interaction analysis</td><td>Ollama, Gemini, OpenRouter, oMLX</td><td>Background analysis is off by default. Manual <code>ph analyze</code> analyzes untagged rows (up to 50 by default).</td></tr>
             <tr><td>Prompt embeddings</td><td>Ollama</td><td>Default model is <code>nomic-embed-text-v2-moe</code>; <code>ph embed-all</code> fills the semantic index.</td></tr>
             <tr><td>Shared memory extraction</td><td>Selected PH analysis provider</td><td>Runs only when hub configuration and automatic extraction are enabled.</td></tr>
           </tbody></table>
@@ -166,7 +166,7 @@ ph config set ollama-url http://localhost:11434
 ph config set ollama-model llama3.1:latest
 ph analyze --limit 30
 ph embed-all</code></pre>
-          <p>Analysis may send prompt/response content to the selected provider. Current caveat: <code>ph analyze --dry-run</code> still calls the provider and persists successful analysis metadata. With <code>--prune</code>, it prevents deletions but is not a no-write preview. Model listing is available for Ollama, OpenRouter, and MLX-Serve via <code>ph models</code>.</p>
+          <p>Analysis may send prompt/response content to the selected provider. Current caveat: <code>ph analyze --dry-run</code> still calls the provider and persists successful analysis metadata. With <code>--prune</code>, it prevents deletions but is not a no-write preview. Model listing is available for Ollama, OpenRouter, and oMLX via <code>ph models</code>.</p>
         </section>
 
         <section class="section" id="commands">
@@ -177,7 +177,7 @@ ph embed-all</code></pre>
             <tr><td><code>ph setup [tools...]</code></td><td>Install capture hooks/plugins for Claude, Codex, Gemini, OpenCode, or AGY.</td></tr>
             <tr><td><code>ph &lt;tool&gt; [args...]</code></td><td>Run an installed executable through PH and capture the exchange. Wrapper metadata flags: <code>--ph-tag</code>, <code>--ph-role</code>, <code>--ph-debug</code>.</td></tr>
             <tr><td><code>ph log</code></td><td>Manually record one prompt and response using flags or JSON stdin.</td></tr>
-            <tr><td><code>ph search</code>, <code>ph show</code></td><td>Find interactions, then inspect one full record. Search supports project/tool/date/metadata filters, semantic search, and archived listing.</td></tr>
+            <tr><td><code>ph search</code>, <code>ph show</code></td><td>Find interactions, then inspect capture details and analysis; reveal prompt and response with <code>--prompt</code> or <code>--full</code>. Search supports project/tool/date/metadata filters, semantic search, and archived listing.</td></tr>
             <tr><td><code>ph context</code></td><td>Retrieve relevant project interactions and eligible local/shared memories.</td></tr>
             <tr><td><code>ph memory add|list|search|show|forget|restore</code></td><td>Create and manage durable local or shared memories. <code>retry</code> and <code>undo</code> target automatic extraction for an interaction ID.</td></tr>
             <tr><td><code>ph status</code></td><td>Review capture totals and recent analysis, memory, and raw-sync status without printing content.</td></tr>
@@ -248,7 +248,7 @@ ph remote pull</code></pre>
             <tr><td><code>PH_MEMORY_HUB_URL</code> + <code>PH_MEMORY_HUB_API_KEY</code></td><td>Client connection to shared memory API.</td></tr>
             <tr><td><code>PH_REMOTE_URL</code> + <code>remote-api-key</code></td><td>Client connection for raw prompt/response synchronization.</td></tr>
             <tr><td><code>PH_SERVER_API_KEY</code>, <code>PH_SERVER_HOST</code>, <code>PH_SERVER_PORT</code></td><td>HTTP service-side auth and bind settings.</td></tr>
-            <tr><td>Provider settings</td><td>Ollama URL/model; Gemini API key; OpenRouter URL/model/key; MLX-Serve URL/model/key.</td></tr>
+            <tr><td>Provider settings</td><td>Ollama URL/model; Gemini API key; OpenRouter URL/model/key; oMLX URL/model/key (<code>omlx-*</code>). Legacy <code>mlx-serve-*</code> names remain accepted.</td></tr>
             <tr><td><code>ollama-embed-model</code></td><td>Ollama embedding model; default <code>nomic-embed-text-v2-moe</code>.</td></tr>
           </tbody></table>
           <p>Use <code>ph config show</code> to inspect provider readiness and <code>ph config get &lt;key&gt;</code> to read one setting. Secret values are redacted. Environment variables override corresponding client/server configuration as described in the <a href="ph-manual.md#11-configuration-reference">manual</a>.</p>

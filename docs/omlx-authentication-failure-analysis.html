@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>PH — Diagnosi oMLX su Parmenide</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f3f5f8; --panel:#fff; --ink:#182230; --muted:#586779; --line:#d9e0e8; --accent:#2364aa; --soft:#eaf2fc; --bad:#a43131; }
+    @media (prefers-color-scheme:dark) { :root { --bg:#111821; --panel:#19232f; --ink:#edf3f9; --muted:#b1bfcd; --line:#334253; --accent:#8fc1ff; --soft:#20344b; --bad:#ff9e9e; } }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    main { width:min(1020px,calc(100% - 32px)); margin:36px auto 64px; }
+    header, section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; margin:18px 0; }
+    h1 { font-size:clamp(1.8rem,4vw,2.7rem); line-height:1.15; margin:0 0 12px; letter-spacing:-.03em; }
+    h2 { font-size:1.25rem; margin:0 0 12px; }
+    p { margin:8px 0 12px; }
+    .eyebrow { text-transform:uppercase; letter-spacing:.12em; font-size:.75rem; font-weight:750; color:var(--accent); }
+    .muted { color:var(--muted); }
+    .decision { border-left:4px solid var(--accent); background:var(--soft); padding:14px 18px; border-radius:8px; }
+    .failure { color:var(--bad); font-weight:700; }
+    table { width:100%; border-collapse:collapse; font-size:.94rem; }
+    th,td { text-align:left; vertical-align:top; padding:12px 10px; border-bottom:1px solid var(--line); }
+    th { font-size:.82rem; text-transform:uppercase; letter-spacing:.06em; }
+    code { overflow-wrap:anywhere; background:var(--soft); padding:.08em .32em; border-radius:4px; }
+    ul,ol { padding-left:1.3rem; }
+    li { margin:.35rem 0; }
+    .tag { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:2px 9px; color:var(--muted); font-size:.78rem; }
+    footer { color:var(--muted); font-size:.85rem; padding:8px 4px; }
+    a { color:var(--accent); }
+    @media(max-width:700px) { header,section { padding:18px; } table { display:block; overflow-x:auto; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">PH · diagnosi oMLX · 9 novembre 2026</div>
+    <h1>Gemma viene rifiutato dal memory guard di oMLX prima dell’inferenza</h1>
+    <p>Una richiesta minima inviata direttamente al server oMLX di Parmenide per <code>gemma-4-12B-it-4bit</code> riceve HTTP 507. Il modello è stimato a <strong>6,59 GB</strong>, mentre il ceiling dinamico corrente è <strong>5,91 GB</strong>. Il modello non è caricato. Questa richiesta non passa da PH.</p>
+    <p class="muted"><span class="tag">Causa primaria riprodotta · server oMLX</span> La precedente ipotesi sul prompt troppo lungo non spiega questo caso: la richiesta diretta contiene solo un breve messaggio JSON.</p>
+  </header>
+
+  <section>
+    <h2>Evidenze raccolte sul server attivo</h2>
+    <ul>
+      <li>Parmenide ha <code>16 GiB</code> di RAM; l’istanza oMLX attiva è <code>0.7.4.dev1</code> e risponde su <code>127.0.0.1:8000</code>.</li>
+      <li>La configurazione live è <code>memory_guard_tier=balanced</code>, con <code>prefill_memory_guard=true</code>, contesto globale <code>32768</code> e massimo <code>8</code> richieste concorrenti. Non c’è un override per-modello che riduca il contesto di Gemma.</li>
+      <li><code>GET /v1/models/status</code> elenca <code>gemma-4-12B-it-4bit</code> come non caricato, con contesto nativo dichiarato di <code>262144</code> token e dimensione stimata <code>6,59 GB</code>. L’elenco dei modelli installati non prova che i pesi siano caricabili.</li>
+      <li>Una richiesta diretta locale a <code>POST /v1/chat/completions</code> con Gemma, un prompt minimo, <code>max_tokens=32</code>, <code>response_format=json_object</code> e <code>reasoning_budget_tokens=0</code> riceve HTTP <code>507</code> in circa un secondo. La risposta indica ceiling dinamico <code>5,91 GB</code>, ceiling statico <code>13,00 GB</code> e circa <code>301,78 MB</code> già usati dal processo oMLX.</li>
+      <li>La richiesta diretta usa lo stesso formato e gli stessi parametri specifici di PH, ma non usa codice né database PH: questo separa il rifiuto di caricamento dal wrapper PH.</li>
+      <li>Il comando dell’utente continua a indicare <code>Qwen3.5-9B-8bit</code>; quindi quell’output non è un test di Gemma attraverso PH. L’ultimo test Gemma è invece quello diretto sopra, che fallisce prima dell’elaborazione del prompt.</li>
+    </ul>
+    <p>Nel campione <code>vm_stat</code> c’erano circa <code>0,96 GiB</code> di pagine libere e <code>6,17 GiB</code> inattive. Il valore percentuale mostrato da <code>memory_pressure</code> non equivale ai GiB di ceiling che oMLX ammette per il modello. Il memory guard calcola quel ceiling in base alla memoria disponibile/reclamabile e alla riserva del livello selezionato.</p>
+  </section>
+
+  <section>
+    <h2>Trade-off delle correzioni</h2>
+    <table>
+      <thead><tr><th>Opzione</th><th>Vantaggi</th><th>Svantaggi</th><th>Valutazione</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Memory Guard <code>aggressive</code></td>
+          <td>Su 16 GiB riduce la riserva minima da 3 GiB (balanced) a 1,5 GiB; a parità di condizioni può aggiungere circa 1,5 GiB al margine dinamico, oltre a reclamare più memoria attiva.</td>
+          <td>macOS può comprimere più memoria delle altre app e ricorrere allo swap. È un profilo da macchina dedicata all’inferenza.</td>
+          <td><strong>Primo intervento raccomandato.</strong> Il divario osservato è 0,68 GB. Mantieni il memory guard attivo.</td>
+        </tr>
+        <tr>
+          <td>Max Context Window per Gemma: <code>8192</code></td>
+          <td>Limita memoria KV e il costo di prefill dopo che il modello è caricato; evita di pubblicizzare il contesto nativo da 262K per questo uso.</td>
+          <td>Non supera da solo il controllo di caricamento che oggi rifiuta già la dimensione stimata del modello.</td>
+          <td><strong>Applicare insieme al profilo aggressive.</strong> Se i prompt PH superano 8K, valutare riduzione del prompt o un limite maggiore solo dopo aver misurato.</td>
+        </tr>
+        <tr>
+          <td>Ridurre la concorrenza da 8 a <code>1</code></td>
+          <td>Riduce la possibilità che richieste simultanee si contendano il margine su un host da 16 GiB.</td>
+          <td>Non risolve il rifiuto attuale: il test è singolo e il ceiling non basta già per ammettere il modello.</td>
+          <td>Impostazione secondaria ragionevole se Parmenide è dedicato a PH o ad altri client sequenziali.</td>
+        </tr>
+        <tr>
+          <td>Scegliere un modello quantizzato più piccolo</td>
+          <td>Riduce la dimensione dei pesi e lascia margine per contesto e altre app.</td>
+          <td>Può richiedere download/spazio e comportare un compromesso sulla qualità.</td>
+          <td>Fallback se aggressive non porta il ceiling sopra la stima del modello con margine.</td>
+        </tr>
+        <tr>
+          <td>Impostare un ceiling custom o disattivare il guard</td>
+          <td>Può forzare una soglia di ammissione più alta.</td>
+          <td>Può ignorare la memoria fisicamente reclamabile e causare pressione, swap o instabilità del server/sistema.</td>
+          <td><strong>Non raccomandato come primo tentativo.</strong> Non disattivare il guard e non impostare un valore custom sopra la RAM realmente disponibile.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Decision record · DR-OMLX-002 · 2026-11-09</h2>
+    <div class="decision">
+      <p><strong>Decisione:</strong> trattare questo errore come ammissione memoria rifiutata da oMLX, non come errore di payload PH. Applicare sul server <code>memory_guard_tier=aggressive</code>, mantenere <code>prefill_memory_guard=true</code>, impostare il limite per-modello di Gemma a <code>8192</code> e ridurre la concorrenza a <code>1</code> se l’host è dedicato.</p>
+      <p><strong>Motivazione:</strong> il test diretto oMLX ha riprodotto HTTP 507 con una richiesta minima; il modello richiede 6,59 GB e il ceiling dinamico è 5,91 GB. PH non può correggere questo controllo cambiando il formato JSON o l’API key.</p>
+      <p><strong>Stato:</strong> diagnosi confermata; configurazione server non modificata durante questa verifica. La precedente descrizione che attribuiva il rifiuto Gemma al solo contesto era incompleta ed è superata da questa evidenza del controllo di caricamento.</p>
+      <p><strong>Verifica dopo la modifica:</strong> controllare in oMLX che il ceiling superi 6,59 GB e che Gemma risulti caricato; impostare poi in PH l’ID esatto <code>gemma-4-12B-it-4bit</code> ed eseguire <code>ph analyze --limit 1 --dry-run</code>. Il dry-run evita scritture nel database, ma esegue davvero l’inferenza. Non rilanciare un batch finché il singolo record non riesce.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Costi, limiti e latenza</h2>
+    <ul>
+      <li><strong>Costo API:</strong> nessun costo per token di un servizio cloud; le richieste restano locali alla rete privata e al server oMLX.</li>
+      <li><strong>Rate limit:</strong> il limite osservato è l’ammissione memoria, non un rate limit. Concorrenza 1 serializza le richieste e può ridurre il throughput, ma PH le invia già in sequenza.</li>
+      <li><strong>Latenza:</strong> il 507 diretto arriva in circa un secondo, prima di generare testo. Non è ancora stata misurata la latenza di cold load o di generazione riuscita di Gemma.</li>
+      <li><strong>Rischio operativo:</strong> il livello aggressive sposta più pressione sulle altre app. Il ceiling è dinamico e varia con lo stato della macchina; verificare di nuovo il valore dopo il cambio.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Fonti locali: <a href="../src/ai/provider.ts">selezione provider PH</a>, <a href="../src/ai/wise.ts">richiesta oMLX/JSON PH</a>, <a href="../src/analyzer/index.ts">classificazione analyzer</a>.<br>
+    Fonti primarie: <a href="https://github.com/jundot/omlx/blob/main/omlx/process_memory_enforcer.py">memory guard oMLX</a>, <a href="https://github.com/jundot/omlx/blob/main/omlx/settings.py">impostazioni globali oMLX</a>, <a href="https://github.com/jundot/omlx/blob/main/omlx/model_settings.py">impostazioni per modello</a>, <a href="https://github.com/jundot/omlx/blob/main/omlx/server.py">endpoint e stato modelli</a>. Nessuna chiave API è riportata.
+  </footer>
+</main>
+</body>
+</html>

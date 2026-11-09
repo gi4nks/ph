@@ -79,13 +79,15 @@ Use semantic retrieval when embeddings exist:
 ```sh
 ph search --semantic "How did we solve database locking?"
 ph show 42
+ph show 42 --prompt
+ph show 42 --full
 ph show 42 --json
 ph export 42 --format md
 ```
 
-Semantic search uses the configured Ollama embedding service. If vectors are missing, the provider is unavailable, or the stored vector model differs, PH reports the reason and falls back to text search. `ph show` displays the complete saved interaction and available analysis metadata. Add `--archive` to `show` or `export` to inspect an archived record. `ph search --archive` lists archived records by date and limit; it does not apply the query text or the normal search filters. Export formats are `txt`, `json`, and `md`.
+Semantic search uses the configured Ollama embedding service. If vectors are missing, the provider is unavailable, or the stored vector model differs, PH reports the reason and falls back to text search. `ph show` displays capture details and analysis by default, with prompt and response bodies hidden behind their character counts. Use `--prompt` to reveal only the prompt, or `--full` to reveal both bodies. `--json` always returns the complete record. Add `--archive` to `show` or `export` to inspect an archived record. `ph search --archive` lists archived records by date and limit; it does not apply the query text or the normal search filters. Export formats are `txt`, `json`, and `md` and remain complete.
 
-In a terminal, `ph show` groups capture details, the complete prompt, response, and any analysis into separate sections. Section headings and analysis status use restrained colors; `NO_COLOR=1` disables color, and output redirected to a file or pipe stays plain text. `ph show <id> --json` remains machine-readable.
+In a terminal, `ph show` puts the short analysis before the body sections so the useful summary is visible first. Section headings and analysis status use restrained colors; `NO_COLOR=1` disables color, and output redirected to a file or pipe stays plain text.
 
 ```text
 Interaction #42
@@ -97,13 +99,21 @@ CAPTURE DETAILS
   Project             ph
   Analysis status     complete
 
+ANALYSIS
+────────────────────────────────────────────────────
+  Fixed a persistence boundary in the interaction repository.
+  Relevance           8/10
+  Quality             7/10
+
 PROMPT
 ────────────────────────────────────────────────────
-  Keep prompt persistence behind the repository boundary
+  Hidden (54 characters). Use ph show 42 --prompt or --full to display.
 
 RESPONSE
 ────────────────────────────────────────────────────
-  The persistence code now delegates through PromptRepository.
+  Hidden (60 characters). Use ph show 42 --full to display.
+
+`--prompt` reveals the complete prompt while keeping the response hidden; `--full` reveals both. Use `--json` when another program needs the complete interaction as machine-readable data.
 ```
 
 Other history views:
@@ -138,7 +148,7 @@ Context retrieval works without an inference service. Semantic prompt retrieval 
 Use memories for durable knowledge you expect to need again, not as a replacement for the full interaction archive. Memory kinds are `decision`, `insight`, `preference`, and `fact`; scopes are `project`, `work`, and `personal`.
 
 ```sh
-ph memory add --project ph --kind decision "Keep the prompt archive local by default"
+ph memory add --project ph --kind decision "Keep the prompt archive on this computer by default"
 ph memory add --scope work --kind preference "Write PH user documentation in English"
 ph memory add --scope personal --sensitive "A sensitive fact saved only on explicit request"
 ph memory add --project ph --prompts 42,45 "Validate project sources before saving a decision"
@@ -188,21 +198,23 @@ The capture hook itself can still store local prompt/response history. `ph statu
 
 ## 7. Optional LLM analysis and embeddings
 
-Capture, text search, and basic project context do not require an LLM. Analysis providers are Ollama (default), Gemini, OpenRouter, and MLX-Serve. Provider credentials and model identifiers can be set in PH config or their supported environment variables. Check `ph config set` help and `ph models <provider>` for the current options.
+Capture, text search, and basic project context do not require an LLM. Analysis providers are Ollama (default), Gemini, OpenRouter, and oMLX. Provider credentials and model identifiers can be set in PH config or their supported environment variables. Check `ph config set` help and `ph models <provider>` for the current options.
 
 Example Ollama setup and analysis:
 
 ```sh
 ph config set analyze-provider ollama
-ph config set ollama-url http://localhost:11434
-ph config set ollama-model llama3.1:latest
+ph config set ollama-url http://127.0.0.1:8000
+ph config set ollama-model qwen3.5:9b-mlx
 ph config set background-analysis true
 ph analyze --limit 100
 ```
 
-For OpenRouter, configure `openrouter-api-key` and `openrouter-model`. For Gemini, configure `gemini-api-key`. For MLX-Serve, select `mlx-serve-model` and set `mlx-serve-url` if the service is not at its default endpoint. `ph models ollama`, `ph models openrouter`, or `ph models mlx-serve` lists models visible to the configured provider.
+For OpenRouter, configure `openrouter-api-key` and `openrouter-model`. For Gemini, configure `gemini-api-key`. For oMLX on Parmenide, select `omlx` and set `omlx-model`; the default endpoint is `http://parmenide:8000/v1`. Set the key with `ph config set omlx-api-key` (hidden interactive input) or `OMLX_API_KEY` in PH's process environment; optionally set `omlx-url` or `OMLX_BASE_URL`. If editing `~/.ph_config.json` directly, the property is `omlxApiKey`. `ph models ollama`, `ph models openrouter`, or `ph models omlx` lists models visible to the configured provider. Existing `mlx-serve` provider values, `mlx-serve-*` config keys, and `MLX_SERVE_*` environment variables remain accepted aliases; new saves write canonical `omlx-*` fields.
 
-Background analysis is off by default. It can send captured prompt/response text to the selected provider after capture. `ph analyze --dry-run` still calls the provider and currently persists successful analysis metadata; with `--prune`, it skips deletion but is not a no-write preview. Use it only when provider calls and successful metadata updates are acceptable. `--force` reanalyzes existing records; `--prune` removes entries below the configured relevance threshold.
+oMLX can load an installed model on the first inference request; `[unloaded]` does not mean the model cannot be used. Cold loading needs enough free memory on the inference host and must fit under oMLX's dynamic memory ceiling. If `ph analyze` reports `provider_out_of_memory`, free memory on that host, choose a smaller installed model, or raise the dynamic ceiling only when physical RAM headroom allows it. PH reports bounded provider failure categories without storing raw provider error bodies. Structured analysis uses oMLX's JSON response mode, a maximum of 800 output tokens, and a zero reasoning budget to avoid wasting tokens on hidden reasoning.
+
+Ollama analysis uses the native `/api/generate` endpoint with `think: false`, JSON output mode, and a maximum of 800 output tokens for this short classification task. Background analysis is off by default. It can send captured prompt/response text to the selected provider after capture. `ph analyze --dry-run` still calls the provider, but does not write analysis metadata or delete records. `--force` reanalyzes existing records; `--prune` removes entries below the configured relevance threshold when dry-run is not enabled.
 
 Semantic embeddings are generated through Ollama and use `ollama-embed-model` (default `nomic-embed-text-v2-moe`):
 
@@ -296,8 +308,8 @@ Important environment overrides include:
 | `PH_SERVER_HOST`, `PH_SERVER_PORT` | HTTP server bind address and port |
 | `GEMINI_API_KEY` | Gemini analysis provider |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` | OpenRouter analysis provider |
-| `MLX_SERVE_MODEL`, `MLX_SERVE_BASE_URL`, `MLX_SERVE_API_KEY` | MLX-Serve analysis provider |
-| `GLB_OMLX_API_KEY` | Alternate MLX-Serve credential |
+| `OMLX_MODEL`, `OMLX_BASE_URL`, `OMLX_API_KEY` | Canonical oMLX model, endpoint, and credential |
+| `MLX_SERVE_MODEL`, `MLX_SERVE_BASE_URL`, `MLX_SERVE_API_KEY`, `GLB_OMLX_API_KEY` | Legacy oMLX environment aliases (used when canonical variable is unset) |
 
 Other configuration keys are listed by `ph config set` with no key argument. Provider-specific URL/model settings and retention/filter options are persisted in `~/.ph_config.json`.
 
@@ -306,16 +318,16 @@ Other configuration keys are listed by `ph config set` with no key argument. Pro
 | Key | Default | Purpose |
 |---|---|---|
 | `db-path` | `~/.prompt_history.db` | Local SQLite history and memory database; `PH_DB` overrides it. |
-| `analyze-provider` | `ollama` | Provider for manual/background analysis and automatic memory extraction: `ollama`, `gemini`, `openrouter`, or `mlx-serve`. |
+| `analyze-provider` | `ollama` | Provider for manual/background analysis and automatic memory extraction: `ollama`, `gemini`, `openrouter`, or `omlx` (`mlx-serve` remains accepted as an alias). |
 | `ollama-url` | `http://localhost:11434` | Ollama generation and embedding endpoint. |
 | `ollama-model` | `llama3.1:latest` | Ollama analysis model. |
 | `gemini-api-key` | unset | Gemini analysis credential; `GEMINI_API_KEY` overrides it. PH uses Gemini 2.5 Flash. |
 | `openrouter-url` | `https://openrouter.ai/api/v1` | OpenRouter-compatible endpoint; `OPENROUTER_BASE_URL` overrides it. |
 | `openrouter-model` | unset | Required OpenRouter model ID; `OPENROUTER_MODEL` overrides it. |
 | `openrouter-api-key` | unset | OpenRouter credential; `OPENROUTER_API_KEY` overrides it. |
-| `mlx-serve-url` | `http://127.0.0.1:11234/v1` | MLX-Serve-compatible endpoint; `MLX_SERVE_BASE_URL` overrides it. |
-| `mlx-serve-model` | unset | Required exact model ID; `MLX_SERVE_MODEL` overrides it. |
-| `mlx-serve-api-key` | unset | Credential; `MLX_SERVE_API_KEY` or `GLB_OMLX_API_KEY` overrides it. |
+| `omlx-url` | `http://parmenide:8000/v1` | oMLX OpenAI-compatible endpoint; `OMLX_BASE_URL` overrides it. |
+| `omlx-model` | unset | Required exact model ID; `OMLX_MODEL` overrides it. |
+| `omlx-api-key` | unset | Credential; `OMLX_API_KEY` overrides it. Secret value is redacted by `ph config get`. |
 | `ollama-embed-model` | `nomic-embed-text-v2-moe` | Model used to create query and prompt embeddings. |
 | `background-analysis` | `false` | Whether completed captures schedule LLM analysis. |
 | `filter-min-length` | `15` | Minimum prompt length used by optional filtering and cleanup rules. |
@@ -343,7 +355,7 @@ The default guide is intentionally short. The commands below describe the comple
 | `ph <tool> [args...]` | Forward arguments to an executable on `PATH` and capture the interaction. Prefix with `--ph-tag <tag>`, `--ph-role <role>`, or `--ph-debug`. Interactive sessions use a PTY; non-interactive capture infers the prompt from command arguments and records stdout as the response. |
 | `ph log --tool <name> --prompt <text> [--response <text>] [--workdir <path>]` | Insert one explicit interaction. Alternatively pipe JSON with `tool`, `prompt`, optional `response`, and optional `workdir` to `ph log`. |
 | `ph search [filters] [query]` | Search current project; `--all` searches all projects. Filters: `--tool`, `--project`, `--language`, `--role`, `--tag`, `--starred`, `--min-quality`, `--min-relevance`, `--top`, `--since`, `--until`, `--limit`, `--semantic`, `--full`, `--archive`. `--archive` is a date/limit listing, not full-text archive search. |
-| `ph show <id> [--json] [--archive]` | Inspect a complete interaction, including prompt, response, and available analysis metadata. |
+| `ph show <id> [--prompt|--full] [--json] [--archive]` | Inspect capture details and analysis; reveal the prompt or both text bodies on request. JSON remains complete. |
 | `ph context [options] [query]` | Retrieve local project/work memories and relevant project interactions, plus eligible shared memories when configured. Options: `--project`, `--limit` (1–20), `--prompts-only`, `--memories-only`, `--verbose`, and `--budget` (500–12,000 characters for local context). |
 | `ph memory add <text> [options]` | Save a durable memory. Options include `--kind decision|insight|preference|fact`, `--scope project|work|personal`, `--project`, `--prompts`, and explicit `--sensitive`. |
 | `ph memory list [options]` / `search <query> [options]` | List or FTS-search memories. Options include `--project`, `--scope`, `--all`, `--include-personal`, `--include-sensitive`, and `--limit`. `show`, `forget`, and `restore` inspect or reversibly change a memory; shared IDs are UUIDs and local IDs are numeric. `retry <interaction-id>` retries automatic extraction; `undo <interaction-id>` forgets its automatically saved records. |
@@ -354,7 +366,7 @@ The default guide is intentionally short. The commands below describe the comple
 | `ph export <id> [--format txt|json|md] [--archive]` | Export a complete active or archived interaction. |
 | `ph import <claude|codex|gemini|opencode|agy> [options]` | Backfill local tool histories. Options: `--dry-run`, `--analyze`, `--filter`, `--file`, `--workdir`, and `--live`. File selection is supported only by importers with transcript/database file input. `--live` runs configured post-capture processing on imported records. |
 | `ph analyze [options]` | Run LLM analysis on untagged records (default maximum 50). Options: `--limit`, `--force`, `--prune`, `--min-score`, and `--dry-run`. The current dry-run still calls the provider and persists successful analysis metadata; it only prevents prune deletion and some status writes. |
-| `ph models [ollama|openrouter|mlx-serve]` | List models visible from Ollama, OpenRouter, or MLX-Serve. Gemini model selection is not exposed by this command. |
+| `ph models [ollama|openrouter|omlx]` | List models visible from Ollama, OpenRouter, or oMLX. Gemini model selection is not exposed by this command. `mlx-serve` remains accepted as an alias. |
 | `ph embed-all` / `ph search --semantic` | Build and use the Ollama vector index. Model mismatch or unavailable embeddings falls back to text search. |
 | `ph config show|get|set` | Inspect providers and settings, read a key, or change configuration. Secret keys are redacted; omit a secret value in an interactive terminal to enter it without echo. |
 | `ph mcp` | Start PH's local stdio MCP server for the five tools listed above. Agents must call these tools; MCP does not itself trigger memory extraction. |

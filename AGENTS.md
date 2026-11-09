@@ -11,14 +11,16 @@ Keep PH simple to use: capture AI CLI work, find it with plain-text search, retr
 
 - **Everyday CLI**: plain-text commands for setup, history search, interaction inspection, project context, memory search, and capture status. A bare `ph` prints a short guide; there is no interactive history browser or TUI.
 - **Capture**: `ph setup` configures Claude Code, Codex CLI, Gemini CLI, OpenCode, and Google Antigravity (AGY). `ph <tool>` is an optional wrapper. Importers can backfill local histories from those tools.
-- **History**: interactions are stored in SQLite, normally `~/.prompt_history.db`. Search is full-text by default; `ph show <id>` displays capture details, the complete prompt and response, and any analysis in grouped sections. It uses restrained terminal colors and plain text for redirected output.
+- **History**: interactions are stored in SQLite, normally `~/.prompt_history.db`. Search is full-text by default; `ph show <id>` displays capture details and analysis, while prompt/response bodies are hidden by default and available through `--prompt`, `--full`, or complete `--json` output. It uses restrained terminal colors and plain text for redirected output.
 - **Context**: `ph context` combines local project/work memories and relevant project interactions. It can include non-sensitive shared project/work memories when a hub is configured. Text retrieval works without embeddings; Ollama-backed vectors improve matching when available.
 - **Memories**: the unified `memories` repository stores scope, kind, sensitivity, provenance, external IDs, and reversible forgotten state. Schema v4 preserves legacy memory tables and versions during migration.
 - **Shared memory**: the optional authenticated HTTP memory API uses `PH_MEMORY_HUB_API_KEY`, separate from raw prompt sync. It currently has one shared key, without per-client identities, connector permissions, or an offline write queue.
 - **Automatic extraction**: supported coding-agent captures can schedule bounded background extraction when a hub URL/key and inference provider are configured, unless `memory-auto-capture=false`. Candidates require exact prompt evidence and are limited to non-sensitive work/project records. The inference provider sees bounded prompt/response text; the hub gets derived records and provenance.
 - **Raw history sync**: `PH_REMOTE_URL` / `remote-url` enables automatic push after completed captures. `ph remote push|pull` also supports resumable bulk sync. This transfers raw prompts/responses and is separate from the memory hub.
 - **MCP**: the stdio server exposes `search_history`, `get_interaction`, `get_project_context`, `search_memories`, and `save_memory`.
-- **Verification (6 November 2026)**: 143 tests across 26 files, lint, TypeScript check, and production build passed for the current working tree.
+- **Verification (6 November 2026)**: 148 tests across 26 files, lint, TypeScript check, and production build passed for the current working tree.
+- **Analysis diagnostics**: `ph analyze` retains bounded failure categories (including oMLX HTTP 507/dynamic memory ceiling and invalid model output) instead of collapsing provider failures to `analysis_failed`. Ollama and oMLX analysis request JSON, disable reasoning for this short classification task, and cap output at 800 tokens. `--dry-run` calls the provider but never persists metadata or deletes records. The configured model must fit the runtime memory ceiling on the inference host.
+- **oMLX configuration**: canonical provider is `omlx`, config keys are `omlx-model`, `omlx-url`, and `omlx-api-key`, with `OMLX_*` environment overrides. Existing `mlx-serve-*`, `mlx-serve`, and `MLX_SERVE_*` settings remain read-compatible; explicit config saves normalize to canonical JSON fields.
 
 The command surface and examples in [README.md](README.md), [the user manual](docs/ph-manual.md), and [the feature catalog](docs/ph-feature-catalog.html) are the current user-facing reference. This current-state summary must be updated with code and docs when behavior changes.
 
@@ -88,7 +90,7 @@ hooks/                   Native tool hooks and the OpenCode plugin
 |---|---|
 | Connect capture integrations | `ph setup [claude|codex|gemini|opencode|agy...]` |
 | Search current project / all projects | `ph search [options] [query]` / `ph search --all <query>` |
-| Inspect a full exchange | `ph show <id> [--json] [--archive]` |
+| Inspect an interaction | `ph show <id> [--prompt|--full] [--json] [--archive]` |
 | Retrieve project knowledge | `ph context [options] [query]` |
 | Search and manage durable memories | `ph memory add|list|search|show|forget|restore|retry|undo` |
 | Review capture and background status | `ph status` |
@@ -124,7 +126,7 @@ hooks/                   Native tool hooks and the OpenCode plugin
 
 ## Providers and configuration
 
-- Analysis providers: Ollama (default), Gemini, OpenRouter, and MLX-Serve. Keys and model IDs use PH config or the provider environment variables documented in [the user manual](docs/ph-manual.md).
+- Analysis providers: Ollama (default), Gemini, OpenRouter, and oMLX. Keys and model IDs use PH config or the provider environment variables documented in [the user manual](docs/ph-manual.md).
 - Embeddings use Ollama. The default embedding model is `nomic-embed-text-v2-moe`; change it with `ollama-embed-model`.
 - Background analysis is off by default. Automatic memory extraction schedules when hub URL/key exist and `memory-auto-capture` is not false; provider absence/failure is reported as background failure.
 - Environment overrides with product-level meaning: `PH_DB`, `PH_REMOTE_URL`, `PH_MEMORY_HUB_URL`, `PH_MEMORY_HUB_API_KEY`, `PH_SERVER_API_KEY`, `PH_SERVER_HOST`, and `PH_SERVER_PORT`, plus documented inference-provider variables.
@@ -166,3 +168,7 @@ hooks/                   Native tool hooks and the OpenCode plugin
 | 2026-10-25 | Added a generic governed-memory hub API and CLI, sensitive-save gate, reversible forget, source references, shared work/project recall in `ph context` and MCP, agent-facing shared-memory search/save tools, approved `ph close` publishing, dedicated hub credentials, and generic Docker Compose deployment | TypeScript, SQLite, Node HTTP, Docker, MCP, Vitest | `src/{db,server,commands,config,mcp}`, `deploy/`, `docs/{memory-hub.md,specs/SPEC-020*}`, `README.md`, `docs/ph-manual.md` |
 | 2026-10-25 | Added automatic background memory extraction for captured coding-agent turns, exact user-prompt evidence checks, sensitive-content rejection, source-linked undo, status reporting, and an opt-out config | TypeScript, SQLite, MCP, Vitest | `src/{analyzer,background,capture,commands,config}`, `docs/{memory-hub.md,ph-manual.md,specs/SPEC-020*}`, `README.md` |
 | 2026-11-06 | Deepened prompt persistence and shared-memory policy; separated capture follow-ups and HTTP memory/history routes; centralized runtime endpoint/key resolution; refreshed user documentation | TypeScript, SQLite, HTTP, MCP, Vitest | `src/{db,memory,capture,server,config,commands,mcp}`, `README.md`, `docs/{ph-manual.md,ph-feature-catalog.html}` |
+| 2026-11-06 | Diagnosed MLX-Serve analysis failures as a MiMo cold-load memory shortfall (9.2 GB required, 7.4 GB free); retained MiMo after checking installed alternatives and completing the 49-record batch; added safe analyzer failure categories, actionable OOM output, JSON mode, an 800-token cap and zero reasoning budget for structured MLX analysis | TypeScript, MLX-Serve, Vitest | `src/{ai,analyzer,commands,types.ts}`, `docs/{ph-manual.md,specs/SPEC-018-interaction-inspection-and-recall-integrity.md}` |
+| 2026-11-07 | Switched the Parmenide oMLX default to port 8000, retained legacy PH configuration keys with OMLX environment-variable aliases, and documented API key and base URL settings | TypeScript, Wise, Markdown | `src/{ai,config,commands}`, `docs/ph-manual.md` |
+| 2026-11-08 | Made `omlx` and `omlx-*` the canonical PH provider/config names; retained legacy `mlx-serve*` aliases and normalize them on explicit config saves; updated CLI help, README/manual/catalog, and accepted naming decision report | TypeScript, Vitest, HTML | `src/{ai,commands,config}`, `README.md`, `docs/{ph-manual.md,ph-feature-catalog.html,local-ai-provider-naming-analysis.html}` |
+| 2026-11-09 | Confirmed direct oMLX HTTP 507 for a minimal Gemma 4 12B 4bit request (6.59 GB estimated vs 5.91 GB dynamic ceiling); documented live Parmenide memory settings, PH-path isolation, trade-offs, and decision to try aggressive guard plus an 8K per-model context | oMLX, PH, HTML | `docs/omlx-authentication-failure-analysis.html`, `README.md` |
