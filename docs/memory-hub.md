@@ -1,88 +1,96 @@
 # PH Memory Hub
 
-PH can run as a self-hosted service for source-backed work and personal memories. The hub stores canonical memory records in its SQLite database. Configuring the memory hub does not itself send raw prompt history; that remains a separate remote-sync setting.
+The optional PH Memory Hub is a shared API for durable memories. It stores the canonical memory records in the hub's SQLite database so configured PH clients can search, add, forget, and restore memories. It is not a prompt-history server. Configuring the hub does not by itself upload raw prompt/response history.
 
-## Deploy
+## Deployment with Docker Compose
 
-The generic container recipe lives in `deploy/`. On a Linux host with Docker Compose:
+Requirements: a Linux host with Docker Engine and the Docker Compose plugin. From a PH checkout:
 
 ```sh
 cp deploy/.env.example deploy/.env
-openssl rand -hex 32
-# Put the generated value in deploy/.env as PH_SERVER_API_KEY.
-docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
-docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+cp deploy/memory.env.example deploy/memory.env
 ```
 
-The service binds to loopback by default. For clients on other devices, expose it only through a private network or a TLS reverse proxy with firewall rules. Set `PH_BIND_ADDRESS` in the private deployment environment to the appropriate protected interface. Do not expose the HTTP listener directly to the public Internet. `/health` is unauthenticated and returns only `{ "status": "ok" }`; all data routes require a Bearer key.
+Generate two different keys and place them in the corresponding files:
 
-The named Docker volume `ph-data` holds the SQLite database. Back up the volume while the service is stopped or use SQLite's online backup API. Keep the environment file and backups outside source control.
+```sh
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+- Put `PH_SERVER_API_KEY` in `deploy/.env`. It protects raw prompt-sync endpoints.
+- Put `PH_MEMORY_HUB_API_KEY` in `deploy/memory.env`. It protects shared-memory endpoints.
+- The checked-in Docker Compose configuration requires `PH_SERVER_API_KEY` because its environment mapping marks that value mandatory. When running `ph server` directly, either the history-service key or the memory-hub key is sufficient to start; configure only the keys for the API routes you intend to expose.
+- Keep the values different. The service rejects identical keys.
+- Keep both files and all database backups out of source control. Restrict file access (for example, `chmod 600 deploy/.env deploy/memory.env`).
+
+Start and verify the service:
+
+```sh
+docker compose --env-file deploy/.env -f deploy/compose.yaml config --quiet
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+docker compose --env-file deploy/.env -f deploy/compose.yaml ps
+curl --fail http://127.0.0.1:3001/health
+```
+
+The container stores its database at `/data/ph.db` in the named `ph-data` volume. The default published listener is loopback on port 3001. For remote clients, expose the service only through a private network or a properly secured TLS reverse proxy and firewall. Do not publish the plain HTTP listener directly to the public internet. Preserve the named volume and take a SQLite-consistent backup before schema/image upgrades. Do not use `docker compose down --volumes` as a routine update or rollback step.
 
 ## Configure a client
 
+Configure the base URL reachable from the client and the memory key. PH prompts without echoing the key if `memory-hub-api-key` is set with no inline value:
+
 ```sh
-ph config set memory-hub-url https://memory.example
+ph config set memory-hub-url https://<private-host>
 ph config set memory-hub-api-key
+ph status
 ```
 
-The second command prompts without echoing the key. The URL and key are stored in `~/.ph_config.json` with file mode `0600`. `PH_MEMORY_HUB_URL` and `PH_MEMORY_HUB_API_KEY` can override them for one process or a managed environment.
+For managed environments, `PH_MEMORY_HUB_URL` and `PH_MEMORY_HUB_API_KEY` override the corresponding client settings. PH stores interactive configuration in `~/.ph_config.json` with mode `0600`.
 
-Memory-hub settings are separate from `remote-url` and `remote-api-key`. Setting them does not enable prompt-history synchronization or upload raw prompts and responses. `ph remote push` remains a separate, explicit operation.
+When both URL and key are configured, `ph memory` uses the shared hub rather than the local memory table. `ph context` and MCP can include shared project/work memories as well as their local history. Personal and sensitive memories remain excluded from ordinary retrieval. Shared-memory IDs are UUIDs.
 
-## Use it
+## Automatic memory extraction
 
-```sh
-ph memory save "Prefers short, direct technical explanations" --scope work --kind preference
-ph memory search "technical explanations"
-ph memory show <memory-id>
-ph memory forget <memory-id>
-ph memory restore <memory-id>
-```
-
-Sensitive memories require an explicit flag. For shell-history privacy, pipe the content instead of placing it in command arguments:
-
-```sh
-printf '%s' 'Sensitive fact to retain' | ph memory save --scope personal --sensitive
-ph memory search "Sensitive fact" --include-sensitive
-```
-
-Search results and `ph context` exclude sensitive memories unless the user explicitly requests them. `ph context "task"` retrieves non-sensitive work and project memories from the hub when configured. The PH MCP server exposes `search_shared_memory` and `save_shared_memory` to coding agents; those tools can only read or write non-sensitive `work` and `project` memories. Their save tool is intended for durable decisions and preferences, with a prompt or session source reference. Sensitive and personal-scope writes remain on the explicit CLI path. `ph close` continues to show proposed project knowledge for review; only approved items are also copied to the hub, with originating prompt IDs recorded as source references.
-
-### Automatic coding-agent memory
-
-When both the memory hub URL and key are configured, PH automatically starts a background extraction after a completed capture from Claude Code, Codex CLI, Gemini CLI, or OpenCode. This does not depend on the agent choosing to call an MCP tool. The configured analysis provider receives the captured user prompt and assistant response (bounded to 4,000 characters each) to identify at most two durable work preferences or project decisions. The hub receives only the derived memory, its scope/type, and `prompt:<id>` provenance; raw prompt history is not sent to the hub by this path.
-
-The extractor requires an exact supporting quote from the user prompt, rejects assistant-only proposals and sensitive candidates, and only permits `work` or `project` scope. PH never automatically writes `personal` memories. Since model classification cannot guarantee perfect sensitivity detection, keep the configured inference provider appropriate for the interaction data. Automatic memory is enabled when the hub is configured unless explicitly disabled:
+When both hub credentials are configured and `memory-auto-capture` is not disabled, PH schedules extraction after completed captures from supported coding tools. A successful extraction additionally needs a usable PH inference provider; if the provider is not configured or reachable, the background attempt fails and is reported by `ph status`. The setting defaults to enabled when hub credentials are configured. To disable it:
 
 ```sh
 ph config set memory-auto-capture false
-ph config set memory-auto-capture true
-ph status
-ph memory undo <interaction-id>
-ph memory retry <interaction-id>
 ```
 
-`ph status` reports each recent interaction's extraction state. `ph memory undo <interaction-id>` reversibly forgets all automatically saved items for that interaction; it prints memory IDs that can be restored with `ph memory restore <memory-id>`. Use `ph memory retry <interaction-id>` after an inference or hub outage.
+The selected inference provider receives bounded copies of the captured user prompt and assistant response. PH accepts at most two work/project candidates and requires an exact supporting quote from the user prompt. Personal-scope candidates are not accepted, and deterministic checks reject common sensitive or credential patterns. Model classification can still make mistakes: choose the inference service according to the data it will receive. The hub receives derived memory records and source references through this path, not the raw interaction.
 
-## API
+Use `ph status` to inspect per-interaction extraction state. `ph memory retry <interaction-id>` retries extraction; `ph memory undo <interaction-id>` reversibly forgets memories created from one interaction.
 
-All data routes use `Authorization: Bearer <key>`:
+## Separate raw-history sync
+
+PH can also synchronize full prompt/response history with the HTTP server. This is independent from the memory API and uses `PH_SERVER_API_KEY` plus a separate client remote URL/key. If `PH_REMOTE_URL` or `remote-url` is configured, new completed captures are pushed automatically. `ph remote push` and `ph remote pull` perform resumable bulk synchronization. Do not configure raw-history sync unless you intend to transfer prompt and response text to that server.
+
+The HTTP server binds to loopback by default. `/health` is public and reports status only. All data routes require their respective bearer key. Keep the server key and memory key separate when both API groups are enabled. The direct `ph server` command can run memory-only with just the memory key; the included Compose deployment currently requires the history-service key as well.
+
+## API routes
+
+Memory routes require `Authorization: Bearer <PH_MEMORY_HUB_API_KEY>`:
 
 | Method | Route | Purpose |
 |---|---|---|
-| `POST` | `/api/memories` | Create an idempotent, source-attributed memory |
-| `POST` | `/api/memories/search` | Search active memories by text and optional scope |
-| `GET` | `/api/memories/{uuid}` | Read a memory |
-| `DELETE` | `/api/memories/{uuid}` | Mark a memory forgotten and record the prior state |
-| `POST` | `/api/memories/{uuid}/restore` | Restore a forgotten memory |
+| `POST` | `/api/memories` | Create an idempotent memory record with scope, kind, provenance, and sensitivity metadata. |
+| `POST` | `/api/memories/search` | Search active memories with optional query, scope, project, and explicit privacy flags. |
+| `GET` | `/api/memories/{uuid}` | Read one shared record. |
+| `DELETE` | `/api/memories/{uuid}` | Reversibly forget a record and retain its prior state. |
+| `POST` | `/api/memories/{uuid}/restore` | Restore a forgotten record. |
 
-Scopes are `work`, `personal`, and `project`. A sensitive write must include `sensitivity: "sensitive"` and `explicit_sensitive: true`; otherwise the server rejects it. Forgetting is reversible and the old status is recorded in `personal_memory_versions`.
+Sensitive API writes require both `sensitivity: "sensitive"` and `explicit_sensitive: true`. Search excludes sensitive records unless explicitly requested. The service currently uses one shared bearer key: it does not provide per-client identities, key revocation, connector-specific permissions, offline writes, or conflict resolution. Email, calendar, and browser connectors are not included.
 
-## Current limits
+Other data routes use `Authorization: Bearer <PH_SERVER_API_KEY>` (the client config key is `remote-api-key`). These routes are unavailable unless this key is configured. The direct service can start with only the memory key when raw-history routes are not needed:
 
-- The server currently uses one shared Bearer key. It does not yet issue separate client identities or connector-specific permissions.
-- Connectors for email, calendar, browser, and personal assistant clients are not included.
-- Automatic extraction runs on the client after coding-agent captures; the hub stores derived records and does not run an inference worker.
-- There is no offline memory outbox or conflict-resolution workflow yet. Prompt capture remains local if the hub is unavailable; memory writes require the hub to be reachable.
-- The current search is SQLite text matching. Semantic personal-memory retrieval and retention rules are future work.
-- PH does not automatically infer personal memories from captured conversations. This avoids silently turning full prompt history into durable personal memory.
+| Method | Route | Request / purpose |
+|---|---|---|
+| `GET` | `/health` | Public status-only health response. |
+| `POST` | `/api/prompts/search` | Search remote prompt history; accepts query, tool, project, role, tag, since, until, and limit. |
+| `POST` | `/api/prompts/by-id` | Read one full prompt interaction by numeric ID. |
+| `POST` | `/api/prompts/semantic` | Semantic prompt search using the server's configured Ollama embedding service. |
+| `POST` | `/api/sync/push` | Push a page of up to 500 raw interaction records; duplicate records are skipped idempotently. |
+| `POST` | `/api/sync/pull` | Pull raw interactions after a row-ID cursor; accepts a limit from 1 to 500 and returns the next cursor. |
+| `GET` | `/api/stats` | Return aggregate interaction and memory counts and counts by tool. |
+
+The memory API and raw-history routes use separate bearer keys. PH clients do not enable raw-history transfer when only the memory-hub URL/key are configured.

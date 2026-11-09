@@ -33,12 +33,13 @@ durable project knowledge consistent across adapters.
 
 ## Decisions
 
-1. `ph show <id>` is the canonical single-interaction view. It prints complete
-   stored prompt and response, source/capture fields, all supported analysis
-   metadata, and an explicit analysis state. Missing response and missing
-   analysis are rendered as such, not silently omitted. `--json` emits the
-   complete record and decoded metadata. `--archive` resolves an archived row
-   using the ID printed by archived search.
+1. `ph show <id>` is the canonical single-interaction view. It prints capture
+   fields and analysis first; prompt and response bodies are hidden by default
+   with their lengths and reveal commands. `--prompt` reveals only the prompt;
+   `--full` reveals both bodies. Missing response and analysis are rendered as
+   such, not silently omitted. `--json` emits the complete record and decoded
+   metadata. `--archive` resolves an archived row using the ID printed by
+   archived search.
 2. `ph search` remains a compact discovery list and prints an actionable
    `ph show <id>` hint. `--full` means full prompt and response. Text queries
    also match analyzed summary, key insights, and technical decisions. Search
@@ -75,7 +76,10 @@ durable project knowledge consistent across adapters.
   requested; absent on legacy records is inferred as `complete` when analysis
   fields exist and otherwise `not requested`.
 - `analysis_error`: one safe category (`worker_launch_failed`,
-  `provider_unavailable`, `analysis_failed`, or `analysis_persistence_failed`).
+  `provider_unavailable`, `provider_out_of_memory`,
+  `provider_request_failed`, `analysis_response_invalid`, `analysis_failed`, or
+  `analysis_persistence_failed`). Provider response bodies and credentials are
+  never persisted.
 - `remote_sync_status`: `pending`, `complete`, or `failed` for configured
   per-capture pushes; absent on old records is `unknown` when a remote is
   configured and `not configured` otherwise.
@@ -90,13 +94,18 @@ be safe and idempotent.
 
 ## Acceptance criteria
 
-- **G1 — Full detail**: Given a stored interaction with prompt, response,
-  metadata, and analysis fields, when `ph show <id>` runs, then all are printed
-  without truncation. Given missing response or analysis, then the output names
-  the missing state and returns successfully.
+- **G1 — Compact detail**: Given a stored interaction with prompt, response,
+  metadata, and analysis fields, when `ph show <id>` runs, then capture fields
+  and analysis are printed before body-length hints, without printing prompt or
+  response text. Given missing response or analysis, then the output names the
+  missing state and returns successfully.
+- **G1b — Reveal bodies**: Given a stored interaction, `--prompt` prints the
+  full prompt but hides the response; `--full` prints both bodies without
+  truncation. `--json` remains complete regardless of these text-view options.
 - **G1a — Archived detail**: Given an archived search result ID, when
-  `ph show <id> --archive` or `ph export <id> --archive` runs, then the original
-  prompt, response, and metadata are shown without changing the archive.
+  `ph show <id> --archive` runs, then metadata and analysis are shown with body
+  lengths. `--full --archive` reveals both original bodies; `ph export <id>
+  --archive` remains complete. Neither command changes the archive.
 - **G2 — Complete export**: Given a stored interaction, when each supported
   export format runs, then prompt and response are present; JSON includes the
   full entry and decoded metadata. Unknown IDs and formats fail with a useful

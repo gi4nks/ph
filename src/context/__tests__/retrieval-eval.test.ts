@@ -43,9 +43,11 @@ describe('project context retrieval golden set', () => {
     ]);
     add('other', 'Unrelated vector closest to the query', unrelatedNearest);
 
-    const result = await getProjectContext(db, { project: 'ph', query: 'project memory retrieval', limit: 2 }, async () => {
-      const query = new Float32Array(768); query[0] = 1;
-      return query;
+    const result = await getProjectContext(db, { project: 'ph', query: 'project memory retrieval', limit: 2 }, {
+      embed: async () => {
+        const query = new Float32Array(768); query[0] = 1;
+        return query;
+      },
     });
     const rankedRelevant = result.prompts.map((prompt, index) => ({ prompt, rank: index + 1 }))
       .filter(item => expectedIds.has(item.prompt.id));

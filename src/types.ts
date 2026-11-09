@@ -31,57 +31,36 @@ export interface PromptMetadata {
   summary?: string;
   key_insights?: string[];
   analysis_status?: 'pending' | 'complete' | 'failed';
-  analysis_error?: 'worker_launch_failed' | 'provider_unavailable' | 'analysis_failed' | 'analysis_persistence_failed';
-  automatic_memory_status?: 'pending' | 'complete' | 'empty' | 'failed';
-  automatic_memory_ids?: string[];
-  automatic_memory_error?: 'worker_launch_failed' | 'provider_unavailable' | 'analysis_failed' | 'hub_unavailable' | 'save_failed';
+  analysis_error?: 'worker_launch_failed' | 'provider_unavailable' | 'provider_out_of_memory' | 'provider_request_failed' | 'analysis_response_invalid' | 'analysis_failed' | 'analysis_persistence_failed';
   remote_sync_status?: 'pending' | 'complete' | 'failed';
   remote_sync_error?: 'push_failed' | 'invalid_remote_url';
   remote_sync_target?: string;
+  automatic_memory_status?: 'pending' | 'complete' | 'empty' | 'failed' | 'undone';
+  automatic_memory_error?: 'worker_launch_failed' | 'provider_unavailable' | 'analysis_failed' | 'save_failed';
+  automatic_memory_ids?: string[];
   capture_status?: 'in_progress';
   capture_owner_pid?: number;
 }
 
+export type MemoryScope = 'project' | 'work' | 'personal';
+export type MemoryKind = 'decision' | 'insight' | 'preference' | 'fact';
+export type MemoryStatus = 'active' | 'forgotten';
+
+/** Unified, source-linked memory entry backed by SQLite + FTS5. */
 export interface MemoryEntry {
   id: number;
+  content: string;
+  scope: MemoryScope;
   project: string;
+  kind: MemoryKind;
   prompt_ids: number[];
-  summary: string;
-  key_insights: string[];
-  technical_decisions: string[];
-  git_context_snapshot?: string;
+  status: MemoryStatus;
   created_at: string;
   updated_at: string;
-  access_count: number;
-  last_accessed?: string;
-}
-
-export interface ProjectSummary {
-  project: string;
-  summary: string;
-  key_insights: string[];
-  technical_decisions: string[];
-  prompt_count: number;
-  first_analyzed: string;
-  last_analyzed: string;
-  git_context_snapshot?: string;
-}
-
-export type PersonalMemoryScope = 'work' | 'personal' | 'project';
-export type PersonalMemorySensitivity = 'normal' | 'sensitive';
-
-/** A source-backed, user-governed memory shared through a PH memory hub. */
-export interface PersonalMemory {
-  id: string;
-  content: string;
-  scope: PersonalMemoryScope;
-  kind: string;
-  sensitivity: PersonalMemorySensitivity;
+  sensitivity: 'normal' | 'sensitive';
   source: string;
   source_ref?: string;
-  status: 'active' | 'forgotten';
-  created_at: string;
-  updated_at: string;
+  external_id?: string;
   forgotten_at?: string;
 }
 
@@ -89,9 +68,9 @@ export interface SearchOptions {
   query?: string;
   tool?: string;
   project?: string;
-  language?: string;    // filter by detected/set language
-  role?: string;        // filter by role
-  tag?: string;         // filter by single tag (prompt must contain it)
+  language?: string;
+  role?: string;
+  tag?: string;
   starred?: boolean;
   minQuality?: number;
   minRelevance?: number;

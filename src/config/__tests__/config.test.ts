@@ -53,6 +53,30 @@ describe('config load/save (SPEC-015)', () => {
     expect(load()).toEqual({});
   });
 
+  it('loads legacy oMLX settings, prefers canonical settings, and saves only canonical names', async () => {
+    fs.mkdirSync(tmp, { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.ph_config.json'), JSON.stringify({
+      analyzeProvider: 'mlx-serve',
+      mlxServeModel: 'legacy-model',
+      mlxServeUrl: 'http://legacy.example/v1',
+      mlxServeApiKey: 'legacy-key',
+      omlxModel: 'canonical-model',
+    }));
+    const { load, save } = await freshConfig();
+    const loaded = load();
+    expect(loaded.analyzeProvider).toBe('omlx');
+    expect(loaded.omlxModel).toBe('canonical-model');
+    expect(loaded.omlxUrl).toBe('http://legacy.example/v1');
+    expect(loaded.omlxApiKey).toBe('legacy-key');
+
+    save(loaded);
+    const persisted = JSON.parse(fs.readFileSync(path.join(tmp, '.ph_config.json'), 'utf-8'));
+    expect(persisted).toMatchObject({ analyzeProvider: 'omlx', omlxModel: 'canonical-model', omlxUrl: 'http://legacy.example/v1', omlxApiKey: 'legacy-key' });
+    expect(persisted).not.toHaveProperty('mlxServeModel');
+    expect(persisted).not.toHaveProperty('mlxServeUrl');
+    expect(persisted).not.toHaveProperty('mlxServeApiKey');
+  });
+
   it('cmdConfig supports set/get with kebab-case, camelCase, retention keys, and redacts secrets', async () => {
     vi.resetModules();
     vi.stubEnv('HOME', tmp);
@@ -69,10 +93,12 @@ describe('config load/save (SPEC-015)', () => {
       await cmdConfig(['set', 'backgroundAnalysis', 'true']);
       await cmdConfig(['set', 'retention-days', '45']);
       await cmdConfig(['set', 'remote-url', 'https://remote.example']);
-      await cmdConfig(['set', 'memory-hub-url', 'https://memory.example']);
-      await cmdConfig(['set', 'memory-hub-api-key', 'memory-secret']);
-      await cmdConfig(['set', 'memory-auto-capture', 'false']);
+      await cmdConfig(['set', 'remote-api-key', 'remote-secret']);
+      await cmdConfig(['set', 'ollama-url', 'http://localhost:11434']);
       await cmdConfig(['set', 'gemini-api-key', 'super-secret-key']);
+      await cmdConfig(['set', 'mlx-serve-model', 'legacy-accepted-model']);
+      await cmdConfig(['set', 'mlx-serve-api-key', 'legacy-test-key']);
+      await cmdConfig(['set', 'analyze-provider', 'mlx-serve']);
 
       await expect(cmdConfig(['set', 'remote-url', 'not a URL'])).rejects.toThrow(/absolute HTTP or HTTPS/i);
 
@@ -80,21 +106,25 @@ describe('config load/save (SPEC-015)', () => {
         backgroundAnalysis: true,
         retentionDays: 45,
         remoteUrl: 'https://remote.example',
-        memoryHubUrl: 'https://memory.example',
-        memoryHubApiKey: 'memory-secret',
-        memoryAutoCapture: false,
+        remoteApiKey: 'remote-secret',
+        ollamaUrl: 'http://localhost:11434',
         geminiApiKey: 'super-secret-key',
+        omlxModel: 'legacy-accepted-model',
+        omlxApiKey: 'legacy-test-key',
+        analyzeProvider: 'omlx',
       });
 
       logs.length = 0;
       await cmdConfig(['get', 'background-analysis']);
       await cmdConfig(['get', 'retentionDays']);
       await cmdConfig(['get', 'geminiApiKey']);
-      await cmdConfig(['get', 'memory-hub-api-key']);
-      await cmdConfig(['get', 'memory-auto-capture']);
+      await cmdConfig(['get', 'remote-api-key']);
+      await cmdConfig(['get', 'ollama-url']);
       await cmdConfig(['get', 'ollama-model']);
+      await cmdConfig(['get', 'omlx-api-key']);
+      await cmdConfig(['get', 'mlx-serve-api-key']);
 
-      expect(logs).toEqual(['true', '45', '[redacted]', '[redacted]', 'false', '(not set)']);
+      expect(logs).toEqual(['true', '45', '[redacted]', '[redacted]', 'http://localhost:11434', '(not set)', '[redacted]', '[redacted]']);
     } finally {
       spy.mockRestore();
     }

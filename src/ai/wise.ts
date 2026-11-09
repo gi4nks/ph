@@ -3,7 +3,15 @@ import { createAIModel, type ProviderConfig } from '@gi4nks/wise';
 import type { LLMProvider } from './provider.js';
 
 export const OPENROUTER_DEFAULT_URL = 'https://openrouter.ai/api/v1';
-export const MLX_SERVE_DEFAULT_URL = 'http://127.0.0.1:11234/v1';
+export const OMLX_DEFAULT_URL = 'http://parmenide:8000/v1';
+/** @deprecated Use OMLX_DEFAULT_URL. */
+export const MLX_SERVE_DEFAULT_URL = OMLX_DEFAULT_URL;
+
+export function normalizeOmlxBaseUrl(value: string): string {
+  return value.replace(/^http:\/\/parmenide:(?:8010|11234|11434)(?=\/|$)/i, 'http://parmenide:8000');
+}
+/** @deprecated Use normalizeOmlxBaseUrl. */
+export const normalizeMlxServeBaseUrl = normalizeOmlxBaseUrl;
 
 type WiseProviderName = 'openai' | 'omlx';
 
@@ -18,14 +26,15 @@ export class WiseLLMProvider implements LLMProvider {
     config: ProviderConfig,
   ) {
     this.name = `${displayName} (${modelId})`;
-    // OpenRouter speaks the OpenAI API; MLX-Serve speaks the same API used by Wise's oMLX adapter.
+    // OpenRouter and oMLX both speak the OpenAI-compatible API used by Wise.
     this.model = createAIModel(wiseProvider, modelId, config);
   }
 
-  async generate(prompt: string): Promise<string> {
+  async generate(prompt: string, options?: { maxOutputTokens?: number }): Promise<string> {
     const result = await generateText({
       model: this.model,
       prompt,
+      ...(options?.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}),
       // OpenRouter requests can incur cost. Avoid hidden automatic replays.
       maxRetries: 0,
     });
@@ -34,12 +43,12 @@ export class WiseLLMProvider implements LLMProvider {
 }
 
 export async function discoverModels(
-  provider: 'openrouter' | 'mlx-serve',
+  provider: 'openrouter' | 'omlx' | 'mlx-serve',
   apiKey: string,
   baseUrl?: string,
 ): Promise<Array<{ id: string; name: string; loaded?: boolean; state?: string }>> {
-  if (provider === 'mlx-serve') {
-    const url = (baseUrl || MLX_SERVE_DEFAULT_URL).replace(/\/+$/, '');
+  if (provider === 'omlx' || provider === 'mlx-serve') {
+    const url = normalizeOmlxBaseUrl(baseUrl || OMLX_DEFAULT_URL).replace(/\/+$/, '');
     const response = await fetch(`${url}/models`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(15_000),
