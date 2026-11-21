@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/gi4nks/ph/compare/v1.10.0...v1.11.0) (2026-11-21)
+
+
+### Features
+
+* harden OSS defaults, unify hooks, and upgrade storage to schema v6 ([83ade90](https://github.com/gi4nks/ph/commit/83ade90e57c2c8c4c30f3e057f9d83ca81d7ac30))
+
 # [1.10.0](https://github.com/gi4nks/ph/compare/v1.9.0...v1.10.0) (2026-11-09)
 
 
