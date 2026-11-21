@@ -35,7 +35,11 @@ const explicitPreferenceCue = /\b(prefer|prefer[s]?|please|always|never|from now
 const explicitDecisionCue = /\b(use|choose|chose|decided|decision|adopt|keep|remove|replace|switch|selected|select|prefer|in futuro|d'ora in poi|sempre|mai|scegli|scelto|deciso|decisione|adotta|rimuovi|sostituisci|passa a|preferisco)\b/i;
 
 export function parseAutomaticMemories(raw: string, userPrompt: string): AutomaticMemoryCandidate[] {
-  const text = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let text = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) return [];
+  text = text.slice(start, end + 1);
   let parsed: unknown;
   try { parsed = JSON.parse(text); } catch { return []; }
   if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { memories?: unknown }).memories)) return [];
@@ -64,5 +68,10 @@ export function parseAutomaticMemories(raw: string, userPrompt: string): Automat
 }
 
 export async function extractAutomaticMemories(entry: PromptEntry, provider: LLMProvider, project?: string): Promise<AutomaticMemoryCandidate[]> {
-  return parseAutomaticMemories(await provider.generate(promptFor(entry, project)), entry.prompt);
+  const raw = await provider.generate(promptFor(entry, project), {
+    maxOutputTokens: 800,
+    think: false,
+    format: 'json',
+  });
+  return parseAutomaticMemories(raw, entry.prompt);
 }

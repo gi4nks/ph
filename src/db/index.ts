@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import path from 'path';
 import os from 'os';
 import * as sqliteVec from 'sqlite-vec';
@@ -6,7 +7,7 @@ import type { PromptEntry, SearchOptions, MemoryEntry, ArchivedPromptEntry, Memo
 import { SemanticIndex } from './semantic-index.js';
 import { MemoryRepository, type AddMemoryInput, type SearchMemoriesOptions } from './memory-repository.js';
 import { ArchiveRepository } from './archive-repository.js';
-import { PromptRepository } from './prompt-repository.js';
+import { PromptRepository, computeCaptureHashForRow, extractProjectFromMetadata } from './prompt-repository.js';
 
 export function defaultPath(): string {
   return path.join(os.homedir(), '.prompt_history.db');
@@ -27,8 +28,10 @@ export class PhDB {
    *        memories + project_summaries + personal_memories silos).
    * v3:    unified memory table and sqlite-vec index.
    * v4:    source/provenance preservation, memory version history, safe backfill.
+   * v5:    partial JSON expression indexes, prompt_hash column/index, orphan vector cleanup.
+   * v6:    capture_hash column/index, partitioned vec_embeddings, memories.hub_sync_status.
    */
-  static readonly SCHEMA_VERSION = 4;
+  static readonly SCHEMA_VERSION = 6;
 
   private static readonly ARCHIVE_SCHEMA = `
     CREATE TABLE IF NOT EXISTS prompts_archive (
@@ -65,9 +68,9 @@ export class PhDB {
     this.db = new Database(dbPath, { timeout: 10_000 });
     this.db.pragma('journal_mode = WAL');
     sqliteVec.load(this.db);
+    this.semanticIndex = new SemanticIndex(this.db);
     this.migrate();
     this.databaseId = this.getMeta('database_id')!;
-    this.semanticIndex = new SemanticIndex(this.db);
     this.promptRepository = new PromptRepository(this.db, this.semanticIndex);
     this.memoryRepository = new MemoryRepository(this.db);
     this.archiveRepository = new ArchiveRepository(this.db);
@@ -113,9 +116,65 @@ export class PhDB {
       this.upgradeMemories();
       this.upgradeMemoryProvenance();
       this.db.exec(PhDB.ARCHIVE_SCHEMA);
+      this.upgradeSearchAndVectorIntegrity();
+      this.upgradeV6();
       this.setMeta('schema_version', String(PhDB.SCHEMA_VERSION));
     });
     upgrade.immediate();
+  }
+
+  private upgradeSearchAndVectorIntegrity(): void {
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_prompts_project ON prompts(json_extract(metadata, '$.project')) WHERE json_valid(metadata);
+      CREATE INDEX IF NOT EXISTS idx_prompts_sync_hash ON prompts(json_extract(metadata, '$.sync_hash')) WHERE json_valid(metadata);
+    `);
+
+    if (!this.columns('prompts').includes('prompt_hash')) {
+      this.db.exec("ALTER TABLE prompts ADD COLUMN prompt_hash TEXT NOT NULL DEFAULT ''");
+    }
+
+    const missingHashes = this.db.prepare("SELECT id, prompt FROM prompts WHERE prompt_hash = ''")
+      .all() as { id: number; prompt: string }[];
+    if (missingHashes.length > 0) {
+      const updateHash = this.db.prepare('UPDATE prompts SET prompt_hash = ? WHERE id = ?');
+      for (const row of missingHashes) {
+        const hash = createHash('sha256').update(row.prompt.trim().toLowerCase()).digest('hex');
+        updateHash.run(hash, row.id);
+      }
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_prompts_prompt_hash ON prompts(prompt_hash);');
+
+    const orphanRows = this.db.prepare('SELECT rowid FROM vec_embeddings WHERE rowid NOT IN (SELECT id FROM prompts)')
+      .all() as { rowid: number | bigint }[];
+    if (orphanRows.length > 0) {
+      const delVec = this.db.prepare('DELETE FROM vec_embeddings WHERE rowid = ?');
+      for (const row of orphanRows) {
+        delVec.run(BigInt(row.rowid));
+      }
+    }
+  }
+
+  private upgradeV6(): void {
+    if (!this.columns('prompts').includes('capture_hash')) {
+      this.db.exec("ALTER TABLE prompts ADD COLUMN capture_hash TEXT NOT NULL DEFAULT ''");
+    }
+    const missingCaptureHashes = this.db
+      .prepare("SELECT id, tool, workdir, metadata, prompt, response FROM prompts WHERE capture_hash = ''")
+      .all() as { id: number; tool: string; workdir: string; metadata: string; prompt: string; response: string }[];
+    if (missingCaptureHashes.length > 0) {
+      const updateCaptureHash = this.db.prepare('UPDATE prompts SET capture_hash = ? WHERE id = ?');
+      for (const row of missingCaptureHashes) {
+        updateCaptureHash.run(computeCaptureHashForRow(row), row.id);
+      }
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_prompts_capture_hash ON prompts(capture_hash);');
+
+    if (!this.columns('memories').includes('hub_sync_status')) {
+      this.db.exec("ALTER TABLE memories ADD COLUMN hub_sync_status TEXT NOT NULL DEFAULT 'local'");
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_memories_hub_sync_status ON memories(hub_sync_status);');
+
+    this.semanticIndex.migrateToPartitioned();
   }
 
   private upgradeVectors(): void {
@@ -254,15 +313,21 @@ export class PhDB {
   getArchivedById(id: number): ArchivedPromptEntry | undefined { return this.archiveRepository.getByOriginalIdOrArchiveId(id); }
   search(opts: SearchOptions & { anyTerms?: boolean }): PromptEntry[] { return this.promptRepository.search(opts); }
 
-  saveEmbedding(id: number, vector: Float32Array, model?: string): void { this.promptRepository.saveEmbedding(id, vector, model); }
+  saveEmbedding(promptId: number, vector: Float32Array, model?: string): void {
+    const prompt = this.promptRepository.getById(promptId);
+    const project = prompt ? extractProjectFromMetadata(prompt.metadata) : '';
+    this.semanticIndex.save(promptId, vector, model, project);
+  }
   searchSemantic(queryVector: Float32Array, limit: number, project?: string, model?: string): PromptEntry[] {
     return this.promptRepository.searchSemantic(queryVector, limit, project, model);
   }
   getEmbeddingCount(): number { return this.promptRepository.getEmbeddingCount(); }
+  getEmbeddingDim(): number { return this.semanticIndex.getDim(); }
   getEmbeddingModel(): string | null { return this.promptRepository.getEmbeddingModel(); }
   clearEmbeddings(): void { this.promptRepository.clearEmbeddings(); }
   getAllEmbeddings(): Map<number, Float32Array> { return this.promptRepository.getAllEmbeddings(); }
   getEmbeddingsForProject(project: string): Map<number, Float32Array> { return this.promptRepository.getEmbeddingsForProject(project); }
+  getEmbeddingsByIds(ids: number[]): Map<number, Float32Array> { return this.semanticIndex.loadByIds(ids); }
   getPromptsWithoutEmbeddings(): PromptEntry[] { return this.promptRepository.getPromptsWithoutEmbeddings(); }
 
   getAllPrompts(limit: number = 1000000): PromptEntry[] { return this.promptRepository.getAllPrompts(limit); }
@@ -275,6 +340,11 @@ export class PhDB {
     return { ...this.promptRepository.getPromptStats(), totalMemories: this.memoryRepository.countActive() };
   }
   getPromptBySyncHash(hash: string): PromptEntry | undefined { return this.promptRepository.getPromptBySyncHash(hash); }
+  getPromptIdByHash(hash: string): number | undefined { return this.promptRepository.getPromptIdByHash(hash); }
+  getPromptIdByCaptureHash(hash: string): number | undefined { return this.promptRepository.getPromptIdByCaptureHash(hash); }
+  importSyncPrompts(prompts: Array<Partial<PromptEntry>>): { imported: number; skipped: number; errors: string[] } {
+    return this.promptRepository.importSyncPrompts(prompts);
+  }
   getPromptsByRole(role: string): PromptEntry[] { return this.promptRepository.getPromptsByRole(role); }
   getRecentProjectPrompts(project: string, limit: number = 10): PromptEntry[] { return this.promptRepository.getRecentProjectPrompts(project, limit); }
   getAllPromptsByProject(project: string): PromptEntry[] { return this.promptRepository.getAllPromptsByProject(project); }
@@ -322,6 +392,12 @@ export class PhDB {
   forgetMemory(id: number): boolean { return this.memoryRepository.forget(id); }
   restoreMemory(id: number): boolean { return this.memoryRepository.restore(id); }
   deleteMemory(id: number): boolean { return this.memoryRepository.delete(id); }
+  listPendingHubMemories(limit?: number): MemoryEntry[] { return this.memoryRepository.listByHubSyncStatus('pending', limit); }
+  countPendingHubMemories(): number { return this.memoryRepository.countByHubSyncStatus('pending'); }
+  markMemoryHubSynced(id: number, externalId?: string): boolean { return this.memoryRepository.updateHubSyncStatus(id, 'synced', externalId); }
+  updateMemoryHubSyncStatus(id: number, status: 'local' | 'synced' | 'pending', externalId?: string): boolean {
+    return this.memoryRepository.updateHubSyncStatus(id, status, externalId);
+  }
 
   close(): void {
     this.db.close();

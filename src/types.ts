@@ -62,6 +62,7 @@ export interface MemoryEntry {
   source_ref?: string;
   external_id?: string;
   forgotten_at?: string;
+  hub_sync_status?: 'local' | 'synced' | 'pending';
 }
 
 export interface SearchOptions {

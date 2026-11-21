@@ -16,6 +16,7 @@ export interface AddMemoryInput {
   source_ref?: string;
   external_id?: string;
   forgotten_at?: string;
+  hub_sync_status?: 'local' | 'synced' | 'pending';
 }
 
 export interface SearchMemoriesOptions {
@@ -45,6 +46,7 @@ export class MemoryRepository {
       ,source_ref  TEXT
       ,external_id TEXT
       ,forgotten_at TEXT
+      ,hub_sync_status TEXT NOT NULL DEFAULT 'local'
     );
 
     CREATE INDEX IF NOT EXISTS idx_memories_project_status ON memories(project, status, updated_at DESC);
@@ -112,10 +114,21 @@ export class MemoryRepository {
     if (duplicate) {
       const existing = this.hydrate(duplicate);
       const mergedIds = [...new Set([...existing.prompt_ids, ...promptIds])];
-      if (mergedIds.length !== existing.prompt_ids.length) {
+      const idsChanged = mergedIds.length !== existing.prompt_ids.length;
+      const attachExternalId = Boolean(input.external_id && !existing.external_id);
+      const currentStatus = existing.hub_sync_status ?? 'local';
+      const nextStatus: 'local' | 'synced' | 'pending' =
+        input.hub_sync_status === 'synced' || currentStatus === 'synced'
+          ? 'synced'
+          : input.hub_sync_status === 'pending'
+            ? 'pending'
+            : currentStatus;
+      const statusChanged = nextStatus !== currentStatus;
+      if (idsChanged || attachExternalId || statusChanged) {
         const now = input.updated_at ?? new Date().toISOString();
-        this.db.prepare('UPDATE memories SET prompt_ids = ?, updated_at = ? WHERE id = ?')
-          .run(JSON.stringify(mergedIds), now, existing.id);
+        const nextExternalId = attachExternalId ? input.external_id! : (existing.external_id ?? null);
+        this.db.prepare('UPDATE memories SET prompt_ids = ?, external_id = ?, hub_sync_status = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(mergedIds), nextExternalId, nextStatus, now, existing.id);
         return this.getById(existing.id)!;
       }
       return existing;
@@ -126,11 +139,11 @@ export class MemoryRepository {
     const updatedAt = input.updated_at ?? createdAt;
 
     const info = this.db.prepare(`
-      INSERT INTO memories (content, scope, project, kind, prompt_ids, status, created_at, updated_at, sensitivity, source, source_ref, external_id, forgotten_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO memories (content, scope, project, kind, prompt_ids, status, created_at, updated_at, sensitivity, source, source_ref, external_id, forgotten_at, hub_sync_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(content, scope, project, kind, JSON.stringify(promptIds), status, createdAt, updatedAt,
       input.sensitivity ?? 'normal', input.source ?? 'manual', input.source_ref ?? null,
-      input.external_id ?? null, input.forgotten_at ?? null);
+      input.external_id ?? null, input.forgotten_at ?? null, input.hub_sync_status ?? 'local');
 
     return this.getById(Number(info.lastInsertRowid))!;
   }
@@ -218,6 +231,35 @@ export class MemoryRepository {
     return (this.db.prepare("SELECT count(*) AS c FROM memories WHERE status = 'active'").get() as { c: number }).c;
   }
 
+  listByHubSyncStatus(status: 'local' | 'synced' | 'pending', limit = 100): MemoryEntry[] {
+    const safeLimit = Math.max(1, Math.min(Math.floor(limit), 1000));
+    const rows = this.db.prepare(`
+      SELECT * FROM memories
+      WHERE hub_sync_status = ? AND status = 'active'
+      ORDER BY id ASC
+      LIMIT ?
+    `).all(status, safeLimit) as Record<string, unknown>[];
+    return rows.map(row => this.hydrate(row));
+  }
+
+  countByHubSyncStatus(status: 'local' | 'synced' | 'pending'): number {
+    return (this.db
+      .prepare("SELECT count(*) AS c FROM memories WHERE hub_sync_status = ? AND status = 'active'")
+      .get(status) as { c: number }).c;
+  }
+
+  updateHubSyncStatus(id: number, status: 'local' | 'synced' | 'pending', externalId?: string): boolean {
+    const now = new Date().toISOString();
+    const info = externalId !== undefined
+      ? this.db
+          .prepare('UPDATE memories SET hub_sync_status = ?, external_id = ?, updated_at = ? WHERE id = ?')
+          .run(status, externalId, now, id)
+      : this.db
+          .prepare('UPDATE memories SET hub_sync_status = ?, updated_at = ? WHERE id = ?')
+          .run(status, now, id);
+    return info.changes > 0;
+  }
+
   private setStatus(id: number, status: MemoryStatus): boolean {
     const current = this.getById(id);
     if (!current || current.status === status) return false;
@@ -272,6 +314,7 @@ export class MemoryRepository {
       ...(row.source_ref ? { source_ref: String(row.source_ref) } : {}),
       ...(row.external_id ? { external_id: String(row.external_id) } : {}),
       ...(row.forgotten_at ? { forgotten_at: String(row.forgotten_at) } : {}),
+      hub_sync_status: (row.hub_sync_status === 'synced' || row.hub_sync_status === 'pending' ? row.hub_sync_status : 'local'),
     };
   }
 }

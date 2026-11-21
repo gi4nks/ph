@@ -129,4 +129,58 @@ describe('config load/save (SPEC-015)', () => {
       spy.mockRestore();
     }
   });
+
+  it('supports camelCase mlxServe* aliases and aligns provider summaries with OSS defaults', async () => {
+    vi.resetModules();
+    vi.stubEnv('HOME', tmp);
+    vi.stubEnv('GEMINI_API_KEY', undefined);
+    vi.stubEnv('OPENROUTER_API_KEY', undefined);
+    vi.stubEnv('OPENROUTER_MODEL', undefined);
+    vi.stubEnv('OPENROUTER_BASE_URL', undefined);
+    vi.stubEnv('OMLX_MODEL', undefined);
+    vi.stubEnv('OMLX_BASE_URL', undefined);
+    vi.stubEnv('OMLX_API_KEY', undefined);
+    vi.stubEnv('MLX_SERVE_MODEL', undefined);
+    vi.stubEnv('MLX_SERVE_BASE_URL', undefined);
+    vi.stubEnv('MLX_SERVE_API_KEY', undefined);
+    fs.mkdirSync(tmp, { recursive: true });
+
+    const { cmdConfig } = await import('../../commands/config.js');
+    const { load } = await import('../index.js');
+    const { getProviderSummaries } = await import('../provider-summary.js');
+    const { getProvider } = await import('../../ai/provider.js');
+    const defaults = await import('../defaults.js');
+
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await cmdConfig(['set', 'mlxServeModel', 'camel-model']);
+      await cmdConfig(['set', 'mlxServeUrl', 'http://localhost:8000/v1/']);
+      await cmdConfig(['set', 'mlxServeApiKey', 'camel-key']);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const cfg = load();
+    expect(cfg.omlxModel).toBe('camel-model');
+    expect(cfg.omlxUrl).toBe('http://localhost:8000/v1/');
+    expect(cfg.omlxApiKey).toBe('camel-key');
+
+    const summaries = getProviderSummaries({});
+    expect(summaries.find(p => p.id === 'ollama')).toMatchObject({
+      model: defaults.DEFAULT_OLLAMA_MODEL,
+      url: defaults.DEFAULT_OLLAMA_URL,
+      active: true,
+      ready: true,
+    });
+    expect(summaries.find(p => p.id === 'gemini')).toMatchObject({
+      model: defaults.DEFAULT_GEMINI_MODEL,
+    });
+    expect(summaries.find(p => p.id === 'openrouter')).toMatchObject({
+      url: defaults.DEFAULT_OPENROUTER_URL,
+    });
+    expect(summaries.find(p => p.id === 'omlx')).toMatchObject({
+      url: defaults.DEFAULT_OMLX_URL,
+    });
+    expect(getProvider({})?.name).toBe('ollama');
+  });
 });

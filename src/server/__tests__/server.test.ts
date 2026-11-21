@@ -102,6 +102,40 @@ describe('ph HTTP server (SPEC-010)', () => {
     expect(restore.status).toBe(200);
   });
 
+  it('returns the persisted external_id when deduplicating a memory saved with a different UUID', async () => {
+    const firstId = '33333333-3333-4333-8333-333333333333';
+    const secondId = '44444444-4444-4444-8444-444444444444';
+    const basePayload = {
+      content: 'Prefer deterministic repository migrations',
+      scope: 'project',
+      project: 'ph',
+      kind: 'decision',
+      source: 'ph-auto-capture',
+    };
+
+    const firstRes = await fetch(`${base}/api/memories`, {
+      method: 'POST',
+      headers: memoryHeaders,
+      body: JSON.stringify({ ...basePayload, id: firstId, source_ref: 'database:a:prompt:1:1' }),
+    });
+    expect(firstRes.status).toBe(201);
+    expect((await firstRes.json()).memory.id).toBe(firstId);
+
+    const dupRes = await fetch(`${base}/api/memories`, {
+      method: 'POST',
+      headers: memoryHeaders,
+      body: JSON.stringify({ ...basePayload, id: secondId, source_ref: 'database:b:prompt:1:1' }),
+    });
+    expect(dupRes.status).toBe(201);
+    const returnedId = (await dupRes.json()).memory.id as string;
+    expect(returnedId).toBe(firstId);
+
+    const getRes = await fetch(`${base}/api/memories/${returnedId}`, { headers: memoryHeaders });
+    expect(getRes.status).toBe(200);
+    const delRes = await fetch(`${base}/api/memories/${returnedId}`, { method: 'DELETE', headers: memoryHeaders });
+    expect(delRes.status).toBe(200);
+  });
+
   it('/api/stats returns totals', async () => {
     db.insert({ timestamp: '2026-08-08T10:00:00.000Z', tool: 'claude', prompt: 'some prompt one', response: 'r', args: '', workdir: '/p', hostname: 'h', exit_code: 0, metadata: '{}' });
     db.insert({ timestamp: '2026-08-08T11:00:00.000Z', tool: 'gemini', prompt: 'some prompt two', response: 'r', args: '', workdir: '/p', hostname: 'h', exit_code: 0, metadata: '{}' });
@@ -232,6 +266,11 @@ describe('ph HTTP server auth (SPEC-ISSUES-013)', () => {
   it('/health stays open without a key', async () => {
     const res = await fetch(`${base}/health`);
     expect(res.status).toBe(200);
+  });
+
+  it('rejects POST /health without Authorization (401)', async () => {
+    const res = await fetch(`${base}/health`, { method: 'POST', body: '{}' });
+    expect(res.status).toBe(401);
   });
 
   it('rejects API calls without Authorization (401)', async () => {

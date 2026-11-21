@@ -104,21 +104,26 @@ export async function cmdSessions(db: PhDB, args: string[]): Promise<void> {
   const noCohesion = Boolean(flags['no-cohesion']);
   const exportIndex = flags['export'] !== undefined ? Number(flags['export']) : undefined;
 
-  const allEntries = db.search({ limit: 100000 });
+  let since: Date | undefined;
+  if (flags['days'] !== undefined) {
+    const days = typeof flags['days'] === 'string' ? Number(flags['days']) : NaN;
+    if (!Number.isFinite(days) || days <= 0) {
+      process.stderr.write('ph sessions: --days must be a positive number\n');
+      process.exitCode = 1;
+      return;
+    }
+    since = new Date(Date.now() - days * 86_400_000);
+  }
+
+  const targetSpan = exportIndex && Number.isFinite(exportIndex) && exportIndex > 0
+    ? exportIndex
+    : (Number.isFinite(limit) && limit > 0 ? limit : 20);
+  const scanLimit = Math.min(Math.max(targetSpan * 100, 1000), 10000);
+
+  const allEntries = db.search({ limit: scanLimit, ...(since ? { since } : {}) });
   const entriesAsc = [...allEntries].reverse();
 
   const sessions = groupIntoSessions(entriesAsc, gapHours);
-
-  let embeddings: Map<number, Float32Array> | null = null;
-  if (!noCohesion && exportIndex === undefined) {
-    embeddings = db.getAllEmbeddings();
-  }
-
-  for (const session of sessions) {
-    if (embeddings) {
-      session.cohesion = computeSessionCohesion(session, embeddings);
-    }
-  }
 
   // Export mode: output a single session as markdown
   if (exportIndex !== undefined) {
@@ -132,11 +137,21 @@ export async function cmdSessions(db: PhDB, args: string[]): Promise<void> {
   }
 
   const filtered = sessions.filter(s => s.entries.length >= minSize);
-  const visible = filtered.slice(-limit);
+  const visible = limit > 0 ? filtered.slice(-limit) : [];
 
   if (visible.length === 0) {
     process.stdout.write('No sessions found.\n');
     return;
+  }
+
+  if (!noCohesion) {
+    const visibleIds = visible.flatMap(s => s.entries.map(e => e.id));
+    if (visibleIds.length > 0) {
+      const embeddings = db.getEmbeddingsByIds(visibleIds);
+      for (const session of visible) {
+        session.cohesion = computeSessionCohesion(session, embeddings);
+      }
+    }
   }
 
   const C = {

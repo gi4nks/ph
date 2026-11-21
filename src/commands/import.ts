@@ -5,12 +5,47 @@ import type { PhConfig } from '../config/index.js';
 import { importGeminiHistory } from '../importer/gemini.js';
 import { importClaudeHistory } from '../importer/claude.js';
 import { importOpenCodeHistory } from '../importer/opencode.js';
-import { importCodexHistory } from '../importer/codex.js';
-import { importAgyHistory } from '../importer/agy.js';
+import { importCodexHistory, parseCodexRollout } from '../importer/codex.js';
+import { importAgyHistory, parseAgyTranscript, resolveFullTranscriptFile } from '../importer/agy.js';
 import { getProvider, getProviderSetupError } from '../ai/provider.js';
 import { FilterPipeline } from '../filter/index.js';
 import { parseFlags } from './_utils.js';
-import { completeLiveCapture } from '../capture/lifecycle.js';
+import { completeLiveCapture, prepareLiveCapture } from '../capture/lifecycle.js';
+import { captureHash } from '../utils/captureHash.js';
+import { detectProject } from '../runner/project.js';
+
+interface FileTurnContext {
+  tool: string;
+  workdir: string;
+  response: string;
+}
+
+function buildFileContextQueue(
+  source: string,
+  transcriptFile: string,
+  workdirOverride?: string,
+): Map<string, FileTurnContext[]> {
+  const queue = new Map<string, FileTurnContext[]>();
+  const enqueue = (prompt: string, ctx: FileTurnContext): void => {
+    const bucket = queue.get(prompt);
+    if (bucket) bucket.push(ctx);
+    else queue.set(prompt, [ctx]);
+  };
+
+  if (source === 'codex') {
+    const parsed = parseCodexRollout(transcriptFile, workdirOverride);
+    for (const entry of parsed.entries) {
+      enqueue(entry.prompt, { tool: 'codex', workdir: entry.workdir, response: entry.response });
+    }
+  } else if (source === 'agy' || source === 'antigravity') {
+    const parsed = parseAgyTranscript(resolveFullTranscriptFile(transcriptFile), workdirOverride);
+    for (const item of parsed.interactions) {
+      enqueue(item.prompt, { tool: 'agy', workdir: item.workdir, response: item.response });
+    }
+  }
+
+  return queue;
+}
 
 export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promise<void> {
   if (args.length === 0) {
@@ -42,8 +77,8 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
     console.log(`Analyzing with ${analyzer.name} during import...`);
   }
 
-  let filter: FilterPipeline | undefined;
-  const existingHashes = dryRun ? new Map<string, number>() : db.getAllPromptHashes();
+  let filter: FilterPipeline;
+  const existingHashes = (dryRun || transcriptFile) ? new Map<string, number>() : db.getAllPromptHashes();
 
   if (useFilter) {
     filter = new FilterPipeline({
@@ -59,6 +94,66 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
       existingHashes,
     });
     filter.checkRules = () => ({ keep: true });
+  }
+
+  if (transcriptFile && !dryRun) {
+    const contextQueue = buildFileContextQueue(source, transcriptFile, workdirOverride);
+    const seenCaptureHashes = new Map<string, number>();
+    const pendingHashes = new Map<string, string>();
+    const baseCheckRules = filter.checkRules.bind(filter);
+    const baseCheckDuplicate = filter.checkDuplicate.bind(filter);
+    const baseRegisterHash = filter.registerHash.bind(filter);
+
+    filter.checkRules = (text: string) => {
+      const rulesResult = baseCheckRules(text);
+      if (!rulesResult.keep) {
+        contextQueue.get(text)?.shift();
+      }
+      return rulesResult;
+    };
+
+    filter.checkDuplicate = (text: string) => {
+      const ctx = contextQueue.get(text)?.shift();
+      if (ctx) {
+        const resolvedWorkdir = ctx.workdir.trim() || detectProject(ctx.workdir).projectName;
+        const capHash = captureHash({
+          tool: ctx.tool,
+          workdir: resolvedWorkdir,
+          prompt: text,
+          response: ctx.response,
+        });
+        const seenId = seenCaptureHashes.get(capHash);
+        if (seenId !== undefined) {
+          return { keep: false, reason: 'exact_duplicate', details: `duplicate of #${seenId}` };
+        }
+        const existingId = db.getPromptIdByCaptureHash(capHash);
+        if (existingId !== undefined) {
+          seenCaptureHashes.set(capHash, existingId);
+          return { keep: false, reason: 'exact_duplicate', details: `duplicate of #${existingId}` };
+        }
+        pendingHashes.set(text, capHash);
+        return { keep: true };
+      }
+
+      const intraBatch = baseCheckDuplicate(text);
+      if (!intraBatch.keep) return intraBatch;
+      const existingId = db.getPromptIdByHash(FilterPipeline.hashPrompt(text));
+      if (existingId !== undefined) {
+        baseRegisterHash(text, existingId);
+        return { keep: false, reason: 'exact_duplicate', details: `duplicate of #${existingId}` };
+      }
+      return { keep: true };
+    };
+
+    filter.registerHash = (text: string, id: number) => {
+      const capHash = pendingHashes.get(text);
+      if (capHash !== undefined) {
+        seenCaptureHashes.set(capHash, id);
+        pendingHashes.delete(text);
+        return;
+      }
+      baseRegisterHash(text, id);
+    };
   }
 
   const onProgress = (evaluated: number, imported: number, total: number, current: string) => {
@@ -93,6 +188,11 @@ export async function cmdImport(db: PhDB, cfg: PhConfig, args: string[]): Promis
 
   if (isLive && (result.importedIds?.length ?? 0) > 0) {
     for (const id of result.importedIds!) {
+      const entry = db.getById(id);
+      if (entry) {
+        const prepared = prepareLiveCapture(entry, cfg);
+        db.updateMetadata(id, prepared.metadata);
+      }
       await completeLiveCapture(db.dbPath, cfg, id);
     }
   }

@@ -14,14 +14,14 @@ export interface PhConfig {
   geminiApiKey?: string;
   dbPath?: string;
   analyzeProvider?: 'ollama' | 'gemini' | 'openrouter' | 'omlx' | 'mlx-serve'; // default: 'ollama'; mlx-serve is a legacy alias
-  ollamaUrl?: string;                    // default: 'http://127.0.0.1:8000'
-  ollamaModel?: string;                  // default: 'qwen3.5:9b-mlx'
+  ollamaUrl?: string;                    // default: 'http://localhost:11434'
+  ollamaModel?: string;                  // default: 'llama3.1:latest'
   openrouterModel?: string;              // OpenRouter model ID, e.g. provider/model
   openrouterUrl?: string;                // default: https://openrouter.ai/api/v1
   openrouterApiKey?: string;             // overridden by OPENROUTER_API_KEY
   omlxModel?: string;                    // exact model ID returned by oMLX
-  omlxUrl?: string;                      // default: http://parmenide:8000/v1
-  omlxApiKey?: string;                   // overridden by OMLX_API_KEY / MLX_SERVE_API_KEY / GLB_OMLX_API_KEY
+  omlxUrl?: string;                      // default: http://127.0.0.1:8000/v1
+  omlxApiKey?: string;                   // overridden by OMLX_API_KEY / MLX_SERVE_API_KEY
   /** @deprecated Use omlxModel. Retained for existing config files and callers. */
   mlxServeModel?: string;
   /** @deprecated Use omlxUrl. Retained for existing config files and callers. */

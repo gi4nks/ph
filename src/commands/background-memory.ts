@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { PhDB } from '../db/index.js';
 import { load as loadConfig } from '../config/index.js';
 import { resolveMemoryHubConfig } from '../config/runtime.js';
 import { getProvider } from '../ai/provider.js';
 import { extractAutomaticMemories } from '../analyzer/automatic-memory.js';
+import { withWorkerLock } from '../background/lock.js';
 import { decodePromptMetadata } from '../interaction/detail.js';
 import { patchPromptMetadata } from '../interaction/lifecycle.js';
 import { saveHubMemory } from '../memory/hub-client.js';
@@ -15,66 +16,70 @@ export async function cmdBackgroundMemory(dbPath: string, args: string[]): Promi
   if (!Number.isInteger(id) || id < 1) return;
   const dbIdx = args.indexOf('--db');
   const actualPath = dbIdx >= 0 && args[dbIdx + 1] ? args[dbIdx + 1] : dbPath;
-  const db = new PhDB(actualPath);
-  try {
-    const entry = db.getById(id);
-    if (!entry) return;
-    const cfg = loadConfig();
-    if (!resolveMemoryHubConfig(cfg).configured || cfg.memoryAutoCapture === false) {
-      patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'provider_unavailable' });
-      return;
-    }
+  const isRetry = args.includes('--retry');
 
-    let provider;
-    try { provider = getProvider(cfg); }
-    catch {
-      patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'provider_unavailable' });
-      return;
-    }
-    if (!provider) {
-      patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'provider_unavailable' });
-      return;
-    }
-    patchPromptMetadata(db, id, { automatic_memory_status: 'pending', automatic_memory_error: null });
-
-    let candidates;
+  await withWorkerLock(actualPath, 'memory', async () => {
+    const db = new PhDB(actualPath);
     try {
+      const entry = db.getById(id);
+      if (!entry) return;
+      const cfg = loadConfig();
+      if (!resolveMemoryHubConfig(cfg).configured || cfg.memoryAutoCapture === false) {
+        patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'provider_unavailable' });
+        return;
+      }
+
+      let provider;
+      try { provider = getProvider(cfg); }
+      catch {
+        patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'provider_unavailable' });
+        return;
+      }
+      if (!provider) {
+        patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'provider_unavailable' });
+        return;
+      }
+      patchPromptMetadata(db, id, { automatic_memory_status: 'pending', automatic_memory_error: null });
+
+      let candidates;
+      try {
+        const metadata = decodePromptMetadata(entry.metadata);
+        const project = metadata.project || detectProject(entry.workdir || path.dirname(actualPath)).projectName || path.basename(entry.workdir || '');
+        candidates = await extractAutomaticMemories(entry, provider, project);
+      } catch {
+        patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'analysis_failed' });
+        return;
+      }
+      if (!candidates.length) {
+        patchPromptMetadata(db, id, { automatic_memory_status: 'empty', automatic_memory_ids: [], automatic_memory_error: null });
+        return;
+      }
+
       const metadata = decodePromptMetadata(entry.metadata);
       const project = metadata.project || detectProject(entry.workdir || path.dirname(actualPath)).projectName || path.basename(entry.workdir || '');
-      candidates = await extractAutomaticMemories(entry, provider, project);
-    } catch {
-      patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_error: 'analysis_failed' });
-      return;
-    }
-    if (!candidates.length) {
-      patchPromptMetadata(db, id, { automatic_memory_status: 'empty', automatic_memory_ids: [], automatic_memory_error: null });
-      return;
-    }
-
-    const metadata = decodePromptMetadata(entry.metadata);
-    const project = metadata.project || detectProject(entry.workdir || path.dirname(actualPath)).projectName || path.basename(entry.workdir || '');
-    const ids: string[] = [];
-    try {
-      for (const [index, candidate] of candidates.entries()) {
-        const sourceRef = `prompt:${id}:${index + 1}`;
-        const stableId = stableMemoryId(sourceRef);
-        const memoryId = await saveHubMemory(cfg, {
-          id: stableId,
-          content: candidate.content,
-          scope: candidate.scope,
-          ...(candidate.scope === 'project' ? { project } : {}),
-          kind: candidate.kind === 'work-preference' ? 'preference' : 'decision',
-          sensitivity: 'normal',
-          source: 'ph-auto-capture',
-          source_ref: sourceRef,
-        });
-        ids.push(memoryId);
+      const ids: string[] = [];
+      try {
+        for (const [index, candidate] of candidates.entries()) {
+          const sourceRef = `database:${db.databaseId}:prompt:${id}:${index + 1}`;
+          const stableId = isRetry ? randomUUID() : stableMemoryId(sourceRef);
+          const memoryId = await saveHubMemory(cfg, {
+            id: stableId,
+            content: candidate.content,
+            scope: candidate.scope,
+            ...(candidate.scope === 'project' ? { project } : {}),
+            kind: candidate.kind === 'work-preference' ? 'preference' : 'decision',
+            sensitivity: 'normal',
+            source: 'ph-auto-capture',
+            source_ref: sourceRef,
+          });
+          ids.push(memoryId);
+        }
+        patchPromptMetadata(db, id, { automatic_memory_status: 'complete', automatic_memory_ids: ids, automatic_memory_error: null });
+      } catch {
+        patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_ids: ids, automatic_memory_error: 'save_failed' });
       }
-      patchPromptMetadata(db, id, { automatic_memory_status: 'complete', automatic_memory_ids: ids, automatic_memory_error: null });
-    } catch {
-      patchPromptMetadata(db, id, { automatic_memory_status: 'failed', automatic_memory_ids: ids, automatic_memory_error: 'save_failed' });
-    }
-  } finally { db.close(); }
+    } finally { db.close(); }
+  });
 }
 
 function stableMemoryId(sourceRef: string): string {

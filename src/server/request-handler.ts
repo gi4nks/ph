@@ -22,7 +22,7 @@ export function createRequestHandler(db: PhDB, cfg: PhConfig) {
     }
 
     const memoryRoute = matchesMemoryRoute(url.pathname);
-    const authorized = url.pathname === '/health' || (memoryRoute ? authorizeMemoryRequest(req, cfg) : authorizeHistoryRequest(req, cfg));
+    const authorized = memoryRoute ? authorizeMemoryRequest(req, cfg) : authorizeHistoryRequest(req, cfg);
     if (!authorized) {
       json(res, 401, { error: 'unauthorized' });
       return;

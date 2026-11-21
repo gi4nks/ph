@@ -50,7 +50,7 @@ export async function handleSharedMemoryRoute(
         sensitivity: sensitivity as 'normal' | 'sensitive', source: source.trim(), external_id: id,
         ...(typeof sourceRef === 'string' ? { source_ref: sourceRef } : {}),
       });
-      json(res, 201, { memory: { ...saved, id } });
+      json(res, 201, { memory: { ...saved, id: saved.external_id ?? id } });
     } catch (error) {
       const message = (error as Error).message;
       json(res, message.includes('memory id already exists') ? 409 : 400, { error: message });

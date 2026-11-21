@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formatProjectContext, getProjectContext, type ProjectContextStore } from '../index.js';
+import { formatCombinedContext, formatProjectContext, getProjectContext, type ProjectContextStore } from '../index.js';
 import type { MemoryEntry, PromptEntry } from '../../types.js';
 
 const prompt = (id: number, project: string): PromptEntry => ({
@@ -82,5 +82,38 @@ describe('getProjectContext', () => {
     expect(compact).toContain('[memory #12 · decision; prompts none recorded] Use local SQLite');
     expect(compact).toContain('### Interaction #1');
     expect(verbose).toContain('```\nprompt 1\n```');
+  });
+
+  it('bounds combined shared, local memories, and interactions under a unified maxChars budget', () => {
+    const longMemories: MemoryEntry[] = Array.from({ length: 4 }, (_, idx) => ({
+      ...memory,
+      id: idx + 1,
+      content: `Local memory ${idx + 1}: ` + 'x'.repeat(160),
+    }));
+    const longPrompts: PromptEntry[] = Array.from({ length: 4 }, (_, idx) => ({
+      ...prompt(idx + 1, 'ph'),
+      prompt: `Detailed interaction prompt ${idx + 1}: ` + 'y'.repeat(220),
+      response: `Detailed interaction response ${idx + 1}: ` + 'z'.repeat(220),
+    }));
+    const sharedMemories = Array.from({ length: 4 }, (_, idx) => ({
+      id: `shared-${idx + 1}`,
+      kind: 'decision',
+      scope: 'project',
+      project: 'ph',
+      source_ref: `database:db-1:prompt:${idx + 1}`,
+      content: `Shared decision ${idx + 1}: ` + 's'.repeat(160),
+    }));
+
+    const out = formatCombinedContext(
+      { project: 'ph', memories: longMemories, prompts: longPrompts, notes: [] },
+      sharedMemories,
+      { header: '# Project context\nProject: ph', maxChars: 600, promptExcerptLength: 200, responseExcerptLength: 200 },
+    );
+
+    expect(out.length).toBeLessThanOrEqual(600);
+    expect(out).toContain('# Project context');
+    expect(out).toContain('## Shared PH Memory');
+    expect(out).toContain('Shared decision 1');
+    expect(out).toContain('## Relevant Interactions');
   });
 });

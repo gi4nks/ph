@@ -20,6 +20,7 @@ export const MEMORY_USAGE = `Usage:
   ph memory restore <id>
   ph memory retry <interaction-id>
   ph memory undo <interaction-id>
+  ph memory sync [--limit <n>]
 
 Memories use local SQLite unless a shared memory hub is configured. Project
 scope is the default inside a detected project. Personal and sensitive memories
@@ -86,6 +87,10 @@ export async function cmdMemory(db: PhDB, args: string[], cwd = process.cwd(), c
         return;
       }
       const memory = saved.memory;
+      if (saved.pendingSync) {
+        process.stdout.write(`Saved memory #${memory.id} locally with pending hub sync (push later with: ph memory sync).\n${formatMemory(memory)}\n`);
+        return;
+      }
       process.stdout.write(`Saved memory #${memory.id}.\n${formatMemory(memory)}\n`);
       return;
     }
@@ -169,10 +174,27 @@ export async function cmdMemory(db: PhDB, args: string[], cwd = process.cwd(), c
     case 'retry': {
       const id = parseId(positional[0]);
       const { cmdBackgroundMemory } = await import('./background-memory.js');
-      await cmdBackgroundMemory(db.dbPath, [String(id)]);
+      await cmdBackgroundMemory(db.dbPath, [String(id), '--retry']);
       const entry = db.getById(id);
       if (!entry) throw new Error(`Interaction #${id} was not found.`);
       process.stdout.write(`Automatic memory for interaction #${id}: ${decodePromptMetadata(entry.metadata).automatic_memory_status ?? 'not scheduled'}\n`);
+      return;
+    }
+    case 'sync': {
+      const limit = parseLimit(flags.limit, 50);
+      try {
+        const res = await memoryService.flushPendingHubSync(limit);
+        process.stdout.write(`Synced: ${res.synced}, Failed: ${res.failed}, Remaining pending: ${res.remaining}\n`);
+        if (res.failed > 0) {
+          for (const err of res.errors) {
+            process.stderr.write(`ph memory sync: ${err}\n`);
+          }
+          process.exitCode = 1;
+        }
+      } catch (error) {
+        process.stderr.write(`ph memory sync: ${(error as Error).message}\n`);
+        process.exitCode = 1;
+      }
       return;
     }
     default:

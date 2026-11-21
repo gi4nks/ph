@@ -14,12 +14,13 @@ export class OllamaProvider implements LLMProvider {
   ) {}
 
   async generate(prompt: string, options?: { maxOutputTokens?: number; think?: boolean; format?: 'json' }): Promise<string> {
+    const baseUrl = this.url.replace(/\/+$/, '');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60_000);
 
     let res: Response;
     try {
-      res = await fetch(`${this.url}/api/generate`, {
+      res = await fetch(`${baseUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -36,9 +37,9 @@ export class OllamaProvider implements LLMProvider {
       clearTimeout(timer);
       const msg = (err as Error).message ?? String(err);
       if (msg.includes('abort') || msg.includes('timeout')) {
-        throw new Error(`Ollama request timed out (60s). Is Ollama running at ${this.url}?`, { cause: err });
+        throw new Error(`Ollama request timed out (60s). Is Ollama running at ${baseUrl}?`, { cause: err });
       }
-      throw new Error(`Ollama unreachable at ${this.url}: ${msg}`, { cause: err });
+      throw new Error(`Ollama unreachable at ${baseUrl}: ${msg}`, { cause: err });
     } finally {
       clearTimeout(timer);
     }

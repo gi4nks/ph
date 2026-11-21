@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { PhDB } from '../../db/index.js';
 import type { PhConfig } from '../../config/index.js';
+
+vi.mock('../../background/automatic-memory.js', () => ({
+  spawnAutomaticMemoryExtraction: vi.fn(),
+}));
+
 import { completeLiveCapture, prepareLiveCapture } from '../lifecycle.js';
 
 describe('shared live capture lifecycle', () => {
@@ -111,5 +116,56 @@ describe('shared live capture lifecycle', () => {
     const metadata = JSON.parse(local.getById(id)!.metadata);
     expect(metadata.capture_status).toBeUndefined();
     expect(metadata.capture_owner_pid).toBeUndefined();
+  });
+
+  it('strips automatic_memory_* fields from remote sync payloads when both hub and remote sync are configured', async () => {
+    const localDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ph-live-strip-'));
+    dirs.push(localDir);
+    const localPath = path.join(localDir, 'local.db');
+    const local = new PhDB(localPath);
+    dbs.push(local);
+
+    const cfg: PhConfig = {
+      remoteUrl: 'https://remote.example',
+      remoteApiKey: 'lifecycle-key',
+      memoryHubUrl: 'https://memory.example',
+      memoryHubApiKey: 'hub-key',
+    };
+    const fetchMock = vi.fn(async (_input: string, _init: { body?: unknown }) =>
+      new Response(JSON.stringify({ imported: 1, skipped: 0, errors: [] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const record = prepareLiveCapture({
+      timestamp: new Date().toISOString(),
+      tool: 'codex',
+      prompt: 'Always keep tests isolated.',
+      response: 'Noted.',
+      args: '',
+      workdir: '/project',
+      hostname: 'local',
+      exit_code: 0,
+      metadata: JSON.stringify({ project: 'ph' }),
+    }, cfg);
+    const id = local.insert(record);
+    local.updateMetadataFields(id, {
+      automatic_memory_error: 'save_failed',
+      automatic_memory_ids: ['11111111-1111-4111-8111-111111111111'],
+    });
+
+    await completeLiveCapture(localPath, cfg, id);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const sentPrompt = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).prompts[0] as { metadata: string };
+    const sentMeta = JSON.parse(sentPrompt.metadata) as Record<string, unknown>;
+    expect(sentMeta.project).toBe('ph');
+    expect(sentMeta.automatic_memory_status).toBeUndefined();
+    expect(sentMeta.automatic_memory_error).toBeUndefined();
+    expect(sentMeta.automatic_memory_ids).toBeUndefined();
+
+    const localMeta = JSON.parse(local.getById(id)!.metadata) as Record<string, unknown>;
+    expect(localMeta.automatic_memory_status).toBe('pending');
+    expect(localMeta.automatic_memory_error).toBe('save_failed');
+    expect(localMeta.automatic_memory_ids).toEqual(['11111111-1111-4111-8111-111111111111']);
+    expect(localMeta.remote_sync_status).toBe('complete');
   });
 });

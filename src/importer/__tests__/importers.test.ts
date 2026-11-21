@@ -1,14 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { PhDB } from '../../db/index.js';
+import { cmdImport } from '../../commands/import.js';
 import { importClaudeHistory } from '../claude.js';
 import { importGeminiHistory } from '../gemini.js';
 import { importOpenCodeHistory } from '../opencode.js';
 import { importCodexHistory } from '../codex.js';
-import { importAgyHistory } from '../agy.js';
+import { importAgyHistory, parseAgyTranscript } from '../agy.js';
 
 describe('history import formats', () => {
   let dir: string;
@@ -184,5 +185,138 @@ describe('history import formats', () => {
     const meta = JSON.parse(prompts[0].metadata);
     expect(meta.project).toBe('my-app');
     expect(meta.tool_calls).toEqual(['Workspace inspection']);
+  });
+
+  it('imports modern Claude JSONL preserving hyphenated cwd and skipping intermediate tool_use/toolUseResult records', async () => {
+    const claudeDir = path.join(dir, 'claude-modern');
+    const projectDir = path.join(dir, 'my-hyphen-project');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'package.json'), '{}');
+    fs.writeFileSync(path.join(projectDir, 'tsconfig.json'), '{}');
+
+    const slugDir = path.join(claudeDir, 'projects', '-tmp-my-hyphen-project');
+    fs.mkdirSync(slugDir, { recursive: true });
+    fs.writeFileSync(path.join(slugDir, 'session.jsonl'), [
+      JSON.stringify({
+        promptId: 'prompt-1',
+        cwd: projectDir,
+        timestamp: '2026-11-05T10:00:00.000Z',
+        message: { role: 'user', content: 'Fix the hyphenated workdir' },
+      }),
+      JSON.stringify({
+        timestamp: '2026-11-05T10:00:01.000Z',
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Reading the file.' },
+            { type: 'tool_use', id: 'call-1', name: 'read_file' },
+          ],
+        },
+      }),
+      JSON.stringify({
+        toolUseResult: { content: 'tool output' },
+        timestamp: '2026-11-05T10:00:02.000Z',
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-1', content: 'ok' }] },
+      }),
+      JSON.stringify({
+        timestamp: '2026-11-05T10:00:03.000Z',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Updated cwd handling.' }] },
+      }),
+    ].join('\n'));
+
+    const result = await importClaudeHistory(db, claudeDir, false);
+    const prompts = db.getAllPrompts().filter((p) => p.tool === 'claude');
+    expect(result).toMatchObject({ filesScanned: 1, promptsFound: 1, promptsImported: 1 });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toMatchObject({
+      prompt: 'Fix the hyphenated workdir',
+      response: 'Reading the file.\nUpdated cwd handling.',
+      workdir: projectDir,
+    });
+    expect(JSON.parse(prompts[0].metadata)).toMatchObject({
+      project: 'my-hyphen-project',
+      language: 'typescript',
+    });
+  });
+
+  it('does not leak process.cwd() during AGY backfill without workdirOverride and parses workspace headers when present', async () => {
+    const agyDir = path.join(dir, 'agy-backfill');
+    const convNoHeader = path.join(agyDir, 'brain', 'conv-no-header', '.system_generated', 'logs');
+    const convWithHeader = path.join(agyDir, 'brain', 'conv-with-header', '.system_generated', 'logs');
+    fs.mkdirSync(convNoHeader, { recursive: true });
+    fs.mkdirSync(convWithHeader, { recursive: true });
+
+    const noHeaderTranscript = path.join(convNoHeader, 'transcript.jsonl');
+    fs.writeFileSync(noHeaderTranscript, [
+      JSON.stringify({ step_index: 0, type: 'USER_INPUT', content: 'Prompt without workspace metadata', created_at: '2026-11-05T11:00:00.000Z' }),
+      JSON.stringify({ step_index: 1, type: 'PLANNER_RESPONSE', content: 'Reply without workspace', created_at: '2026-11-05T11:00:01.000Z' }),
+    ].join('\n'));
+
+    const withHeaderTranscript = path.join(convWithHeader, 'transcript.jsonl');
+    fs.writeFileSync(withHeaderTranscript, [
+      JSON.stringify({
+        step_index: 0,
+        type: 'USER_INPUT',
+        content: 'Active Workspaces:\n- /repos/historical-app\n<USER_REQUEST>Prompt with workspace header</USER_REQUEST>',
+        created_at: '2026-11-05T12:00:00.000Z',
+      }),
+      JSON.stringify({ step_index: 1, type: 'PLANNER_RESPONSE', content: 'Reply with workspace', created_at: '2026-11-05T12:00:01.000Z' }),
+    ].join('\n'));
+
+    expect(parseAgyTranscript(noHeaderTranscript).interactions[0]?.workdir).toBe('');
+    expect(parseAgyTranscript(withHeaderTranscript).interactions[0]?.workdir).toBe('/repos/historical-app');
+
+    const result = await importAgyHistory(db, agyDir, false);
+    expect(result).toMatchObject({ filesScanned: 2, promptsFound: 2, promptsImported: 2 });
+    const prompts = db.getAllPrompts().filter((p) => p.tool === 'agy');
+    const byPrompt = new Map(prompts.map((p) => [p.prompt, p.workdir]));
+    expect(byPrompt.get('Prompt without workspace metadata')).toBe('');
+    expect(byPrompt.get('Prompt without workspace metadata')).not.toBe(process.cwd());
+    expect(byPrompt.get('Prompt with workspace header')).toBe('/repos/historical-app');
+  });
+
+  it('deduplicates single-file cmdImport contextually by captureHash without loading all prompt hashes', async () => {
+    const getAllSpy = vi.spyOn(PhDB.prototype, 'getAllPromptHashes');
+    const getByCaptureHashSpy = vi.spyOn(PhDB.prototype, 'getPromptIdByCaptureHash');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      const repoA = path.join(dir, 'repo-a');
+      const repoB = path.join(dir, 'repo-b');
+      fs.mkdirSync(repoA, { recursive: true });
+      fs.mkdirSync(repoB, { recursive: true });
+
+      const rolloutA = path.join(dir, 'rollout-a.jsonl');
+      fs.writeFileSync(rolloutA, [
+        JSON.stringify({ type: 'session_meta', payload: { id: 's-a', cwd: repoA } }),
+        JSON.stringify({ timestamp: '2026-11-10T10:00:01.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'continue' }] } }),
+        JSON.stringify({ timestamp: '2026-11-10T10:00:02.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Response in repo A' }] } }),
+        JSON.stringify({ timestamp: '2026-11-10T10:01:01.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'continue' }] } }),
+        JSON.stringify({ timestamp: '2026-11-10T10:01:02.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Second response in repo A' }] } }),
+      ].join('\n'));
+
+      const rolloutB = path.join(dir, 'rollout-b.jsonl');
+      fs.writeFileSync(rolloutB, [
+        JSON.stringify({ type: 'session_meta', payload: { id: 's-b', cwd: repoB } }),
+        JSON.stringify({ timestamp: '2026-11-10T11:00:01.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'continue' }] } }),
+        JSON.stringify({ timestamp: '2026-11-10T11:00:02.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Response in repo A' }] } }),
+      ].join('\n'));
+
+      await cmdImport(db, {}, ['codex', '--file', rolloutA, '--workdir', repoA]);
+      await cmdImport(db, {}, ['codex', '--file', rolloutB, '--workdir', repoB]);
+      // Re-importing rolloutA in the same workdir should skip both turns in O(1).
+      await cmdImport(db, {}, ['codex', '--file', rolloutA, '--workdir', repoA]);
+
+      expect(getAllSpy).not.toHaveBeenCalled();
+      expect(getByCaptureHashSpy).toHaveBeenCalled();
+
+      const prompts = db.getAllPrompts().filter((p) => p.tool === 'codex');
+      expect(prompts).toHaveLength(3);
+      expect(prompts.filter((p) => p.workdir === repoA)).toHaveLength(2);
+      expect(prompts.filter((p) => p.workdir === repoB)).toHaveLength(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

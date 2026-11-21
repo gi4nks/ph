@@ -11,10 +11,11 @@ This file provides specific context for using Claude within the `ph` project.
 ## Reference Architecture
 
 - **Entry Point**: `src/cli.ts` uses manual command dispatch. With no arguments, PH explains setup-first capture. Run `ph setup` once, use supported AI tools normally, then use `ph search` when you need earlier work.
-- **Database**: SQLite via `better-sqlite3`; `PhDB` coordinates schema migrations and remains the compatibility facade, while `PromptRepository`, `MemoryRepository`, `ArchiveRepository`, and `SemanticIndex` own focused persistence behavior. Schema v4 retains legacy memory and summary tables as migration evidence.
-- **Memory routing**: `src/memory/service.ts` owns local-versus-hub behavior and shared context retrieval for CLI and MCP. Automatic extraction is a separate hub-only worker.
-- **Capture follow-ups**: `src/capture/lifecycle.ts` is the shared completion coordinator; memory scheduling and raw-history delivery live in focused follow-up modules.
-- **HTTP service**: `src/server/request-handler.ts` handles transport and delegates to separate memory and history route capabilities with distinct auth policies.
+- **Database**: SQLite via `better-sqlite3` (schema v6); `PhDB` coordinates schema migrations and remains the compatibility facade, while `PromptRepository`, `MemoryRepository`, `ArchiveRepository`, and `SemanticIndex` (project-partitioned `sqlite-vec` vectors) own focused persistence behavior. Schema v4–v6 retain legacy memory and summary tables as migration evidence and track `capture_hash` and `hub_sync_status`.
+- **Memory routing**: `src/memory/service.ts` owns local-versus-hub behavior and shared context retrieval for CLI and MCP. Automatic extraction is a separate hub-only worker scoped by `databaseId`.
+- **Capture follow-ups & hooks**: `src/capture/lifecycle.ts` is the shared completion coordinator; `src/commands/hook.ts` (`ph hook <tool>`) provides the unified TypeScript hook entry point used by native shell hooks in `hooks/`.
+- **AI & PTY**: `src/config/defaults.ts` centralizes OSS provider defaults; `src/ai/openai-compatible.ts` uses native `fetch`; `@lydell/node-pty` is an optional dependency lazy-loaded in `src/pty/wrapper.ts`.
+- **HTTP service**: `src/server/request-handler.ts` handles transport (`GET /health` only is public) and delegates to separate memory and history route capabilities with distinct auth policies.
 - **Runtime config**: `src/config/runtime.ts` owns environment-over-file resolution for hub, remote-sync, and server auth settings.
 - **Hooks**: Scripts in `hooks/` are the entry points for transparent data capture.
 - **User documentation**: Keep README, docs/ph-manual.md, docs/hooks.md, and docs/memory-hub.md aligned with observable behavior. The command output from `ph help --all` is the concise CLI reference; older specs and reports may describe retired workflows.

@@ -1,11 +1,11 @@
 import type http from 'http';
 import { timingSafeEqual } from 'crypto';
 import type { PhConfig } from '../../config/index.js';
+import { DEFAULT_EMBED_MODEL, DEFAULT_OLLAMA_URL } from '../../config/defaults.js';
 import { resolveServerAuthConfig } from '../../config/runtime.js';
 import { getEmbeddings } from '../../embedding/index.js';
-import type { PhDB } from '../../db/index.js';
+import { EmbeddingModelMismatchError, type PhDB } from '../../db/index.js';
 import { SYNC_PAGE_SIZE } from '../../sync/protocol.js';
-import { syncHash } from '../../utils/syncHash.js';
 import { json } from '../http-utils.js';
 
 export function authorizeHistoryRequest(req: http.IncomingMessage, cfg: PhConfig): boolean {
@@ -43,33 +43,29 @@ export async function handleHistoryRoute(
   if (method === 'POST' && path === '/api/prompts/semantic') {
     const { query, project, limit = 5 } = JSON.parse(body);
     if (!query) { json(res, 400, { error: 'query is required' }); return true; }
-    const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
-    const model = cfg.ollamaEmbedModel ?? 'nomic-embed-text-v2-moe';
+    const ollamaUrl = cfg.ollamaUrl ?? DEFAULT_OLLAMA_URL;
+    const model = cfg.ollamaEmbedModel ?? DEFAULT_EMBED_MODEL;
     const [queryVec] = await getEmbeddings([query], ollamaUrl, model, 1);
-    if (!queryVec) json(res, 500, { error: 'Failed to generate embedding' });
-    else json(res, 200, { prompts: db.searchSemantic(queryVec, limit, project) });
+    if (!queryVec) {
+      json(res, 500, { error: 'Failed to generate embedding' });
+      return true;
+    }
+    try {
+      json(res, 200, { prompts: db.searchSemantic(queryVec, limit, project, model) });
+    } catch (err) {
+      if (err instanceof EmbeddingModelMismatchError) {
+        json(res, 409, { error: err.message });
+      } else {
+        throw err;
+      }
+    }
     return true;
   }
   if (method === 'POST' && path === '/api/sync/push') {
     const { prompts } = JSON.parse(body);
     if (!Array.isArray(prompts)) { json(res, 400, { error: 'prompts must be an array' }); return true; }
     if (prompts.length > SYNC_PAGE_SIZE) { json(res, 400, { error: `prompts must contain at most ${SYNC_PAGE_SIZE} records` }); return true; }
-    let imported = 0;
-    let skipped = 0;
-    const errors: string[] = [];
-    for (const prompt of prompts) {
-      try {
-        const hash = syncHash(prompt);
-        if (db.getPromptBySyncHash(hash)) { skipped++; continue; }
-        const metaObj = { ...JSON.parse(prompt.metadata || '{}'), sync_hash: hash };
-        db.insert({
-          timestamp: prompt.timestamp || new Date().toISOString(), tool: prompt.tool || 'unknown', prompt: prompt.prompt || '',
-          response: prompt.response || '', args: prompt.args || '', workdir: prompt.workdir || '', hostname: prompt.hostname || '',
-          exit_code: prompt.exit_code ?? 0, metadata: JSON.stringify(metaObj),
-        });
-        imported++;
-      } catch { errors.push('record rejected'); }
-    }
+    const { imported, skipped, errors } = db.importSyncPrompts(prompts);
     json(res, 200, { imported, skipped, errors, databaseId: db.databaseId });
     return true;
   }

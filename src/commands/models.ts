@@ -1,12 +1,18 @@
 import type { PhConfig } from '../config/index.js';
-import { discoverModels, OMLX_DEFAULT_URL, normalizeOmlxBaseUrl, OPENROUTER_DEFAULT_URL } from '../ai/wise.js';
+import { discoverModels } from '../ai/openai-compatible.js';
+import {
+  resolveOllamaUrl,
+  resolveOmlxApiKey,
+  resolveOmlxUrl,
+  resolveOpenRouterUrl,
+} from '../config/defaults.js';
 
 export async function cmdModels(cfg: PhConfig, args: string[]): Promise<void> {
   const selectedProvider = args[0] ?? cfg.analyzeProvider;
   const provider = selectedProvider === 'mlx-serve' ? 'omlx' : selectedProvider;
 
   if (provider === 'ollama') {
-    const ollamaUrl = cfg.ollamaUrl ?? 'http://127.0.0.1:8000';
+    const ollamaUrl = resolveOllamaUrl(cfg).replace(/\/+$/, '');
     try {
       const res = await fetch(`${ollamaUrl}/api/tags`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -36,10 +42,10 @@ export async function cmdModels(cfg: PhConfig, args: string[]): Promise<void> {
 
   const apiKey = provider === 'openrouter'
     ? process.env.OPENROUTER_API_KEY ?? cfg.openrouterApiKey!
-    : process.env.OMLX_API_KEY ?? process.env.MLX_SERVE_API_KEY ?? process.env.GLB_OMLX_API_KEY ?? cfg.omlxApiKey ?? cfg.mlxServeApiKey ?? 'local';
+    : resolveOmlxApiKey(cfg) ?? 'local';
   const baseUrl = provider === 'openrouter'
-    ? process.env.OPENROUTER_BASE_URL ?? cfg.openrouterUrl ?? OPENROUTER_DEFAULT_URL
-    : normalizeOmlxBaseUrl(process.env.OMLX_BASE_URL ?? process.env.MLX_SERVE_BASE_URL ?? cfg.omlxUrl ?? cfg.mlxServeUrl ?? OMLX_DEFAULT_URL);
+    ? resolveOpenRouterUrl(cfg)
+    : resolveOmlxUrl(cfg);
 
   let models;
   try {

@@ -21,7 +21,7 @@ ph setup antigravity
 
 Restart the affected coding tools after PH installs or updates an integration. For detailed integration behavior and manual configuration, see [Capture Hooks](hooks.md).
 
-OpenCode's plugin writes a prompt/response pair when the next user message arrives. If you close the session right after an answer, the last exchange may not yet be stored; backfill it from OpenCode's local history with ph import opencode --dry-run.
+OpenCode's plugin flushes completed exchanges on text completion, `session.idle`, and when the next user message arrives. Historical sessions can also be backfilled from OpenCode's local history with `ph import opencode --dry-run`.
 
 Confirm setup and recent capture state with:
 
@@ -137,7 +137,7 @@ ph context --prompts-only --project ph
 ph context --verbose --limit 8 "search index"
 ```
 
-PH combines local project/work memories with relevant project interactions. When a shared hub is configured, it also retrieves non-sensitive project/work memories from the hub. Personal and sensitive records are excluded. Without a query, PH returns recent project work. With a query, it uses full-text retrieval and, when available, fuses in semantic matches; if no interaction matches, it falls back to recent project interactions and notes that in the output. `--budget` controls the formatted local context section from 500 to 12,000 characters (default 3,500). Shared hub memories are appended separately and are outside that character cap, so total output can be larger.
+PH combines local project/work memories with relevant project interactions. When a shared hub is configured, it also retrieves non-sensitive project/work memories from the hub. Personal and sensitive records are excluded. Without a query, PH returns recent project work. With a query, it uses full-text retrieval and, when available, fuses in semantic matches; if no interaction matches, it falls back to recent project interactions and notes that in the output. `--budget` (default 3,500, clamped 500–12,000 characters) bounds the combined formatted output across both shared hub memories and local project context/interactions.
 
 Context retrieval works without an inference service. Semantic prompt retrieval needs indexed embeddings and the configured Ollama embedding model. If semantic retrieval is unavailable, PH uses full-text retrieval and explains the fallback in the output. `--verbose` includes up to 1,000 characters of each selected prompt, not the entire prompt; normal output includes a shorter prompt excerpt and a response excerpt.
 
@@ -159,7 +159,7 @@ Inside a detected project, a new memory defaults to project scope. Outside a pro
 
 When `--prompts` is supplied, PH verifies each prompt ID against the local history before saving, whether the memory will be local or shared. Shared records identify a prompt source with both the local database identity and prompt ID, so equal numeric IDs from different clients are not confused.
 
-Without a configured hub, `ph memory add`, `list`, and `search` use local SQLite. With both `memory-hub-url` and `memory-hub-api-key` configured, new saves and list/search use the shared hub. `ph context` and MCP context/search combine local records with eligible shared work/project memories. For `show`, `forget`, and `restore`, a UUID addresses the hub and a numeric ID addresses a local record; local history remains on the client. Local IDs are numeric and shared IDs are UUIDs. `ph memory forget <id>` hides a record and keeps a reversible version; `ph memory restore <id>` restores it. Search excludes personal and sensitive memories by default. Use the corresponding explicit flags to include them.
+Without a configured hub, `ph memory add`, `list`, and `search` use local SQLite. With both `memory-hub-url` and `memory-hub-api-key` configured, new saves and list/search use the shared hub. If a save fails due to a transient network or 5xx error while offline, PH stores the record locally with `pending` sync status; run `ph status` to see queued counts and `ph memory sync` to upload pending records once the hub is reachable (auth/policy/sensitive errors still fail immediately). `ph context` and MCP context/search combine local records with eligible shared work/project memories under one unified character budget. For `show`, `forget`, and `restore`, a UUID addresses the hub and a numeric ID addresses a local record; local history remains on the client. Local IDs are numeric and shared IDs are UUIDs. `ph memory forget <id>` hides a record and keeps a reversible version; `ph memory restore <id>` restores it. Search excludes personal and sensitive memories by default. Use the corresponding explicit flags to include them.
 
 To inspect extraction for a captured interaction:
 
@@ -202,13 +202,13 @@ Example Ollama setup and analysis:
 
 ```sh
 ph config set analyze-provider ollama
-ph config set ollama-url http://127.0.0.1:8000
-ph config set ollama-model qwen3.5:9b-mlx
+ph config set ollama-url http://localhost:11434
+ph config set ollama-model llama3.1:latest
 ph config set background-analysis true
 ph analyze --limit 100
 ```
 
-For OpenRouter, configure `openrouter-api-key` and `openrouter-model`. For Gemini, configure `gemini-api-key`. For oMLX on Parmenide, select `omlx` and set `omlx-model`; the default endpoint is `http://parmenide:8000/v1`. Set the key with `ph config set omlx-api-key` (hidden interactive input) or `OMLX_API_KEY` in PH's process environment; optionally set `omlx-url` or `OMLX_BASE_URL`. If editing `~/.ph_config.json` directly, the property is `omlxApiKey`. `ph models ollama`, `ph models openrouter`, or `ph models omlx` lists models visible to the configured provider. Existing `mlx-serve` provider values, `mlx-serve-*` config keys, and `MLX_SERVE_*` environment variables remain accepted aliases; new saves write canonical `omlx-*` fields.
+For OpenRouter, configure `openrouter-api-key` and `openrouter-model`. For Gemini, configure `gemini-api-key`. For oMLX, select `omlx` and set `omlx-model`; the default endpoint is `http://127.0.0.1:8000/v1`. Set the key with `ph config set omlx-api-key` (hidden interactive input) or `OMLX_API_KEY` in PH's process environment; optionally set `omlx-url` or `OMLX_BASE_URL`. If editing `~/.ph_config.json` directly, the property is `omlxApiKey`. `ph models ollama`, `ph models openrouter`, or `ph models omlx` lists models visible to the configured provider. Existing `mlx-serve` provider values, `mlx-serve-*` config keys, and `MLX_SERVE_*` environment variables remain accepted aliases; new saves write canonical `omlx-*` fields.
 
 oMLX can load an installed model on the first inference request; `[unloaded]` does not mean the model cannot be used. Cold loading needs enough free memory on the inference host and must fit under oMLX's dynamic memory ceiling. If `ph analyze` reports `provider_out_of_memory`, free memory on that host, choose a smaller installed model, or raise the dynamic ceiling only when physical RAM headroom allows it. PH reports bounded provider failure categories without storing raw provider error bodies. Structured analysis uses oMLX's JSON response mode, a maximum of 800 output tokens, and a zero reasoning budget to avoid wasting tokens on hidden reasoning.
 
@@ -307,7 +307,7 @@ Important environment overrides include:
 | `GEMINI_API_KEY` | Gemini analysis provider |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` | OpenRouter analysis provider |
 | `OMLX_MODEL`, `OMLX_BASE_URL`, `OMLX_API_KEY` | Canonical oMLX model, endpoint, and credential |
-| `MLX_SERVE_MODEL`, `MLX_SERVE_BASE_URL`, `MLX_SERVE_API_KEY`, `GLB_OMLX_API_KEY` | Legacy oMLX environment aliases (used when canonical variable is unset) |
+| `MLX_SERVE_MODEL`, `MLX_SERVE_BASE_URL`, `MLX_SERVE_API_KEY` | Legacy oMLX environment aliases (used when canonical variable is unset) |
 
 Other configuration keys are listed by `ph config set` with no key argument. Provider-specific URL/model settings and retention/filter options are persisted in `~/.ph_config.json`.
 
@@ -323,7 +323,7 @@ Other configuration keys are listed by `ph config set` with no key argument. Pro
 | `openrouter-url` | `https://openrouter.ai/api/v1` | OpenRouter-compatible endpoint; `OPENROUTER_BASE_URL` overrides it. |
 | `openrouter-model` | unset | Required OpenRouter model ID; `OPENROUTER_MODEL` overrides it. |
 | `openrouter-api-key` | unset | OpenRouter credential; `OPENROUTER_API_KEY` overrides it. |
-| `omlx-url` | `http://parmenide:8000/v1` | oMLX OpenAI-compatible endpoint; `OMLX_BASE_URL` overrides it. |
+| `omlx-url` | `http://127.0.0.1:8000/v1` | oMLX OpenAI-compatible endpoint; `OMLX_BASE_URL` overrides it. |
 | `omlx-model` | unset | Required exact model ID; `OMLX_MODEL` overrides it. |
 | `omlx-api-key` | unset | Credential; `OMLX_API_KEY` overrides it. Secret value is redacted by `ph config get`. |
 | `ollama-embed-model` | `nomic-embed-text-v2-moe` | Model used to create query and prompt embeddings. |
@@ -354,18 +354,18 @@ The default guide is intentionally short. The commands below describe the comple
 | `ph log --tool <name> --prompt <text> [--response <text>] [--workdir <path>]` | Insert one explicit interaction. Alternatively pipe JSON with `tool`, `prompt`, optional `response`, and optional `workdir` to `ph log`. |
 | `ph search [filters] [query]` | Search current project; `--all` searches all projects. Filters: `--tool`, `--project`, `--language`, `--role`, `--tag`, `--starred`, `--min-quality`, `--min-relevance`, `--top`, `--since`, `--until`, `--limit`, `--semantic`, `--full`, `--archive`. `--archive` is a date/limit listing, not full-text archive search. |
 | `ph show <id> [--prompt|--full] [--json] [--archive]` | Inspect capture details and analysis; reveal the prompt or both text bodies on request. JSON remains complete. |
-| `ph context [options] [query]` | Retrieve local project/work memories and relevant project interactions, plus eligible shared memories when configured. Options: `--project`, `--limit` (1–20), `--prompts-only`, `--memories-only`, `--verbose`, and `--budget` (500–12,000 characters for local context). |
-| `ph memory add <text> [options]` | Save a durable memory. Options include `--kind decision|insight|preference|fact`, `--scope project|work|personal`, `--project`, `--prompts`, and explicit `--sensitive`. |
-| `ph memory list [options]` / `search <query> [options]` | List or FTS-search memories. Options include `--project`, `--scope`, `--all`, `--include-personal`, `--include-sensitive`, and `--limit`. `show`, `forget`, and `restore` inspect or reversibly change a memory; shared IDs are UUIDs and local IDs are numeric. `retry <interaction-id>` retries automatic extraction; `undo <interaction-id>` forgets its automatically saved records. |
-| `ph status` | Show history totals, memory count, recent capture status, and analysis, automatic-memory, and remote-push states without printing prompt/response contents. |
+| `ph context [options] [query]` | Retrieve local project/work memories and relevant project interactions, plus eligible shared memories when configured. Options: `--project`, `--limit` (1–20), `--prompts-only`, `--memories-only`, `--verbose`, and `--budget` (500–12,000 characters total across shared and local sections). |
+| `ph memory add <text> [options]` | Save a durable memory. Options include `--kind decision|insight|preference|fact`, `--scope project|work|personal`, `--project`, `--prompts`, and explicit `--sensitive`. Queues locally as `pending` if the hub is temporarily unreachable. |
+| `ph memory list [options]` / `search <query> [options]` / `sync` | List or FTS-search memories (`--project`, `--scope`, `--all`, `--include-personal`, `--include-sensitive`, `--limit`). `sync [--limit N]` uploads offline `pending` hub writes. `show`, `forget`, and `restore` inspect or reversibly change a memory; shared IDs are UUIDs and local IDs are numeric. `retry <interaction-id>` retries automatic extraction; `undo <interaction-id>` forgets its automatically saved records. |
+| `ph status` | Show history totals, memory count, pending hub sync count (when non-zero), recent capture status, and analysis, automatic-memory, and remote-push states without printing prompt/response contents. |
 | `ph last [n]` / `ph timeline [project]` | Show recent interactions or chronological project history. |
-| `ph sessions [options]` | Group interactions using `--gap-hours` (default 2), `--limit` (default 20), and `--min-size`; `--no-cohesion` skips embedding-based cohesion; `--export <n>` writes one session as Markdown. |
+| `ph sessions [options]` | Group bounded recent interactions using `--gap-hours` (default 2), `--days`, `--limit` (default 20), and `--min-size`; `--no-cohesion` skips embedding-based cohesion (embeddings load only for visible sessions); `--export <n>` writes one session as Markdown. |
 | `ph stats` / `ph star <id>` | Show archive statistics or toggle an interaction's starred state. |
 | `ph export <id> [--format txt|json|md] [--archive]` | Export a complete active or archived interaction. |
 | `ph import <claude|codex|gemini|opencode|agy> [options]` | Backfill local tool histories. Options: `--dry-run`, `--analyze`, `--filter`, `--file`, `--workdir`, and `--live`. File selection is supported only by importers with transcript/database file input. `--live` runs configured post-capture processing on imported records. |
-| `ph analyze [options]` | Run LLM analysis on untagged records (default maximum 50). Options: `--limit`, `--force`, `--prune`, `--min-score`, and `--dry-run`. The current dry-run still calls the provider and persists successful analysis metadata; it only prevents prune deletion and some status writes. |
+| `ph analyze [options]` | Run LLM analysis on untagged records (default maximum 50). Options: `--limit`, `--force`, `--prune`, `--min-score`, and `--dry-run`. `--dry-run` calls the provider without writing analysis metadata or deleting records. |
 | `ph models [ollama|openrouter|omlx]` | List models visible from Ollama, OpenRouter, or oMLX. Gemini model selection is not exposed by this command. `mlx-serve` remains accepted as an alias. |
-| `ph embed-all` / `ph search --semantic` | Build and use the Ollama vector index. Model mismatch or unavailable embeddings falls back to text search. |
+| `ph embed-all [--force]` / `ph search --semantic` | Build and use the Ollama vector index (`--force` clears existing vectors to rebuild for a new model or dimension). Model mismatch or unavailable embeddings falls back to text search. |
 | `ph config show|get|set` | Inspect providers and settings, read a key, or change configuration. Secret keys are redacted; omit a secret value in an interactive terminal to enter it without echo. |
 | `ph mcp` | Start PH's local stdio MCP server for the five tools listed above. Agents must call these tools; MCP does not itself trigger memory extraction. |
 | `ph server [--host <address>] [--port <port>]` | Start the authenticated HTTP API. Loopback and port 3001 are defaults. Server credential requirements are described in section 9. |

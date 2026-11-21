@@ -43,8 +43,16 @@ Rules:
 
 Interaction to analyze:
 """
-${text.slice(0, 2000)}
+${text.slice(0, 4500)}
 """`;
+
+export function formatInteractionForAnalysis(entry: Pick<PromptEntry, 'prompt' | 'response'>): string {
+  const promptPart = `User prompt:\n${entry.prompt.slice(0, 2000)}`;
+  if (entry.response?.trim()) {
+    return `${promptPart}\n\nAssistant response:\n${entry.response.slice(0, 2000)}`;
+  }
+  return promptPart;
+}
 
 /**
  * Parses LLM output to extract AnalysisResult.
@@ -242,7 +250,7 @@ export async function analyzeAll(
 
     try {
       if (!dryRun) db.updateMetadataFields(entry.id, { analysis_status: 'pending', analysis_error: null });
-      const analysis = await analyzePromptDetailed(entry.prompt, provider);
+      const analysis = await analyzePromptDetailed(formatInteractionForAnalysis(entry), provider);
       result = analysis.result;
       const existing = parseMeta(entry.metadata);
 

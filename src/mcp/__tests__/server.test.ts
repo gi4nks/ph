@@ -89,4 +89,31 @@ describe('ph MCP protocol', () => {
     expect(searchRes.isError).not.toBe(true);
     expect(JSON.stringify(searchRes.content)).toContain('WAL checkpoints require active write lock');
   });
+
+  it('returns isError: true for invalid since/until dates and invalid save_memory kind', async () => {
+    const badSince = await client.callTool({
+      name: 'search_history',
+      arguments: { since: 'not-a-date' },
+    });
+    expect(badSince.isError).toBe(true);
+    expect(JSON.stringify(badSince.content)).toContain("Invalid 'since' date");
+
+    const badUntil = await client.callTool({
+      name: 'search_history',
+      arguments: { until: 'invalid-date' },
+    });
+    expect(badUntil.isError).toBe(true);
+    expect(JSON.stringify(badUntil.content)).toContain("Invalid 'until' date");
+
+    const badKind = await client.callTool({
+      name: 'save_memory',
+      arguments: {
+        content: 'Some durable note',
+        scope: 'work',
+        kind: 'invalid-kind',
+      },
+    });
+    expect(badKind.isError).toBe(true);
+    expect(JSON.stringify(badKind.content)).toContain("Invalid 'kind'");
+  });
 });

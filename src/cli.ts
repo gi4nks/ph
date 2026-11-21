@@ -29,6 +29,7 @@ import { cmdModels } from './commands/models.js';
 import { parseFlags } from './commands/_utils.js';
 import { cmdMemory } from './commands/memory.js';
 import { cmdBackgroundMemory } from './commands/background-memory.js';
+import { cmdHook } from './commands/hook.js';
 
 const ADVANCED_USAGE = `ph — local history and project context for AI CLI tools
 
@@ -43,6 +44,7 @@ USAGE:
   ph memory add [options] <text>        Save a project, work, or personal memory
   ph memory list|search [options]       List or search durable memories
   ph memory show|forget|restore <id>    Inspect or change a memory
+  ph memory sync [--limit <n>]          Push pending offline hub memories
   ph memory retry|undo <interaction-id> Retry or reverse automatic extraction
   ph last [n]                           Show last N prompts (default 10)
   ph sessions [options]                 Group prompts into work sessions
@@ -52,7 +54,7 @@ USAGE:
   ph export <id> [--format txt|json|md] [--archive] Export one complete interaction
   ph import <source> [--dry-run] [--analyze] [--filter] [--file <path>] [--workdir <path>] [--live]
                                                 Import from Gemini, Claude, OpenCode, Codex, or AGY history
-  ph analyze [--limit n] [--force] [--prune] [--min-score n] [--dry-run] Analyze prompts (dry-run still calls provider and saves successful metadata)
+  ph analyze [--limit n] [--force] [--prune] [--min-score n] [--dry-run] Analyze prompts (dry-run calls provider without writing metadata or deleting records)
   ph models [openrouter|omlx|ollama] List models from an AI provider
   ph mcp                                Start MCP server (Stdio)
   ph server [--host <address>] [--port 3001] Start authenticated HTTP service
@@ -61,7 +63,7 @@ USAGE:
   ph cleanup [--dry-run] [--min-length N] [--min-score N] [--days N] Remove matching prompts
   ph cleanup --retention [--dry-run]          Archive prompts per retention policy
   ph vacuum                           Compact the SQLite database
-  ph embed-all                          Generate embeddings for all prompts
+  ph embed-all [--force]                Generate embeddings for all prompts
   ph log --tool <name> --prompt <text> [--response <text>]  Log a prompt+response directly
   ph config show                        Show active AI provider configuration
   ph config get <key>                   Read config value (secrets are redacted)
@@ -97,10 +99,11 @@ CONTEXT OPTIONS:
   --prompts-only      Show only prompt-based context, skip project knowledge
   --memories-only     Show only project knowledge, skip prompts
   --verbose           Include up to 1,000 characters of each prompt
-  --budget <chars>    Local context character budget (500-12,000; shared memories add extra output)
+  --budget <chars>    Unified context character budget across shared and local sections (500-12,000)
 
 SESSIONS OPTIONS:
   --gap-hours <n>     Hours gap to split sessions (default 2)
+  --days <n>          Only include prompts from the last N days
   --limit <n>         Max sessions to show (default 20)
   --min-size <n>      Minimum prompts per session (default 1)
   --no-cohesion       Skip semantic cohesion computation
@@ -324,7 +327,7 @@ async function main(): Promise<void> {
     }
     case 'embed-all': {
       const db = new PhDB(dbPath);
-      await cmdEmbedAll(db, cfg);
+      await cmdEmbedAll(db, cfg, cmdArgs);
       db.close();
       break;
     }
@@ -351,6 +354,11 @@ async function main(): Promise<void> {
 
     case '_bg-memory': {
       await cmdBackgroundMemory(dbPath, cmdArgs);
+      break;
+    }
+
+    case 'hook': {
+      await cmdHook(dbPath, cfg, cmdArgs);
       break;
     }
 

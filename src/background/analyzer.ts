@@ -33,9 +33,18 @@ export function spawnBackgroundAnalysis(id: number, dbPath: string): void {
 
     // Use the same node binary as the parent
     const nodePath = process.execPath;
+    const isTsMode = scriptPath.endsWith('.ts') || process.execArgv.some(arg => arg.includes('tsx') || arg === '--import' || arg === '--loader');
+    const spawnArgs = [
+      ...(isTsMode ? process.execArgv : []),
+      scriptPath,
+      '_bg-analyze',
+      String(id),
+      '--db',
+      dbPath,
+    ];
 
     // Command: node <scriptPath> _bg-analyze <id> --db <dbPath>
-    const child = spawn(nodePath, [scriptPath, '_bg-analyze', String(id), '--db', dbPath], {
+    const child = spawn(nodePath, spawnArgs, {
       detached: true,
       stdio: 'ignore',
     });
