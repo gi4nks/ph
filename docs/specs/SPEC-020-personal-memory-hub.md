@@ -50,7 +50,7 @@ Vitest covers migration preservation and idempotent opening in `src/db/__tests__
 
 ## Current limits
 
-- One shared memory bearer key; no per-client identities, connector scopes, or offline outbox.
+- One shared memory bearer key; no per-client identities, connector scopes, or multi-writer conflict resolution (transient offline client writes queue locally with `pending` status until flushed via `ph memory sync`).
 - No email, calendar, browser, or personal-assistant connector.
 - No hub-side inference worker or semantic memory index. Inference runs on the client.
 - Hub search returns records from SQLite FTS5; raw prompt sync remains a separate optional feature.

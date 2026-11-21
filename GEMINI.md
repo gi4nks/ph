@@ -4,48 +4,37 @@ This file defines the directives for the Gemini agent in the `ph` project.
 
 ## Core Focus: Prompt History (ph)
 
-`ph` is an observability system for LLM prompts. Database integrity and metadata precision are absolute priorities.
+`ph` is a local-first plain-text CLI and MCP server for capturing, searching, and recalling AI coding interactions and durable project memories. Database integrity and privacy boundaries are absolute priorities.
 
 ## LLM Provider System
 
-- **Ollama**: Default provider for embedding and local analysis.
-- **Gemini**: Used for advanced analysis and embedding if configured.
-- **Integration**: See `src/ai/provider.ts` for the `LLMProvider` interface.
+- **Ollama**: Default provider (`http://localhost:11434`, `llama3.1:latest`) for local analysis and embeddings (`nomic-embed-text-v2-moe`).
+- **Gemini**: Uses the `generativelanguage.googleapis.com` API (`gemini-2.5-flash`) with `x-goog-api-key` header auth.
+- **OpenRouter & oMLX**: Supported via the zero-dependency OpenAI-compatible `fetch` adapter in `src/ai/openai-compatible.ts`.
+- **Integration**: See `src/ai/provider.ts` for `LLMProvider` and `src/config/defaults.ts` for canonical defaults.
 
 ## Database & Persistence
 
-- **WAL Mode**: The SQLite database must always operate in WAL mode to support concurrent background analysis.
-- **FTS5**: Used for full-text search.
-- **Embeddings**: Saved as BLOB (Float32Array).
+- **WAL Mode**: The SQLite database (`~/.prompt_history.db`, schema v6) runs in WAL mode with a 10s busy timeout.
+- **FTS5 & Vectors**: `prompts_fts` + `prompts_analysis_fts` power BM25/RRF text search; `sqlite-vec` (`vec_embeddings`) stores dynamic-dimension embeddings partitioned by `project` (`partition key`); `memories` + `memories_fts` + `memory_versions` store governed memories (including offline `hub_sync_status`).
+- **Partial JSON indexes**: `idx_prompts_project` and `idx_prompts_sync_hash` index `json_extract` safely with `json_valid(metadata)`.
 
-## Background Analysis Conventions
+## Capture, Hooks, & Background Workers
 
-The `_bg-analyze` subcommand (in `src/cli.ts`) is invoked in a detached manner by `src/background/analyzer.ts`.
-**Do not modify the child process behavior without testing the impact on parent process latency.**
-
-## Hook Management
-
-Hooks must be transparent. Every modification to `src/pty/wrapper.ts` must ensure that the `SIGWINCH` (terminal resize) signal is correctly propagated to the wrapped AI CLI.
-
-## Prompt Snapshot Workflow
-
-At the time of capture (`ph capture`), always collect:
-1. Git Context (branch, diff).
-2. Project Context (detected from `package.json` or similar).
-3. Environment (CWD, Timestamp).
+- `ph hook <claude|codex|gemini|agy>` is the unified TypeScript capture entry point used by native hooks (`hooks/`).
+- Detached workers (`_bg-analyze`, `_bg-memory`) serialize per-database work via `src/background/lock.ts` and must never block the wrapped AI CLI.
+- `src/pty/wrapper.ts` lazy-loads optional `@lydell/node-pty` and forwards UTF-8 cleanly while preserving `SIGWINCH` resize signals.
 
 ## Semantic Versioning & Releases
 
-- The project uses `standard-version` to automate releases.
+- Releases are automated by `semantic-release` in GitHub Actions on pushes to `main`.
 - **Git Workflow**:
-  - Changes must follow **Conventional Commits**.
-  - Before a release, ensure the build is correct (`make build`).
-  - Run `make release-patch` (or minor/major) to update the version and `CHANGELOG.md`.
-  - Do not commit version changes outside of the release process.
-  - Pushing tags (`git push --follow-tags`) triggers the GitHub Actions workflow for publication on npmjs.org.
+  - Changes must follow **Conventional Commits** (`feat:`, `fix:`, `refactor:`, etc.).
+  - Run `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `npm test` before pushing.
+  - Do not commit manual version bumps outside the release automation.
 
 ## Maintenance
 
-- Use `ph cleanup --days N` to prune old entries.
-- Use `ph vacuum` to reclaim disk space.
-- Monitor database size in `~/.prompt_history.db`.
+- Use `ph cleanup --dry-run` before deleting or archiving entries (`--retention`).
+- Use `ph vacuum` to reclaim SQLite disk space after large cleanups.
+- Monitor capture and background status with `ph status`.

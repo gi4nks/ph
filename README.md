@@ -20,7 +20,7 @@ ph memory search "migration"       # search durable memories
 ph status                           # check capture and background work
 ```
 
-Optional AI analysis can use oMLX on Parmenide. Configure its model, endpoint, and key with `ph config set omlx-model <model-id>`, `ph config set omlx-url http://parmenide:8000/v1`, and `ph config set omlx-api-key` (the key is entered without echo). Alternatively, set `OMLX_MODEL`, `OMLX_BASE_URL`, and `OMLX_API_KEY` in PH's environment. Existing `mlx-serve-*` settings and `mlx-serve` provider values remain accepted as legacy aliases.
+Optional AI analysis supports Ollama (default, `http://localhost:11434`), Gemini, OpenRouter, or any OpenAI-compatible oMLX endpoint (default `http://127.0.0.1:8000/v1`). Configure oMLX with `ph config set analyze-provider omlx`, `ph config set omlx-model <model-id>`, `ph config set omlx-url http://127.0.0.1:8000/v1`, and `ph config set omlx-api-key` (the key is entered without echo). Alternatively, set `OMLX_MODEL`, `OMLX_BASE_URL`, and `OMLX_API_KEY` in PH's environment. Existing `mlx-serve-*` settings and `mlx-serve` provider values remain accepted as legacy aliases.
 
 `ph` by itself prints a short guide. Use `ph help --all` for the complete command and option list.
 

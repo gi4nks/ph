@@ -18,11 +18,12 @@ openssl rand -hex 32
 openssl rand -hex 32
 ```
 
-- Put `PH_SERVER_API_KEY` in `deploy/.env`. It protects raw prompt-sync endpoints.
+- Put `PH_SERVER_API_KEY` in `deploy/.env` if you also want raw prompt-sync endpoints. Leave it unset for a memory-hub-only deployment.
 - Put `PH_MEMORY_HUB_API_KEY` in `deploy/memory.env`. It protects shared-memory endpoints.
-- The checked-in Docker Compose configuration requires `PH_SERVER_API_KEY` because its environment mapping marks that value mandatory. When running `ph server` directly, either the history-service key or the memory-hub key is sufficient to start; configure only the keys for the API routes you intend to expose.
-- Keep the values different. The service rejects identical keys.
+- Both `deploy/compose.yaml` and `ph server` can run memory-only with just `PH_MEMORY_HUB_API_KEY`, or expose both route groups when both keys are provided.
+- Keep the values different when both are configured. The service rejects identical keys.
 - Keep both files and all database backups out of source control. Restrict file access (for example, `chmod 600 deploy/.env deploy/memory.env`).
+- The Docker image builds without optional native PTY bindings (`--omit=optional`) and runs as the non-root `node` user.
 
 Start and verify the service:
 
@@ -47,7 +48,7 @@ ph status
 
 For managed environments, `PH_MEMORY_HUB_URL` and `PH_MEMORY_HUB_API_KEY` override the corresponding client settings. PH stores interactive configuration in `~/.ph_config.json` with mode `0600`.
 
-When both URL and key are configured, `ph memory` uses the shared hub rather than the local memory table. `ph context` and MCP can include shared project/work memories as well as their local history. Personal and sensitive memories remain excluded from ordinary retrieval. Shared-memory IDs are UUIDs.
+When both URL and key are configured, `ph memory` uses the shared hub rather than the local memory table. If a hub save hits a transient network or 5xx error, PH queues it locally with `pending` sync status; inspect pending entries with `ph status` and push them with `ph memory sync`. `ph context` and MCP can include shared project/work memories as well as their local history, bounded by the single unified `--budget` / `maxChars` ceiling. Personal and sensitive memories remain excluded from ordinary retrieval. Shared-memory IDs are UUIDs.
 
 ## Automatic memory extraction
 
@@ -65,7 +66,7 @@ Use `ph status` to inspect per-interaction extraction state. `ph memory retry <i
 
 PH can also synchronize full prompt/response history with the HTTP server. This is independent from the memory API and uses `PH_SERVER_API_KEY` plus a separate client remote URL/key. If `PH_REMOTE_URL` or `remote-url` is configured, new completed captures are pushed automatically. `ph remote push` and `ph remote pull` perform resumable bulk synchronization. Do not configure raw-history sync unless you intend to transfer prompt and response text to that server.
 
-The HTTP server binds to loopback by default. `/health` is public and reports status only. All data routes require their respective bearer key. Keep the server key and memory key separate when both API groups are enabled. The direct `ph server` command can run memory-only with just the memory key; the included Compose deployment currently requires the history-service key as well.
+The HTTP server binds to loopback by default. `/health` is public on `GET` and reports status only; all other requests and data routes require their respective bearer key. Keep the server key and memory key separate when both API groups are enabled. Both `ph server` and `deploy/compose.yaml` can run memory-only with just the memory key when raw-history routes are not needed.
 
 ## API routes
 
@@ -79,7 +80,7 @@ Memory routes require `Authorization: Bearer <PH_MEMORY_HUB_API_KEY>`:
 | `DELETE` | `/api/memories/{uuid}` | Reversibly forget a record and retain its prior state. |
 | `POST` | `/api/memories/{uuid}/restore` | Restore a forgotten record. |
 
-Sensitive API writes require both `sensitivity: "sensitive"` and `explicit_sensitive: true`. Search excludes sensitive records unless explicitly requested. The service currently uses one shared bearer key: it does not provide per-client identities, key revocation, connector-specific permissions, offline writes, or conflict resolution. Email, calendar, and browser connectors are not included.
+Sensitive API writes require both `sensitivity: "sensitive"` and `explicit_sensitive: true`. Search excludes sensitive records unless explicitly requested. If a client cannot reach the hub because of a transient network or 5xx error during `ph memory add`, PH saves the record locally with `pending` sync status; `ph status` reports pending entries and `ph memory sync` flushes them once the hub is reachable (explicit 4xx auth, policy, or consent errors still fail immediately). The hub still uses one shared bearer key without per-client identities, key revocation, connector-specific permissions, or multi-writer conflict resolution, and excludes email, calendar, and browser connectors.
 
 Other data routes use `Authorization: Bearer <PH_SERVER_API_KEY>` (the client config key is `remote-api-key`). These routes are unavailable unless this key is configured. The direct service can start with only the memory key when raw-history routes are not needed:
 
