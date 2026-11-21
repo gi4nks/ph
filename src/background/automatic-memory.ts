@@ -18,7 +18,16 @@ function setFailure(dbPath: string, id: number): void {
 export function spawnAutomaticMemoryExtraction(id: number, dbPath: string): void {
   const scriptPath = process.argv[1];
   if (!scriptPath) return setFailure(dbPath, id);
-  const child = spawn(process.execPath, [scriptPath, '_bg-memory', String(id), '--db', dbPath], { detached: true, stdio: 'ignore' });
+  const isTsMode = scriptPath.endsWith('.ts') || process.execArgv.some(arg => arg.includes('tsx') || arg === '--import' || arg === '--loader');
+  const spawnArgs = [
+    ...(isTsMode ? process.execArgv : []),
+    scriptPath,
+    '_bg-memory',
+    String(id),
+    '--db',
+    dbPath,
+  ];
+  const child = spawn(process.execPath, spawnArgs, { detached: true, stdio: 'ignore' });
   child.on('error', () => setFailure(dbPath, id));
   child.on('exit', code => { if (code !== 0) setFailure(dbPath, id); });
   child.unref();

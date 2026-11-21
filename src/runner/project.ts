@@ -13,6 +13,7 @@ const PROJECT_MARKERS = [
 
 const LANGUAGE_MAP: Record<string, string> = {
   'go.mod': 'go',
+  'tsconfig.json': 'typescript',
   'package.json': 'javascript',
   'Cargo.toml': 'rust',
   'pyproject.toml': 'python',

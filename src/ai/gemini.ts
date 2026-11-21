@@ -15,15 +15,24 @@ export async function generateContent(
   prompt: string,
   model: string,
   apiKey: string,
-  options?: { maxOutputTokens?: number },
+  options?: { maxOutputTokens?: number; format?: 'json' },
 ): Promise<string> {
-  const res = await fetch(`${GENERATE_API}/${model}:generateContent?key=${apiKey}`, {
+  const generationConfig: Record<string, unknown> = {
+    ...(options?.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}),
+    ...(options?.format === 'json' ? { responseMimeType: 'application/json' } : {}),
+  };
+
+  const res = await fetch(`${GENERATE_API}/${model}:generateContent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      ...(options?.maxOutputTokens ? { generationConfig: { maxOutputTokens: options.maxOutputTokens } } : {}),
+      ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
     }),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) {
@@ -43,7 +52,10 @@ export class GeminiProvider implements LLMProvider {
     private readonly apiKey: string
   ) {}
 
-  generate(prompt: string, options?: { maxOutputTokens?: number }): Promise<string> {
+  generate(
+    prompt: string,
+    options?: { maxOutputTokens?: number; think?: boolean; format?: 'json' },
+  ): Promise<string> {
     return generateContent(prompt, this.model, this.apiKey, options);
   }
 }

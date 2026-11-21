@@ -1,7 +1,7 @@
 export const MCP_TOOL_DEFINITIONS = [
   {
     name: "search_history",
-    description: "Search AI prompt and response history using full-text and semantic search. Returns matching interactions with IDs, timestamps, tools, and excerpts.",
+    description: "Search AI prompt and response history using full-text search. Returns matching interactions with IDs, timestamps, tools, and excerpts.",
     inputSchema: {
       type: "object",
       properties: {

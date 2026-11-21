@@ -6,14 +6,14 @@ import { load as loadConfig } from "../config/index.js";
 import type { PhConfig } from "../config/index.js";
 import { MCP_TOOL_DEFINITIONS } from "./tools/definitions.js";
 import { formatInteractionMarkdown } from "../interaction/detail.js";
-import { configuredEmbedder, formatProjectContext } from "../context/index.js";
+import { configuredEmbedder, formatCombinedContext } from "../context/index.js";
 import type { MemoryKind, MemoryScope } from "../types.js";
 import { MemoryService } from '../memory/service.js';
 
 export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
   const memoryService = new MemoryService(db, cfg);
   const server = new Server(
-    { name: "ph-memory", version: "2.0.0" },
+    { name: "ph-memory", version: "1.10.0" },
     { capabilities: { tools: {} } },
   );
 
@@ -32,7 +32,9 @@ export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
           const project = typeof args.project === 'string' ? args.project.trim() : undefined;
           const tool = typeof args.tool === 'string' ? args.tool.trim() : undefined;
           const since = typeof args.since === 'string' ? new Date(args.since) : undefined;
+          if (since && isNaN(since.getTime())) throw new Error("Invalid 'since' date.");
           const until = typeof args.until === 'string' ? new Date(args.until) : undefined;
+          if (until && isNaN(until.getTime())) throw new Error("Invalid 'until' date.");
           const limit = Math.max(1, Math.min(Number(args.limit) || 10, 50));
 
           const entries = db.search({ query, project, tool, since, until, limit });
@@ -73,6 +75,9 @@ export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
           if (!project) throw new Error("A 'project' name is required.");
           const task = typeof args.task === 'string' ? args.task.trim() : undefined;
           const limit = Math.max(1, Math.min(Number(args.limit) || 5, 20));
+          const maxChars = typeof args.budget === 'number' && Number.isFinite(args.budget)
+            ? Math.max(500, Math.min(12000, Math.floor(args.budget)))
+            : 4000;
 
           const { context, shared: sharedMemories } = await memoryService.projectContext({
             project,
@@ -80,19 +85,16 @@ export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
             limit,
           }, configuredEmbedder(cfg));
 
-          const contextText = formatProjectContext(context, {
+          const header = context.notes.length ? `Retrieval: ${context.notes.join('; ')}` : undefined;
+          const text = formatCombinedContext(context, sharedMemories, {
+            header,
             promptExcerptLength: 300,
             responseExcerptLength: 300,
-            maxChars: 4000,
+            maxChars,
+            emptyMessage: `No relevant context found for project "${project}".`,
           });
-          const rendered = context.notes.length
-            ? `Retrieval: ${context.notes.join('; ')}\n\n${contextText}`
-            : contextText;
-          const shared = sharedMemories.length
-            ? `## Shared PH Memory\n\n${sharedMemories.map(formatSharedMemory).join('\n\n')}`
-            : '';
 
-          return { content: [{ type: "text", text: [shared, rendered].filter(Boolean).join('\n\n') }] };
+          return { content: [{ type: "text", text }] };
         }
 
         case "search_memories": {
@@ -133,7 +135,12 @@ export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
           if (scope === 'project' && !project) {
             throw new Error("Project name is required when scope is 'project'.");
           }
-          const kind: MemoryKind = (args.kind as MemoryKind) ?? 'decision';
+          const VALID_KINDS: readonly MemoryKind[] = ['decision', 'insight', 'preference', 'fact'];
+          const rawKind = args.kind === undefined ? 'decision' : String(args.kind);
+          if (!VALID_KINDS.includes(rawKind as MemoryKind)) {
+            throw new Error(`Invalid 'kind': must be one of ${VALID_KINDS.join(', ')}.`);
+          }
+          const kind = rawKind as MemoryKind;
           const promptIds = Array.isArray(args.promptIds)
             ? args.promptIds.filter((id): id is number => Number.isInteger(id) && id > 0)
             : undefined;
@@ -142,11 +149,12 @@ export function createMCPServer(db: PhDB, cfg: PhConfig = loadConfig()) {
           if (saved.source === 'hub') {
             return { content: [{ type: "text", text: `Saved shared memory ${saved.id} [${kind} · ${scope}${project ? `:${project}` : ''}].` }] };
           }
+          const syncNote = saved.pendingSync ? ' (queued for hub sync)' : '';
 
           return {
             content: [{
               type: "text",
-              text: `Saved memory #${saved.memory.id} [${saved.memory.kind} · ${saved.memory.scope}${saved.memory.project ? `:${saved.memory.project}` : ''}].`,
+              text: `Saved memory #${saved.memory.id} [${saved.memory.kind} · ${saved.memory.scope}${saved.memory.project ? `:${saved.memory.project}` : ''}]${syncNote}.`,
             }],
           };
         }
@@ -178,6 +186,23 @@ export async function runMCPServer() {
   const db = new PhDB(dbPath);
   const server = createMCPServer(db, cfg);
   const transport = new StdioServerTransport();
+
+  let closed = false;
+  const shutdown = () => {
+    if (closed) return;
+    closed = true;
+    db.close();
+  };
+  transport.onclose = shutdown;
+  process.once('SIGINT', () => {
+    shutdown();
+    process.exit(0);
+  });
+  process.once('SIGTERM', () => {
+    shutdown();
+    process.exit(0);
+  });
+
   await server.connect(transport);
   console.error("ph MCP server running on stdio");
 }

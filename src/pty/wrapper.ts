@@ -1,5 +1,6 @@
-import pty from '@lydell/node-pty';
+import type { IPtyProcess } from '@lydell/node-pty';
 import fs from 'fs';
+import { StringDecoder } from 'node:string_decoder';
 
 export type PromptCallback = (prompt: string, timestamp: Date) => number; // returns prompt ID
 export type ResponseCallback = (id: number, response: string) => void;
@@ -37,10 +38,23 @@ export async function runPTY(
     if (dbgStream) dbgStream.write(`[${new Date().toISOString()}] ${msg}\n`);
   };
 
+  let pty: typeof import('@lydell/node-pty').default;
+  try {
+    const mod = await import('@lydell/node-pty');
+    pty = (typeof mod.spawn === 'function' ? mod : mod.default) as typeof import('@lydell/node-pty').default;
+  } catch (error) {
+    throw new Error(
+      `Interactive PTY capture requires optional dependency "@lydell/node-pty": ${(error as Error).message}`
+    );
+  }
+  if (!pty || typeof pty.spawn !== 'function') {
+    throw new Error('Interactive PTY capture requires optional dependency "@lydell/node-pty".');
+  }
+
   const cols = process.stdout.columns || 80;
   const rows = process.stdout.rows || 24;
 
-  const ptyProcess = pty.spawn(binary, args, {
+  const ptyProcess: IPtyProcess = pty.spawn(binary, args, {
     name: 'xterm-256color',
     cols,
     rows,
@@ -73,14 +87,18 @@ export async function runPTY(
 
   let lineBuffer: number[] = [];
   let escState: EscState = 'NORMAL';
+  const utf8Decoder = new StringDecoder('utf8');
 
   const onData = (chunk: Buffer) => {
+    // Decode UTF-8 chunks across multi-byte boundaries before forwarding to the PTY
+    const decoded = utf8Decoder.write(chunk);
+    if (decoded) {
+      ptyProcess.write(decoded);
+    }
+
     for (let i = 0; i < chunk.length; i++) {
       const b = chunk[i];
       // log(`byte: 0x${b.toString(16).padStart(2, '0')} state:${escState} line:${JSON.stringify(Buffer.from(lineBuffer).toString())}`);
-
-      // Always forward the raw byte to the PTY
-      ptyProcess.write(String.fromCharCode(b));
 
       switch (escState) {
         case 'NORMAL':
@@ -154,6 +172,7 @@ export async function runPTY(
       }
 
       // Cleanup
+      utf8Decoder.end();
       process.stdin.removeListener('data', onData);
       process.stdout.removeListener('resize', onResize);
       if (process.stdin.isTTY) {

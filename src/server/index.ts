@@ -15,6 +15,18 @@ export async function runServer(port: number = 3001, host: string = '127.0.0.1')
   const server = http.createServer(createRequestHandler(db, cfg));
   const configuredHost = process.env.PH_SERVER_HOST || host;
   const configuredPort = Number(process.env.PH_SERVER_PORT) || port;
+  let closing = false;
+  const shutdown = (): void => {
+    if (closing) return;
+    closing = true;
+    process.off('SIGINT', shutdown);
+    process.off('SIGTERM', shutdown);
+    server.close(() => {
+      db.close();
+    });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
   return new Promise((resolve) => {
     server.listen(configuredPort, configuredHost, () => {
       console.error(`ph server listening on http://${configuredHost}:${configuredPort}`);

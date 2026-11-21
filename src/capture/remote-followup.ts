@@ -42,9 +42,13 @@ export async function pushCompletedCapture(dbPath: string, cfg: PhConfig, id: nu
   delete metadata.remote_sync_target;
   delete metadata.capture_status;
   delete metadata.capture_owner_pid;
+  delete metadata.automatic_memory_status;
+  delete metadata.automatic_memory_error;
+  delete metadata.automatic_memory_ids;
   const remoteEntry = { ...entry, metadata: JSON.stringify(metadata) };
   try {
-    const result = await sendSyncPushPage(remoteUrl, cfg.remoteApiKey, [remoteEntry], { timeoutMs: 5_000 });
+    const apiKey = resolveRemoteSyncConfig(cfg).apiKey;
+    const result = await sendSyncPushPage(remoteUrl, apiKey, [remoteEntry], { timeoutMs: 5_000 });
     if (result.errors.length || result.imported + result.skipped !== 1) throw new Error('Remote rejected the interaction.');
     setRemoteStatus(dbPath, id, 'complete');
   } catch {

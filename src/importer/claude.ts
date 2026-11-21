@@ -11,24 +11,20 @@ import { createCaptureRecord } from '../capture/index.js';
 const MAX_RESPONSE_LENGTH = 8000;
 const TRUNCATION_SUFFIX = '\n... (truncated)';
 
-interface TranscriptUserMessage {
-  type: 'user';
-  content: string;
-  timestamp: string;
-}
-
-interface TranscriptAssistantContentPart {
+interface TranscriptContentPart {
   type: string;
   text?: string;
 }
 
-interface TranscriptAssistantMessage {
-  type: 'assistant';
-  content: TranscriptAssistantContentPart[];
-  timestamp: string;
-}
+type TranscriptRecord = Record<string, unknown>;
 
-type TranscriptMessage = TranscriptUserMessage | TranscriptAssistantMessage | { type: string };
+export interface ClaudeTranscriptEntry {
+  prompt: string;
+  response: string;
+  timestamp: string;
+  workdir: string;
+  sessionId: string;
+}
 
 /**
  * Convert a Claude project directory slug back to an absolute filesystem path.
@@ -47,7 +43,7 @@ function slugToPath(slug: string): string {
 /**
  * Extract text from an assistant message's content parts (skip thinking/tool_use/tool_result).
  */
-function extractAssistantText(parts: TranscriptAssistantContentPart[]): string {
+function extractAssistantText(parts: TranscriptContentPart[]): string {
   return parts
     .filter((p) => p.type === 'text' && typeof p.text === 'string')
     .map((p) => p.text as string)
@@ -62,11 +58,68 @@ function truncateResponse(text: string): string {
   return text.slice(0, MAX_RESPONSE_LENGTH - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
 }
 
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function extractPromptFromRecord(record: TranscriptRecord): string | null {
+  if (record.toolUseResult !== undefined && record.toolUseResult !== null && record.toolUseResult !== false && record.toolUseResult !== '') {
+    return null;
+  }
+
+  const message = asObject(record.message);
+  const hasPromptId = 'promptId' in record && record.promptId !== undefined && record.promptId !== null;
+  if (message && (message.role === 'user' || hasPromptId)) {
+    if (typeof message.content === 'string') {
+      const trimmed = message.content.trim();
+      return trimmed || null;
+    }
+    if (hasPromptId && Array.isArray(message.content)) {
+      const parts = message.content as TranscriptContentPart[];
+      if (parts.some((p) => p?.type === 'tool_result')) return null;
+      const trimmed = extractAssistantText(parts).trim();
+      return trimmed || null;
+    }
+  }
+
+  if (record.type === 'user' && typeof record.content === 'string') {
+    const trimmed = record.content.trim();
+    return trimmed || null;
+  }
+
+  return null;
+}
+
+function extractAssistantFromRecord(record: TranscriptRecord): string {
+  const message = asObject(record.message);
+  if (message?.role === 'assistant') {
+    if (Array.isArray(message.content)) {
+      return extractAssistantText(message.content as TranscriptContentPart[]);
+    }
+    if (typeof message.content === 'string') {
+      return message.content;
+    }
+  }
+
+  if (record.type === 'assistant') {
+    if (Array.isArray(record.content)) {
+      return extractAssistantText(record.content as TranscriptContentPart[]);
+    }
+    if (typeof record.content === 'string') {
+      return record.content;
+    }
+  }
+
+  return '';
+}
+
 /**
  * Read all lines from a JSONL file and parse them as transcript messages.
  * Ignores unparseable lines silently (caller handles error tracking separately).
  */
-function parseTranscriptFile(filePath: string, errors: string[]): TranscriptMessage[] {
+function parseTranscriptFile(filePath: string, errors: string[]): TranscriptRecord[] {
   let raw: string;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
@@ -75,17 +128,62 @@ function parseTranscriptFile(filePath: string, errors: string[]): TranscriptMess
     return [];
   }
 
-  const messages: TranscriptMessage[] = [];
+  const messages: TranscriptRecord[] = [];
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      messages.push(JSON.parse(trimmed) as TranscriptMessage);
+      const parsed = JSON.parse(trimmed) as unknown;
+      const obj = asObject(parsed);
+      if (obj) messages.push(obj);
     } catch {
       // skip unparseable lines
     }
   }
   return messages;
+}
+
+/** Parse a modern or legacy Claude Code JSONL transcript into prompt/response turns. */
+export function parseClaudeTranscript(
+  filePath: string,
+  fallbackWorkdir = '',
+): { entries: ClaudeTranscriptEntry[]; error?: string } {
+  const errors: string[] = [];
+  const messages = parseTranscriptFile(filePath, errors);
+  if (errors.length > 0) {
+    return { entries: [], error: errors[0] };
+  }
+
+  const sessionId = path.basename(filePath, '.jsonl');
+  const entries: ClaudeTranscriptEntry[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const prompt = extractPromptFromRecord(msg);
+    if (!prompt) continue;
+
+    const responseParts: string[] = [];
+    for (let j = i + 1; j < messages.length; j++) {
+      if (extractPromptFromRecord(messages[j]) !== null) break;
+      const chunk = extractAssistantFromRecord(messages[j]);
+      if (chunk) responseParts.push(chunk);
+    }
+
+    const workdir = typeof msg.cwd === 'string' && msg.cwd.trim() ? msg.cwd.trim() : fallbackWorkdir;
+    const timestamp = typeof msg.timestamp === 'string' && msg.timestamp
+      ? msg.timestamp
+      : new Date(0).toISOString();
+
+    entries.push({
+      prompt,
+      response: truncateResponse(responseParts.join('\n')),
+      timestamp,
+      workdir,
+      sessionId,
+    });
+  }
+
+  return { entries };
 }
 
 /**
@@ -153,45 +251,15 @@ export async function importClaudeHistory(
   const hostname = os.hostname();
 
   // Collect all prompt+response pairs across all files for progress tracking
-  interface PendingEntry {
-    prompt: string;
-    response: string;
-    timestamp: string;
-    workdir: string;
-    sessionId: string;
-  }
-
-  const pendingEntries: PendingEntry[] = [];
+  const pendingEntries: ClaudeTranscriptEntry[] = [];
 
   for (const { filePath, projectSlug } of transcriptFiles) {
-    const messages = parseTranscriptFile(filePath, result.errors);
-    const workdir = slugToPath(projectSlug);
-    const sessionId = path.basename(filePath, '.jsonl');
-
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.type !== 'user') continue;
-
-      const userMsg = msg as TranscriptUserMessage;
-      const prompt = typeof userMsg.content === 'string' ? userMsg.content.trim() : '';
-      if (!prompt) continue;
-
-      // Look ahead for the assistant response
-      let response = '';
-      if (i + 1 < messages.length && messages[i + 1].type === 'assistant') {
-        const assistantMsg = messages[i + 1] as TranscriptAssistantMessage;
-        const rawText = extractAssistantText(assistantMsg.content ?? []);
-        response = truncateResponse(rawText);
-      }
-
-      pendingEntries.push({
-        prompt,
-        response,
-        timestamp: userMsg.timestamp,
-        workdir,
-        sessionId,
-      });
+    const parsed = parseClaudeTranscript(filePath, slugToPath(projectSlug));
+    if (parsed.error) {
+      result.errors.push(parsed.error);
+      continue;
     }
+    pendingEntries.push(...parsed.entries);
   }
 
   const totalPromptsToEvaluate = pendingEntries.length;

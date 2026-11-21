@@ -201,23 +201,115 @@ describe('remote push cursor (SPEC-019)', () => {
 
   it('resets sync checkpoints when the remote server databaseId changes', async () => {
     let remoteDbId = 'remote-server-db-1';
+    const pushedBatches: number[][] = [];
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: unknown }) => {
       const body = JSON.parse(String(init?.body));
       if (Array.isArray(body.prompts)) {
+        pushedBatches.push(body.prompts.map((prompt: { id: number }) => prompt.id));
         return new Response(JSON.stringify({ databaseId: remoteDbId, imported: body.prompts.length, skipped: 0, errors: [] }), { status: 200 });
       }
       return new Response(JSON.stringify({ databaseId: remoteDbId, prompts: [], hasMore: false, nextCursor: 0 }), { status: 200 });
     }));
 
     await cmdRemote(dbPath, ['push']);
+    const localDb = new PhDB(dbPath);
+    const localDatabaseId = localDb.databaseId;
+    const { syncTarget } = await import('../../sync/protocol.js');
+    const scopeKey = `${syncTarget('https://ph.example')}::${localDatabaseId}`;
     const targetState = configMock.value.remotePushCursor as Record<string, unknown>;
-    expect(targetState).toBeDefined();
+    expect(targetState).toMatchObject({ id: 501, databaseId: localDatabaseId });
+    expect((configMock.value.remoteSyncState as Record<string, Record<string, unknown>>)[scopeKey]).toMatchObject({
+      remoteDatabaseId: 'remote-server-db-1',
+      pushCursor: 501,
+    });
 
-    // Remote database replaced
+    // Replace remote database and insert a new local row to trigger a non-empty push
     remoteDbId = 'remote-server-db-2';
+    const newId = localDb.insert({
+      timestamp: '2026-10-25T10:00:00.000Z',
+      tool: 'fixture',
+      prompt: 'row triggering replacement check',
+      response: '',
+      args: '',
+      workdir: '/p',
+      hostname: 'h',
+      exit_code: 0,
+      metadata: '{}',
+    });
+    localDb.close();
+    pushedBatches.length = 0;
+
     await cmdRemote(dbPath, ['push']);
-    // State adapted to new remote database
-    const updatedState = configMock.value.remotePushCursor as Record<string, unknown>;
-    expect(updatedState).toBeDefined();
+
+    expect(process.exitCode).toBeUndefined();
+    expect(pushedBatches[0]).toEqual([newId]);
+    expect(pushedBatches[1]).toHaveLength(500);
+    expect(pushedBatches[1][0]).toBe(1);
+    expect(pushedBatches[2]).toEqual([501, newId]);
+    expect(configMock.value.remotePushCursor).toMatchObject({ id: newId, databaseId: localDatabaseId });
+    expect((configMock.value.remoteSyncState as Record<string, Record<string, unknown>>)[scopeKey]).toMatchObject({
+      remoteDatabaseId: 'remote-server-db-2',
+      pushCursor: newId,
+      pullCursor: 0,
+    });
+  });
+
+  it('resets pull checkpoints and avoids infinite loops when remote databaseId changes', async () => {
+    let remoteDbId = 'remote-server-db-1';
+    let remotePrompts = [
+      {
+        id: 1, timestamp: '2026-10-24T10:00:00.000Z', tool: 'fixture', prompt: 'first remote prompt',
+        response: '', args: '', workdir: '/p', hostname: 'remote-1', exit_code: 0, metadata: '{}',
+      },
+      {
+        id: 2, timestamp: '2026-10-24T10:01:00.000Z', tool: 'fixture', prompt: 'second remote prompt',
+        response: '', args: '', workdir: '/p', hostname: 'remote-1', exit_code: 0, metadata: '{}',
+      },
+    ];
+    const pulledAfterIds: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: unknown }) => {
+      const request = JSON.parse(String(init?.body)) as { afterId: number; limit: number };
+      pulledAfterIds.push(request.afterId);
+      const matches = remotePrompts.filter(prompt => prompt.id > request.afterId);
+      const prompts = matches.slice(0, request.limit);
+      return new Response(JSON.stringify({
+        databaseId: remoteDbId,
+        prompts,
+        hasMore: matches.length > request.limit,
+        nextCursor: prompts.at(-1)?.id ?? request.afterId,
+      }), { status: 200 });
+    }));
+
+    await cmdRemote(dbPath, ['pull']);
+    expect(pulledAfterIds).toEqual([0]);
+    expect(configMock.value.remotePullCursor).toMatchObject({ id: 2 });
+
+    remoteDbId = 'remote-server-db-2';
+    remotePrompts = [
+      {
+        id: 1, timestamp: '2026-10-25T10:00:00.000Z', tool: 'fixture', prompt: 'replacement remote prompt',
+        response: '', args: '', workdir: '/p', hostname: 'remote-2', exit_code: 0, metadata: '{}',
+      },
+    ];
+    pulledAfterIds.length = 0;
+
+    await cmdRemote(dbPath, ['pull']);
+
+    const localDb = new PhDB(dbPath);
+    const localDatabaseId = localDb.databaseId;
+    const allPrompts = localDb.getAllPrompts(2_000).map(row => row.prompt);
+    localDb.close();
+    const { syncTarget } = await import('../../sync/protocol.js');
+    const scopeKey = `${syncTarget('https://ph.example')}::${localDatabaseId}`;
+
+    expect(process.exitCode).toBeUndefined();
+    expect(pulledAfterIds).toEqual([2, 0]);
+    expect(allPrompts).toContain('replacement remote prompt');
+    expect(configMock.value.remotePullCursor).toMatchObject({ id: 1, databaseId: localDatabaseId });
+    expect((configMock.value.remoteSyncState as Record<string, Record<string, unknown>>)[scopeKey]).toMatchObject({
+      remoteDatabaseId: 'remote-server-db-2',
+      pushCursor: 0,
+      pullCursor: 1,
+    });
   });
 });

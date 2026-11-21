@@ -28,12 +28,97 @@ function cleanUserPrompt(raw: string): string {
   return cleaned;
 }
 
-function resolveFullTranscriptFile(file: string): string {
+/** Prefer the full untruncated transcript file when present beside a compact log. */
+export function resolveFullTranscriptFile(file: string): string {
   if (file.endsWith('transcript_full.jsonl')) return file;
   const dir = path.dirname(file);
   const fullCandidate = path.join(dir, 'transcript_full.jsonl');
   if (fs.existsSync(fullCandidate)) return fullCandidate;
   return file;
+}
+
+export interface AgyInteraction {
+  prompt: string;
+  response: string;
+  timestamp: string;
+  workdir: string;
+  toolCalls: string[];
+}
+
+function inferAgyWorkdir(steps: AgyStep[]): string {
+  for (const step of steps) {
+    if (typeof step.content !== 'string') continue;
+    const workspaceMatch = /Active Workspaces:\r?\n-\s*(\/[^\r\n]+)/.exec(step.content);
+    if (workspaceMatch) return workspaceMatch[1].trim();
+    const cwdMatch = /Command Working Directory:\s*(\/[^\r\n]+)/.exec(step.content);
+    if (cwdMatch) return cwdMatch[1].trim();
+  }
+  return '';
+}
+
+/** Parse an Antigravity transcript JSONL file into prompt/response interactions. */
+export function parseAgyTranscript(
+  filePath: string,
+  workdirOverride?: string,
+): { interactions: AgyInteraction[]; error?: string } {
+  let lines: string[];
+  try {
+    lines = fs.readFileSync(filePath, 'utf8').split('\n');
+  } catch (error) {
+    return { interactions: [], error: `read ${filePath}: ${(error as Error).message}` };
+  }
+
+  const steps: AgyStep[] = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try {
+      const step = JSON.parse(line) as AgyStep;
+      steps.push(step);
+    } catch {
+      // ignore malformed lines
+    }
+  }
+
+  const defaultWorkdir = workdirOverride || inferAgyWorkdir(steps);
+  const interactions: AgyInteraction[] = [];
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const isUserInput = step.type === 'USER_INPUT' && (step.source === 'USER_EXPLICIT' || !step.source);
+    if (!isUserInput || !step.content) continue;
+
+    const prompt = cleanUserPrompt(step.content);
+    if (!prompt) continue;
+
+    let response = '';
+    let responseTimestamp = step.created_at ?? new Date(0).toISOString();
+    const toolCalls: string[] = [];
+
+    // Find the final assistant response before the next USER_INPUT
+    for (let j = i + 1; j < steps.length; j++) {
+      const next = steps[j];
+      if (next.type === 'USER_INPUT') break;
+      if (Array.isArray(next.tool_calls)) {
+        for (const tc of next.tool_calls) {
+          if (tc.toolSummary) toolCalls.push(tc.toolSummary);
+        }
+      }
+      if (next.type === 'PLANNER_RESPONSE' && next.content) {
+        response = next.content.trim();
+        if (next.created_at) responseTimestamp = next.created_at;
+      }
+    }
+
+    interactions.push({
+      prompt,
+      response: response.slice(0, 8000),
+      timestamp: step.created_at ?? responseTimestamp,
+      workdir: defaultWorkdir,
+      toolCalls,
+    });
+  }
+
+  return { interactions };
 }
 
 export function findAgyTranscriptFiles(baseDir: string): string[] {
@@ -110,65 +195,15 @@ export async function importAgyHistory(
 
   result.filesScanned = files.length;
   const hostname = os.hostname();
-  const interactions: { prompt: string; response: string; timestamp: string; workdir: string; toolCalls: string[] }[] = [];
+  const interactions: AgyInteraction[] = [];
 
   for (const file of files) {
-    let lines: string[];
-    try {
-      lines = fs.readFileSync(file, 'utf8').split('\n');
-    } catch (error) {
-      result.errors.push(`read ${file}: ${(error as Error).message}`);
+    const parsed = parseAgyTranscript(file, workdirOverride);
+    if (parsed.error) {
+      result.errors.push(parsed.error);
       continue;
     }
-
-    const steps: AgyStep[] = [];
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const step = JSON.parse(line) as AgyStep;
-        steps.push(step);
-      } catch {
-        // ignore malformed lines
-      }
-    }
-
-    let defaultWorkdir = workdirOverride || process.cwd();
-
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      const isUserInput = step.type === 'USER_INPUT' && (step.source === 'USER_EXPLICIT' || !step.source);
-      if (!isUserInput || !step.content) continue;
-
-      const prompt = cleanUserPrompt(step.content);
-      if (!prompt) continue;
-
-      let response = '';
-      let responseTimestamp = step.created_at ?? new Date(0).toISOString();
-      const toolCalls: string[] = [];
-
-      // Find the final assistant response before the next USER_INPUT
-      for (let j = i + 1; j < steps.length; j++) {
-        const next = steps[j];
-        if (next.type === 'USER_INPUT') break;
-        if (Array.isArray(next.tool_calls)) {
-          for (const tc of next.tool_calls) {
-            if (tc.toolSummary) toolCalls.push(tc.toolSummary);
-          }
-        }
-        if (next.type === 'PLANNER_RESPONSE' && next.content) {
-          response = next.content.trim();
-          if (next.created_at) responseTimestamp = next.created_at;
-        }
-      }
-
-      interactions.push({
-        prompt,
-        response: response.slice(0, 8000),
-        timestamp: step.created_at ?? responseTimestamp,
-        workdir: defaultWorkdir,
-        toolCalls,
-      });
-    }
+    interactions.push(...parsed.interactions);
   }
 
   for (let i = 0; i < interactions.length; i++) {

@@ -36,6 +36,81 @@ export interface MemoryContextResult {
   shared: Array<Record<string, unknown>>;
 }
 
+export type SaveMemoryResult =
+  | { source: 'local'; memory: MemoryEntry; pendingSync?: boolean; warning?: string }
+  | { source: 'hub'; id: string; pendingSync?: boolean; warning?: string };
+
+export interface FlushHubSyncResult {
+  synced: number;
+  failed: number;
+  remaining: number;
+  errors: string[];
+}
+
+const TRANSIENT_NET_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'ECONNABORTED',
+  'EPIPE',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+/**
+ * Determine whether a hub write error is transient (network/timeout/5xx) and
+ * eligible for offline local queuing, vs. a client/auth/policy failure (4xx).
+ */
+export function isTransientHubError(err: unknown): boolean {
+  if (!err) return false;
+  if (typeof err === 'string') {
+    if (/\b(?:HTTP\s*)?(?:400|401|403|404|409|422)\b|\((?:400|401|403|404|409|422)\)/i.test(err)) return false;
+    if (/explicit_sensitive|unauthorized|forbidden|policy/i.test(err)) return false;
+    return /\b(?:500|502|503|504)\b|\(5\d\d\)|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|fetch failed|timed out|timeout|network|socket hang up|offline/i.test(err);
+  }
+  if (typeof err !== 'object') return false;
+
+  const record = err as {
+    status?: unknown;
+    statusCode?: unknown;
+    code?: unknown;
+    name?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+
+  const status = typeof record.status === 'number'
+    ? record.status
+    : typeof record.statusCode === 'number'
+      ? record.statusCode
+      : undefined;
+  if (status !== undefined) {
+    if (status >= 400 && status < 500) return false;
+    if (status >= 500) return true;
+  }
+
+  const message = err instanceof Error ? err.message : String(record.message ?? '');
+  if (/\b(?:HTTP\s*)?(?:400|401|403|404|409|422)\b|\((?:400|401|403|404|409|422)\)/i.test(message)) return false;
+  if (/explicit_sensitive|unauthorized|forbidden|policy/i.test(message)) return false;
+
+  const code = typeof record.code === 'string'
+    ? record.code
+    : typeof record.cause?.code === 'string'
+      ? record.cause.code
+      : undefined;
+  if (code && TRANSIENT_NET_CODES.has(code)) return true;
+
+  if (record.name === 'AbortError' || record.name === 'TimeoutError') return true;
+  if (err instanceof TypeError) return true;
+
+  return /\b(?:500|502|503|504)\b|\(5\d\d\)|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|fetch failed|timed out|timeout|network|socket hang up|offline/i.test(message);
+}
+
 /**
  * Owns the local-versus-hub memory policy for CLI, context, and MCP callers.
  * The hub remains an adapter: interaction IDs are validated against the
@@ -54,12 +129,12 @@ export class MemoryService {
 
   assertConfigured(operation: string): void {
     const hub = resolveMemoryHubConfig(this.cfg);
-    if (hub.url && !hub.apiKey && ['add', 'save', 'list', 'search', 'show', 'forget', 'restore', 'undo', 'retry'].includes(operation)) {
+    if (hub.url && !hub.apiKey && ['add', 'save', 'list', 'search', 'show', 'forget', 'restore', 'undo', 'retry', 'sync'].includes(operation)) {
       throw new Error('Memory hub URL is configured but its API key is missing. Configure memory-hub-api-key or unset the hub URL to use local memories.');
     }
   }
 
-  async save(input: AddMemoryInput): Promise<{ source: 'local'; memory: MemoryEntry } | { source: 'hub'; id: string }> {
+  async save(input: AddMemoryInput): Promise<SaveMemoryResult> {
     if (!this.hubConfigured) return { source: 'local', memory: this.db.addMemory(input) };
 
     this.db.validateMemorySources(input);
@@ -67,18 +142,98 @@ export class MemoryService {
     const sourceRef = promptIds.length
       ? promptIds.map(id => `database:${this.db.databaseId}:prompt:${id}`).join(',')
       : input.source_ref;
-    const id = await this.hub.save(this.cfg, {
-      id: input.external_id ?? randomUUID(),
-      content: input.content,
-      scope: input.scope ?? (input.project ? 'project' : 'work'),
-      ...(input.project ? { project: input.project } : {}),
-      kind: input.kind ?? 'decision',
-      sensitivity: input.sensitivity ?? 'normal',
-      ...(input.sensitivity === 'sensitive' ? { explicit_sensitive: true } : {}),
-      source: input.source ?? 'manual',
-      ...(sourceRef ? { source_ref: sourceRef } : {}),
-    });
-    return { source: 'hub', id };
+    const externalId = input.external_id ?? randomUUID();
+    const scope = input.scope ?? (input.project ? 'project' : 'work');
+
+    try {
+      const id = await this.hub.save(this.cfg, {
+        id: externalId,
+        content: input.content,
+        scope,
+        ...(input.project ? { project: input.project } : {}),
+        kind: input.kind ?? 'decision',
+        sensitivity: input.sensitivity ?? 'normal',
+        ...(input.sensitivity === 'sensitive' ? { explicit_sensitive: true } : {}),
+        source: input.source ?? 'manual',
+        ...(sourceRef ? { source_ref: sourceRef } : {}),
+      });
+      this.db.addMemory({
+        ...input,
+        prompt_ids: promptIds,
+        external_id: id,
+        ...(sourceRef ? { source_ref: sourceRef } : {}),
+        hub_sync_status: 'synced',
+      });
+      return { source: 'hub', id };
+    } catch (error) {
+      if (!isTransientHubError(error)) throw error;
+      const savedEntry = this.db.addMemory({
+        ...input,
+        prompt_ids: promptIds,
+        external_id: externalId,
+        ...(sourceRef ? { source_ref: sourceRef } : {}),
+        hub_sync_status: 'pending',
+      });
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        source: 'local',
+        memory: savedEntry,
+        pendingSync: true,
+        warning: `Memory hub unavailable (${reason}); saved locally with pending hub sync.`,
+      };
+    }
+  }
+
+  countPendingHubSync(): number {
+    return this.db.countPendingHubMemories();
+  }
+
+  async flushPendingHubSync(limit = 50): Promise<FlushHubSyncResult> {
+    if (!this.hubConfigured) {
+      throw new Error('Memory hub is not configured.');
+    }
+
+    const pending = this.db.listPendingHubMemories(limit);
+    let synced = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const entry of pending) {
+      if (entry.sensitivity === 'sensitive' || entry.scope === 'personal') {
+        continue;
+      }
+      const sourceRef = entry.source_ref ?? (
+        entry.prompt_ids.length
+          ? entry.prompt_ids.map(id => `database:${this.db.databaseId}:prompt:${id}`).join(',')
+          : undefined
+      );
+      try {
+        const externalId = await this.hub.save(this.cfg, {
+          id: entry.external_id ?? randomUUID(),
+          content: entry.content,
+          scope: entry.scope,
+          ...(entry.project ? { project: entry.project } : {}),
+          kind: entry.kind,
+          sensitivity: entry.sensitivity,
+          source: entry.source,
+          ...(sourceRef ? { source_ref: sourceRef } : {}),
+        });
+        this.db.markMemoryHubSynced(entry.id, externalId);
+        synced++;
+      } catch (error) {
+        failed++;
+        const raw = error instanceof Error ? error.message : String(error);
+        const clean = raw.replace(/\s+/g, ' ').trim();
+        errors.push(`#${entry.id}: ${clean.length > 160 ? `${clean.slice(0, 157)}...` : clean}`);
+      }
+    }
+
+    return {
+      synced,
+      failed,
+      remaining: this.db.countPendingHubMemories(),
+      errors,
+    };
   }
 
   async search(options: SearchMemoriesOptions = {}): Promise<MemorySearchResult> {

@@ -16,6 +16,7 @@ export class ArchiveRepository {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const del = this.db.prepare('DELETE FROM prompts WHERE id = ?');
+    const delVec = this.db.prepare('DELETE FROM vec_embeddings WHERE rowid = ?');
 
     const transaction = this.db.transaction((toArchive: number[]) => {
       let count = 0;
@@ -28,6 +29,7 @@ export class ArchiveRepository {
           now, id
         );
         del.run(id);
+        delVec.run(BigInt(id));
         count++;
       }
       return count;

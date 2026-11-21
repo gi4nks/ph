@@ -10,6 +10,10 @@ export async function cmdStatus(db: PhDB, cfg: PhConfig): Promise<void> {
   process.stdout.write('PH capture status\n');
   process.stdout.write(`Total interactions: ${stats.total}\n`);
   process.stdout.write(`Saved memories: ${stats.totalMemories}\n`);
+  const pendingHub = db.countPendingHubMemories();
+  if (pendingHub > 0) {
+    process.stdout.write(`Pending hub sync: ${pendingHub} (run "ph memory sync")\n`);
+  }
   process.stdout.write(`Background analysis: ${cfg.backgroundAnalysis ? 'enabled' : 'disabled'}\n`);
   const hubConfigured = resolveMemoryHubConfig(cfg).configured;
   process.stdout.write(`Automatic memory capture: ${cfg.memoryAutoCapture === false ? 'disabled' : hubConfigured ? 'enabled' : 'requires memory hub URL and key'}\n`);

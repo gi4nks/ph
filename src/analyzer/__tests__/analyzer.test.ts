@@ -127,6 +127,25 @@ describe('analyzeAll dry-run', () => {
     expect(db.updateMetadataFields).not.toHaveBeenCalled();
     expect(db.deleteById).not.toHaveBeenCalled();
   });
+
+  it('includes entry.response in the prompt payload passed to the provider', async () => {
+    const entry = {
+      id: 8,
+      prompt: 'How should we cache project results?',
+      response: 'Use a stable SQLite key scoped by project name.',
+      metadata: '{}',
+    } as PromptEntry;
+    const db = { updateMetadataFields: vi.fn(), deleteById: vi.fn() } as unknown as PhDB;
+    const generate = vi.fn().mockResolvedValue(JSON.stringify(fullResult));
+    const provider = { name: 'test', generate };
+
+    await analyzeAll([entry], provider, db, { dryRun: true });
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    const sentPrompt = generate.mock.calls[0][0] as string;
+    expect(sentPrompt).toContain('User prompt:\nHow should we cache project results?');
+    expect(sentPrompt).toContain('Assistant response:\nUse a stable SQLite key scoped by project name.');
+  });
 });
 
 describe('mergeMetadata (SPEC-006)', () => {

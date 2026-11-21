@@ -1,10 +1,10 @@
 import { PhDB } from '../db/index.js';
 import type { PhConfig } from '../config/index.js';
+import { DEFAULT_EMBED_MODEL, resolveOllamaUrl } from '../config/defaults.js';
 import { getEmbeddings } from '../embedding/index.js';
-import { DEFAULT_EMBED_MODEL } from '../context/index.js';
 
 export async function cmdEmbedAll(db: PhDB, cfg: PhConfig, args: string[] = []): Promise<void> {
-  const ollamaUrl = cfg.ollamaUrl ?? 'http://localhost:11434';
+  const ollamaUrl = resolveOllamaUrl(cfg);
   const model = cfg.ollamaEmbedModel ?? DEFAULT_EMBED_MODEL;
   const force = args.includes('--force');
   const storedModel = db.getEmbeddingModel();

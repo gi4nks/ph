@@ -2,7 +2,6 @@ import { PhDB } from '../db/index.js';
 import { load as loadConfig, save as saveConfig, getRemoteTargetState, setRemoteTargetState } from '../config/index.js';
 import type { PhConfig } from '../config/index.js';
 import { resolveRemoteSyncConfig } from '../config/runtime.js';
-import { syncHash } from '../utils/syncHash.js';
 import { parseSyncPullResponse, SYNC_PAGE_SIZE, syncTarget } from '../sync/protocol.js';
 import { sendSyncPushPage } from '../sync/client.js';
 import { decodePromptMetadata } from '../interaction/detail.js';
@@ -16,7 +15,7 @@ export async function cmdRemote(dbPath: string, args: string[]): Promise<void> {
   const cfg = loadConfig();
   const url = remoteUrl(cfg);
   if (!url) {
-    process.stderr.write('ph: remote not configured. Set PH_REMOTE_URL env or: ph config set remoteUrl <url>\n');
+    process.stderr.write('ph: remote not configured. Set PH_REMOTE_URL env or: ph config set remote-url <url>\n');
     process.exit(1);
   }
 
@@ -43,10 +42,12 @@ Remote: ${url}\n`);
 
 async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const target = syncTarget(url);
+  const apiKey = resolveRemoteSyncConfig(cfg).apiKey;
   const db = new PhDB(dbPath);
   const databaseId = db.databaseId;
-  const state = getRemoteTargetState(cfg, target, databaseId);
+  let state = getRemoteTargetState(cfg, target, databaseId);
   let cursor = state.pushCursor ?? 0;
+  let dbResetCount = 0;
   let imported = 0;
   let skipped = 0;
 
@@ -80,13 +81,17 @@ async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
         process.stdout.write(`Waiting for active capture #${activeCaptureId}; sync cursor remains at #${cursor}.\n`);
         break;
       }
-      const response = await sendSyncPushPage(url, cfg.remoteApiKey, prompts);
+      const response = await sendSyncPushPage(url, apiKey, prompts);
       if (response.errors.length || response.imported + response.skipped !== prompts.length) {
         throw new Error(`Remote rejected part of the page after local record #${cursor}; this page was not checkpointed and can be retried.`);
       }
 
       // Detect remote database replacement
       if (response.databaseId && state.remoteDatabaseId && response.databaseId !== state.remoteDatabaseId) {
+        dbResetCount++;
+        if (dbResetCount > 2) {
+          throw new Error('Remote database ID changed repeatedly during sync.');
+        }
         process.stderr.write(`ph: remote database was replaced (${state.remoteDatabaseId} -> ${response.databaseId}); resetting sync checkpoints.\n`);
         setRemoteTargetState(cfg, target, databaseId, {
           remoteDatabaseId: response.databaseId,
@@ -95,6 +100,7 @@ async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
         });
         saveConfig(cfg);
         cursor = 0;
+        state = getRemoteTargetState(cfg, target, databaseId);
         continue;
       }
 
@@ -126,10 +132,12 @@ async function push(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
 
 async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
   const target = syncTarget(url);
+  const apiKey = resolveRemoteSyncConfig(cfg).apiKey;
   const db = new PhDB(dbPath);
   const databaseId = db.databaseId;
-  const state = getRemoteTargetState(cfg, target, databaseId);
+  let state = getRemoteTargetState(cfg, target, databaseId);
   let cursor = state.pullCursor ?? 0;
+  let dbResetCount = 0;
 
   try {
     process.stdout.write(`Pulling remote history from ${url} in pages of ${SYNC_PAGE_SIZE}...\n`);
@@ -141,7 +149,7 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(cfg.remoteApiKey ? { Authorization: `Bearer ${cfg.remoteApiKey}` } : {}),
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         },
         body: JSON.stringify({ afterId: cursor, limit: SYNC_PAGE_SIZE }),
       });
@@ -150,6 +158,10 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
 
       // Detect remote database replacement
       if (page.databaseId && state.remoteDatabaseId && page.databaseId !== state.remoteDatabaseId) {
+        dbResetCount++;
+        if (dbResetCount > 2) {
+          throw new Error('Remote database ID changed repeatedly during sync.');
+        }
         process.stderr.write(`ph: remote database was replaced (${state.remoteDatabaseId} -> ${page.databaseId}); resetting sync checkpoints.\n`);
         setRemoteTargetState(cfg, target, databaseId, {
           remoteDatabaseId: page.databaseId,
@@ -158,6 +170,7 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
         });
         saveConfig(cfg);
         cursor = 0;
+        state = getRemoteTargetState(cfg, target, databaseId);
         continue;
       }
 
@@ -172,23 +185,12 @@ async function pull(dbPath: string, cfg: PhConfig, url: string): Promise<void> {
         throw new Error('Remote server returned an invalid empty-page cursor.');
       }
 
-      for (const prompt of page.prompts) {
-        const hash = syncHash(prompt);
-        if (db.getPromptBySyncHash(hash)) { skipped++; continue; }
-        const metaObj = { ...JSON.parse(prompt.metadata || '{}'), sync_hash: hash };
-        db.insert({
-          timestamp: prompt.timestamp || new Date().toISOString(),
-          tool: prompt.tool || 'unknown',
-          prompt: prompt.prompt || '',
-          response: prompt.response || '',
-          args: prompt.args || '',
-          workdir: prompt.workdir || '',
-          hostname: prompt.hostname || '',
-          exit_code: prompt.exit_code ?? 0,
-          metadata: JSON.stringify(metaObj),
-        });
-        imported++;
+      const { imported: pageImported, skipped: pageSkipped, errors } = db.importSyncPrompts(page.prompts);
+      if (errors.length > 0) {
+        throw new Error(`Failed to import ${errors.length} prompt(s) from remote page after #${cursor}; this page was not checkpointed.`);
       }
+      imported += pageImported;
+      skipped += pageSkipped;
 
       if (page.prompts.length > 0) cursor = page.nextCursor;
       setRemoteTargetState(cfg, target, databaseId, {

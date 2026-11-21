@@ -42,10 +42,16 @@ export function setupCapture(home = process.env.HOME ?? '', hooksRoot = defaultH
       const plugin = path.join(home, '.config/opencode/plugins/ph-plugin.ts');
       fs.mkdirSync(path.dirname(plugin), { recursive: true });
       if (fs.existsSync(plugin)) {
-        if (fs.readFileSync(plugin, 'utf8') !== fs.readFileSync(source, 'utf8')) {
+        const existing = fs.readFileSync(plugin, 'utf8');
+        const incoming = fs.readFileSync(source, 'utf8');
+        if (existing === incoming) {
+          results.push({ tool, status: 'already-configured' });
+        } else if (existing.includes('PhOpenCodePlugin')) {
+          fs.copyFileSync(source, plugin);
+          results.push({ tool, status: 'updated' });
+        } else {
           throw new Error(`Refusing to overwrite existing OpenCode plugin: ${plugin}`);
         }
-        results.push({ tool, status: 'already-configured' });
       } else {
         fs.copyFileSync(source, plugin);
         results.push({ tool, status: 'installed' });

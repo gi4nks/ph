@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import type { Plugin } from "@opencode-ai/plugin";
 
 interface PendingPrompt {
@@ -7,11 +8,14 @@ interface PendingPrompt {
   model?: string;
 }
 
-/** Per-session state for pairing user prompts with assistant responses */
-const sessions = new Map<string, {
+interface SessionState {
   prompt: PendingPrompt | null;
   response: string;
-}>();
+  flushed: boolean;
+}
+
+/** Per-session state for pairing user prompts with assistant responses */
+const sessions = new Map<string, SessionState>();
 
 function textFromParts(parts: { type?: string; text?: string }[]): string {
   try {
@@ -23,12 +27,11 @@ function textFromParts(parts: { type?: string; text?: string }[]): string {
   } catch { return ''; }
 }
 
-async function callPhLog(
-  $: any,
+function callPhLog(
   prompt: PendingPrompt,
   response: string,
   workdir: string,
-): Promise<void> {
+): void {
   try {
     if (!prompt.text || !response) return;
 
@@ -45,11 +48,24 @@ async function callPhLog(
     payload.metadata = JSON.stringify(meta);
 
     const json = JSON.stringify(payload);
-    $`echo ${json} | ph log > /dev/null 2>&1`.catch(() => {});
+    const child = spawn('ph', ['log'], {
+      stdio: ['pipe', 'ignore', 'ignore'],
+      detached: true,
+    });
+    child.on('error', () => {});
+    child.stdin?.end(json);
+    child.unref();
   } catch { /* silent */ }
 }
 
-export const PhOpenCodePlugin: Plugin = async ({ directory, $ }) => {
+function flushSession(sessionID: string, directory: string): void {
+  const session = sessions.get(sessionID);
+  if (!session || session.flushed || !session.prompt?.text || !session.response) return;
+  session.flushed = true;
+  callPhLog(session.prompt, session.response, directory);
+}
+
+export const PhOpenCodePlugin: Plugin = async ({ directory }) => {
   return {
     "chat.message": async (input, output) => {
       try {
@@ -58,13 +74,7 @@ export const PhOpenCodePlugin: Plugin = async ({ directory, $ }) => {
         const role = (message as Record<string, unknown>).role;
 
         if (role === 'user') {
-          const existing = sessions.get(sessionID);
-          const prompt = existing?.prompt;
-          const response = existing?.response;
-
-          if (prompt && response) {
-            await callPhLog($, prompt, response, directory);
-          }
+          flushSession(sessionID, directory);
 
           const text = textFromParts(parts);
           if (text) {
@@ -76,6 +86,7 @@ export const PhOpenCodePlugin: Plugin = async ({ directory, $ }) => {
                 model: model ? `${model.providerID}/${model.modelID}` : undefined,
               },
               response: '',
+              flushed: false,
             });
           }
         } else if (role === 'assistant') {
@@ -84,7 +95,11 @@ export const PhOpenCodePlugin: Plugin = async ({ directory, $ }) => {
 
           const text = textFromParts(parts);
           if (text) {
-            sessions.set(sessionID, { ...existing, response: text });
+            sessions.set(sessionID, {
+              ...existing,
+              response: text,
+              flushed: existing.flushed && existing.response === text,
+            });
           }
         }
       } catch { /* silent */ }
@@ -96,7 +111,27 @@ export const PhOpenCodePlugin: Plugin = async ({ directory, $ }) => {
         if (!session?.prompt) return;
 
         if (output.text) {
-          sessions.set(input.sessionID, { ...session, response: output.text });
+          sessions.set(input.sessionID, {
+            ...session,
+            response: output.text,
+            flushed: false,
+          });
+          flushSession(input.sessionID, directory);
+        }
+      } catch { /* silent */ }
+    },
+
+    "event": async ({ event }) => {
+      try {
+        if (event?.type !== 'session.idle') return;
+        const properties = (event as { properties?: { sessionID?: unknown } }).properties;
+        const rawSessionId = properties?.sessionID ?? (event as { sessionID?: unknown }).sessionID;
+        if (typeof rawSessionId === 'string' && rawSessionId) {
+          flushSession(rawSessionId, directory);
+          return;
+        }
+        for (const sessionID of sessions.keys()) {
+          flushSession(sessionID, directory);
         }
       } catch { /* silent */ }
     },
