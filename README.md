@@ -43,6 +43,7 @@ PH does not upload raw prompt history merely because a memory hub is configured.
 
 ## Documentation
 
+- [Architecture overview](docs/ARCHITECTURE.md): component diagrams, capture flow, and storage boundaries.
 - [PH user manual](docs/ph-manual.md): install, capture, search, context, memories, inference, MCP, sync, maintenance, and troubleshooting.
 - [Capture hook guide](docs/hooks.md): supported integrations and setup behavior.
 - [Memory hub operations](docs/memory-hub.md): generic self-hosting, API, security, and client configuration.

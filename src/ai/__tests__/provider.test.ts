@@ -134,7 +134,7 @@ describe('GeminiProvider', () => {
 });
 
 describe('clean OSS provider defaults', () => {
-  it('does not contain parmenide or GLB_ defaults', () => {
+  it('uses local loopback defaults instead of non-local hosts or legacy env prefixes', () => {
     vi.stubEnv('GLB_OMLX_API_KEY', 'should-be-ignored');
     vi.stubEnv('OMLX_API_KEY', undefined);
     vi.stubEnv('MLX_SERVE_API_KEY', undefined);
@@ -151,7 +151,9 @@ describe('clean OSS provider defaults', () => {
 
     const summaries = getProviderSummaries({});
     for (const summary of summaries) {
-      expect(summary.url).not.toContain('parmenide');
+      if (summary.url) {
+        expect(summary.url).toMatch(/^(?:\(default\)|https?:\/\/(localhost|127\.0\.0\.1|openrouter\.ai))/);
+      }
       expect(summary.model).not.toContain('qwen3.5:9b-mlx');
     }
     expect(getProvider({})?.name).toBe('ollama');
